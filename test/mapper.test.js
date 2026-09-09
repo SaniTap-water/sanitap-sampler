@@ -5,17 +5,19 @@ const M = C.MWATER; const SD = M.forms.sdws3;
 const ent = (o) => Object.assign({ _id: 'id-' + o.code, code: o.code, name: 'Canzee', alt_id: '01', type: 'other', location: { type: 'Point', coordinates: [46.9, -25.0, 0] }, admin_region: 1, admin_div2: 'Taolagnaro', admin_div3: 'Soanierana', admin_div4: 'Ampasy', admin_div5: 'Village', _private: true }, o);
 const site = code => ({ value: { code } }); const resp = (data, on, status) => ({ data, submittedOn: on || '2025-01-01', status: status || 'final' });
 const q = (k) => SD.params.find(p => p.key === k).q;
-const good = (code, over, status) => resp(Object.assign({ [SD.wpQ]: site(code), [SD.dateQ]: { value: '2025-03-01T10:00Z' }, [q('ecoli')]: { value: 0 }, [q('turbidity')]: { value: 1 }, [q('conductivity')]: { value: 200 }, [q('ph')]: { value: 7 }, [q('arsenic')]: { value: 2 }, [q('fluoride')]: { value: 0.3 } }, over || {}), undefined, status);
+const good = (code, over, status) => resp(Object.assign({ [SD.wpQ]: site(code), [SD.dateQ]: { value: '2025-03-01T10:00Z' }, [q('ecoli')]: { value: 0 }, [q('arsenic')]: { value: 2 }, [q('fluoride')]: { value: 0.3 } }, over || {}), undefined, status);
 
-test('SDWS 3 pass rule follows the form calculations', () => {
+test('SDWS 3 health-based pass rule: E. coli, arsenic, fluoride required; nitrate/manganese only when measured; pH/turbidity/iron never exclude', () => {
   assert.equal(C.sdws3Pass(good('1'), SD).pass, true);
   assert.deepEqual(C.sdws3Pass(good('1', { [q('ecoli')]: { value: 3 } }), SD).failed, ['ecoli:3']);
-  assert.deepEqual(C.sdws3Pass(good('1', { [q('ph')]: { value: 5.9 } }), SD).failed, ['ph:5.9']);
-  assert.deepEqual(C.sdws3Pass(good('1', { [q('turbidity')]: { value: null } }), SD).failed, ['turbidity:missing']);
-  assert.equal(C.sdws3Pass(good('1', { [q('iron')]: { value: 0.3 }, [q('manganese')]: { value: null } }), SD).pass, true);
-  assert.deepEqual(C.sdws3Pass(good('1', { [q('iron')]: { value: 0.31 } }), SD).failed, ['iron:0.31']);
-  const pp = C.sdws3PassingPoints([good('1'), good('1', { [q('ecoli')]: { value: 9 } }), good('2', {}, 'draft'), resp({ [SD.wpQ]: site('3') })], SD);
-  assert.deepEqual(pp['1'], { results: 2, passes: 1, last_pass: '2025-03-01T10:00Z' }); assert.equal(pp['2'], undefined); assert.equal(pp['3'].passes, 0);
+  assert.deepEqual(C.sdws3Pass(good('1', { [q('arsenic')]: { value: 11 } }), SD).failed, ['arsenic:11']);
+  assert.deepEqual(C.sdws3Pass(good('1', { [q('fluoride')]: { value: null } }), SD).failed, ['fluoride:missing']);
+  assert.equal(C.sdws3Pass(good('1', { [q('manganese')]: { value: 0.08 } }), SD).pass, true);
+  assert.deepEqual(C.sdws3Pass(good('1', { [q('manganese')]: { value: 0.09 } }), SD).failed, ['manganese:0.09']);
+  assert.equal(C.sdws3Pass(good('1', { '5eaf270dfe27443ebd33da195b9b89c9': { value: 5 }, 'c70eb0f3cf764b04a26a2bc463a8ca2e': { value: 40 }, '3ba8917797a7429aa31b69023c7f3c1f': { value: 2 } }), SD).pass, true, 'pH, turbidity, iron must not exclude');
+  assert.equal(SD.params.find(p => p.key === 'nitrate').q, null, 'nitrate has no question yet and is skipped');
+  const pp = C.sdws3PassingPoints([good('1'), good('1', { [q('ecoli')]: { value: 9 }, [SD.dateQ]: { value: '2025-05-01T10:00Z' } }), good('2', {}, 'draft'), resp({ [SD.wpQ]: site('3'), [q('ecoli')]: { value: 0 } })], SD);
+  assert.deepEqual(pp['1'], { results: 2, passes: 1, last_pass: '2025-03-01T10:00Z', last_test: '2025-05-01T10:00Z', failing: ['ecoli'] }); assert.equal(pp['2'], undefined); assert.deepEqual(pp['3'].failing, ['arsenic:missing', 'fluoride:missing']);
 });
 
 test('frame rule: pass, abandoned, Marolinta, unassigned, per-stratum counts, in that order', () => {
@@ -25,7 +27,7 @@ test('frame rule: pass, abandoned, Marolinta, unassigned, per-stratum counts, in
   const m = C.mapMwaterEntities(ents, { passing, latest, regionsById: { 9: { full_name: 'F, C, Maroantsetra, Analanjirofo, Madagascar' } } });
   assert.deepEqual(m.counts, { total_in_group: 7, sdws3_pass_count: 6, excluded_no_pass: 1, excluded_abandoned: 1, excluded_marolinta: 1, unassigned: 1, eligible: 3, eligible_by_stratum: { 'HP-FD': 1, 'HP-MA': 2 } });
   const by = Object.fromEntries(m.points.map(p => [p.water_point_id, p]));
-  assert.equal(by['5'].status_reason, 'no_passing_sdws3_result'); assert.match(by['2'].status_reason, /^abandoned:/); assert.equal(by['3'].status_reason, 'excluded_district:Beloha'); assert.equal(by['4'].stratum, 'unassigned'); assert.equal(by['7'].stratum, 'HP-MA'); assert.equal(by['1'].status, 'active'); assert.equal(by['1'].sdws3_passes, 1);
+  assert.equal(by['5'].status_reason, 'no_passing_sdws3_result'); assert.match(by['2'].status_reason, /^abandoned:/); assert.equal(by['3'].status_reason, 'excluded_district:Beloha'); assert.equal(by['4'].stratum, 'unassigned'); assert.equal(by['7'].stratum, 'HP-MA'); assert.equal(by['1'].status, 'active'); assert.equal(by['1'].sdws3_passes, 1); assert.equal(by['1'].alt_id, '01');
   const csv = C.frameToCsv(m.points); const n = C.normaliseWaterPoints(C.parseCsv(csv).records); assert.equal(n.errors.length, 0); assert.equal(n.points.filter(p => p.active).length, 3);
 });
 
@@ -68,6 +70,19 @@ test('sampling record PDF is byte-reproducible, carries the audit hash and recor
   const txt = a.toString('latin1'); assert.ok(txt.includes('/AuditSHA256 (' + auditSha + ')')); assert.ok(txt.includes('/RecordId (' + r.audit.record_id + ')')); assert.ok(!txt.includes('SECRET-TOKEN')); assert.ok(txt.startsWith('%PDF-1.7'));
   assert.ok(a.length > 5000);
   fs.writeFileSync(path.join(require('os').tmpdir(), 'sanitap-test-record.pdf'), a);
+});
+
+test('published record files never carry coordinates: audit JSON, selection CSV, PDF text, and every file under records/', async () => {
+  const ents = []; for (let i = 0; i < 20; i++) ents.push(ent({ code: String(300 + i) }));
+  const pts = C.normaliseWaterPoints(C.parseCsv(C.frameToCsv(C.mapMwaterEntities(ents, { passing: C.sdws3PassingPoints(ents.map(e => good(e.code)), SD) }).points)).records).points;
+  const r = C.draw({ roundName: 'R', stratum: 'HP-FD', target: 20, hhPerPoint: 5, replacementFraction: 0.2, seed: 's', icc: 0.1, expectedPass: 0.95, confidence: '0.90', precision: 0.1, precisionType: 'relative', hhReplacements: 2, timestamp: 't', method: 'commune_clusters', clusterMode: 'axis' }, pts, [{ name: 'Axe 1', coords: [[-25, 46], [-25, 47], [-24, 47]] }]);
+  assert.ok(pts[0].lat === -25, 'frame itself keeps coordinates for the map');
+  assert.equal(C.hasCoordinateKeys(JSON.parse(C.auditJson(r, { visiting_order: { start: 'start', stops: [] } }))), false);
+  assert.ok(!/lat|lon/i.test(C.toCsv(r).split('\r\n')[0]));
+  const dir = path.join(__dirname, '..', 'records'); const bad = [];
+  const scanText = (txt, f) => { if (/(^|[,;])\s*(lat|lon|lng|latitude|longitude)\s*([,;]|$)/im.test(txt) || /-2[0-9]\.\d{4,}/.test(txt)) bad.push(f); };
+  (function walk(d) { if (!fs.existsSync(d)) return; fs.readdirSync(d).forEach(n => { const f = path.join(d, n); if (fs.statSync(f).isDirectory()) return walk(f); if (n.endsWith('.json')) { if (C.hasCoordinateKeys(JSON.parse(fs.readFileSync(f, 'utf8')))) bad.push(f); } else if (n.endsWith('.csv') || n.endsWith('.md')) scanText(fs.readFileSync(f, 'utf8'), f); else if (n.endsWith('.pdf')) { const b = fs.readFileSync(f, 'latin1'); const runs = (b.match(/<([0-9A-Fa-f]+)> Tj/g) || []).map(h => Buffer.from(h.slice(1, -4), 'hex').toString('latin1')).join('\n'); scanText(runs, f); if (/\/(Lat|Lon|GPS)/.test(b)) bad.push(f); } }); })(dir);
+  assert.deepEqual(bad, [], 'files under records/ with coordinate fields: ' + bad.join(', '));
 });
 
 test('mwaterGet puts the token in the query only and never echoes it in errors', async () => {

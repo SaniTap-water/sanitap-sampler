@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
 const APP_URL = 'https://sanitap-water.github.io/sanitap-sampler/';
 const ALGORITHMS = {
@@ -335,7 +335,7 @@ const Core = (function () {
       record_id: recordId(p),
       timestamp: p.timestamp || new Date().toISOString(), drawn_by: p.drawnBy || null,
       seed: p.seed, seed_word_uint32: rng.seedWord, algorithm: ALGORITHMS[p.method] || ALGORITHMS.pps_households,
-      input: { source: p.source || 'csv', water_points_file: p.wpFileName || null, water_points_sha256: p.wpFileHash || null, frame_rule: FRAME_RULE_TEXT.en, mwater: p.source === 'mwater' ? (p.mwater || null) : null, axes: p.method === 'commune_clusters' && p.clusterMode === 'axis' ? (axes || []) : null },
+      input: { source: p.source || 'csv', water_points_file: p.wpFileName || null, water_points_sha256: p.wpFileHash || null, frame_rule: FRAME_RULE_TEXT.en, mwater: p.source === 'mwater' ? (p.mwater || null) : null, axes: p.method === 'commune_clusters' && p.clusterMode === 'axis' ? (axes || []).map(a => ({ name: a.name, vertices: (a.coords || []).length })) : null },
       parameters: { round: p.roundName, stratum: p.stratum, method: p.method, target_samples: p.target, households_per_point: hhN, household_replacements: hhR, cluster_mode: p.method === 'commune_clusters' ? p.clusterMode : null, clusters_requested: p.method === 'commune_clusters' ? (p.nClusters || null) : null, clusters_auto: autoK, clusters_selected: k, replacement_fraction: p.replacementFraction, icc: p.icc, expected_pass_rate: p.expectedPass, confidence: p.confidence, precision: p.precision, precision_type: p.precisionType },
       frame: { eligible_points: eligible.length, clusters: clusters.map(c => ({ name: c.name, size: c.size, households: c.households, selected: c.selected })), unassigned: unassigned.map(u => u.water_point_id) },
       stage1,
@@ -348,7 +348,8 @@ const Core = (function () {
     return { params: p, eligible, clusters, unassigned, stats: st, nWp, nRep, selectedClusters, selected: selectedOut, replacements: replacementOut, warnings, audit };
   }
   function auditWp(w) {
-    const o = { order: w.order, water_point_id: w.water_point_id, name: w.name, cluster: w.cluster, commune: w.commune, lat: w.lat, lon: w.lon, households_served: w.households_served, households: w.households };
+    // published record: identifiers, names, commune, households and the field rule only — never coordinates (the field sheet and map carry those and are not filed)
+    const o = { order: w.order, water_point_id: w.water_point_id, name: w.name, cluster: w.cluster, commune: w.commune, households_served: w.households_served, households: w.households };
     if (w.weight !== undefined) o.weight = w.weight; if (w.hit !== undefined) o.hit = w.hit; if (w.cum_from !== undefined) { o.cum_from = w.cum_from; o.cum_to = w.cum_to; } if (w.certainty) o.certainty = true;
     return o;
   }
@@ -406,23 +407,20 @@ const Core = (function () {
       maintenance: { name: 'Clean Water || Première réhabilitation/Entretien préventif/Réparation', id: '86cf66efdd3749dd8a121314bab3675a', wpQ: '6b454d5e31ce4f6bb4918aca5f824d75', statusQ: 'c843c54776864de7b5b8b90825bc4c06', status2Q: '701d5b8d583145e3baab2e75a5f17ce4', pumpQ: '2ba451c8124f4d02aa76c44e6f5a88a3',
         status: { asVbMu3: 'functional', LATrLet: 'not_functional', NScsLF7: 'functional_substandard' }, pump: { '6Txb2rB': 'Canzee', mQmlpWT: 'IndiaMark', '72yyu9B': 'other' } },
       sdws3: { name: 'Clean Water || Water Quality Testing_SDWS 3_Result', id: '7b33c5d7e5074808a94915939a5a0783', wpQ: 'a3390d2e97494b3da193e5c015a879d1', dateQ: '630ccd46f76f420692572e0db2d86ad8',
-        // the form's own pass calculations (design.calculations): E. coli = 0; turbidity <= 5 NTU; conductivity < 1500 µS/cm; 6 <= pH <= 8.5; arsenic <= 10 µg/L; fluoride <= 1.5 mg/L; iron <= 0.3 mg/L or no result; manganese <= 0.4 mg/L or no result
+        // Health-based pass rule (v1.3): E. coli, arsenic and fluoride must be present and within limit; nitrate and manganese only exclude when measured.
+        // pH, conductivity, turbidity and iron are recorded by the form but do not exclude. Nitrate has no question in the form (q: null): skipped until one exists.
         params: [
           { key: 'ecoli', q: '892f1d81bf1a4c4483e53271dda474a5', test: v => v === 0, missing: false, rule: 'E. coli = 0 CFU/100 mL' },
-          { key: 'turbidity', q: 'c70eb0f3cf764b04a26a2bc463a8ca2e', test: v => v <= 5, missing: false, rule: 'turbidity <= 5 NTU' },
-          { key: 'conductivity', q: '64809a7fc4ff4cefa9c49087e74d9f97', test: v => v < 1500, missing: false, rule: 'conductivity < 1500 µS/cm' },
-          { key: 'ph', q: '5eaf270dfe27443ebd33da195b9b89c9', test: v => v >= 6 && v <= 8.5, missing: false, rule: '6 <= pH <= 8.5' },
           { key: 'arsenic', q: '4b86e349e9bc418ea5a4868e7b383604', test: v => v <= 10, missing: false, rule: 'arsenic <= 10 µg/L' },
           { key: 'fluoride', q: 'b4e94c2a5ca4497199bcde2856f2cd0c', test: v => v <= 1.5, missing: false, rule: 'fluoride <= 1.5 mg/L' },
-          { key: 'iron', q: '3ba8917797a7429aa31b69023c7f3c1f', test: v => v <= 0.3, missing: true, rule: 'iron <= 0.3 mg/L (no result accepted)' },
-          { key: 'manganese', q: 'c0a900a9659e45c29acce3349e32f1fd', test: v => v <= 0.4, missing: true, rule: 'manganese <= 0.4 mg/L (no result accepted)' }
-        ] },
-      samplingRound: null // set to { id, deployment, questions } once a writable "Clean Water || Sampling round" form exists (see README)
+          { key: 'nitrate', q: null, test: v => v <= 50, missing: true, rule: 'nitrate <= 50 mg/L where measured' },
+          { key: 'manganese', q: 'c0a900a9659e45c29acce3349e32f1fd', test: v => v <= 0.08, missing: true, rule: 'manganese <= 0.08 mg/L where measured' }
+        ] }
     },
     inactiveNames: /ab[ao]ndonn|identifi|drilling|proposal|puits? ouvert/i,
     entityFields: { name: 1, desc: 1, type: 1, code: 1, alt_id: 1, alt_id_org: 1, location: 1, admin_region: 1, admin_div1: 1, admin_div2: 1, admin_div3: 1, admin_div4: 1, admin_div5: 1, _private: 1, _rev: 1, _modified_on: 1 }
   };
-  const FRAME_COLUMNS = ['water_point_id', 'name', 'stratum', 'commune', 'fokontany', 'village', 'lat', 'lon', 'households_served', 'status', 'mwater_id', 'pump', 'district', 'status_reason', 'sdws3_passes', 'sdws3_results', 'sdws3_last_pass'];
+  const FRAME_COLUMNS = ['water_point_id', 'name', 'stratum', 'commune', 'fokontany', 'village', 'lat', 'lon', 'households_served', 'status', 'mwater_id', 'pump', 'district', 'status_reason', 'sdws3_passes', 'sdws3_results', 'sdws3_last_pass', 'sdws3_last_test', 'sdws3_failing', 'alt_id'];
   // district name from an admin_regions document: full_name is "Fokontany, Commune, District, Region, Country"
   function regionParts(reg) { const p = String((reg && reg.full_name) || '').split(',').map(x => x.trim()); const n = p.length; return { fokontany: n >= 5 ? p[n - 5] : '', commune: n >= 4 ? p[n - 4] : '', district: n >= 3 ? p[n - 3] : '' }; }
   function mwaterStratum(district, strata) {
@@ -430,15 +428,17 @@ const Core = (function () {
     for (const code in strata) if (strata[code].districts.some(x => x.toLowerCase() === d)) return code;
     return MWATER.unassigned;
   }
-  // SDWS 3 result pass/fail exactly as the form's calculations: every parameter present and within its limit; iron and manganese may be absent
+  // SDWS 3 result pass/fail on the health-based parameters: required ones must be present and within limit; optional ones exclude only when measured
   function sdws3Pass(response, cfg) {
     const d = (response && response.data) || {}; const failed = [];
-    cfg.params.forEach(pm => { const a = d[pm.q]; const raw = a && a.value; const v = (raw === null || raw === undefined || raw === '') ? null : Number(raw); if (v === null) { if (!pm.missing) failed.push(pm.key + ':missing'); } else if (isNaN(v) || !pm.test(v)) failed.push(pm.key + ':' + raw); });
+    cfg.params.forEach(pm => { if (!pm.q) return; const a = d[pm.q]; const raw = a && a.value; const v = (raw === null || raw === undefined || raw === '') ? null : Number(raw); if (v === null) { if (!pm.missing) failed.push(pm.key + ':missing'); } else if (isNaN(v) || !pm.test(v)) failed.push(pm.key + ':' + raw); });
     return { pass: failed.length === 0, failed };
   }
+  // per water point: results, passes, last test date, last passing date, and (union over results) the parameters that failed
   function sdws3PassingPoints(responses, cfg) {
     const out = {};
-    responses.forEach(r => { if (r.status && r.status !== 'final') return; const d = r.data || {}; const code = d[cfg.wpQ] && d[cfg.wpQ].value && d[cfg.wpQ].value.code; if (!code) return; const o = out[code] = out[code] || { results: 0, passes: 0, last_pass: '' }; o.results++; if (sdws3Pass(r, cfg).pass) { o.passes++; const when = String((d[cfg.dateQ] && d[cfg.dateQ].value) || r.submittedOn || ''); if (when > o.last_pass) o.last_pass = when; } });
+    responses.forEach(r => { if (r.status && r.status !== 'final') return; const d = r.data || {}; const code = d[cfg.wpQ] && d[cfg.wpQ].value && d[cfg.wpQ].value.code; if (!code) return; const o = out[code] = out[code] || { results: 0, passes: 0, last_pass: '', last_test: '', failing: [] }; o.results++; const when = String((d[cfg.dateQ] && d[cfg.dateQ].value) || r.submittedOn || ''); if (when > o.last_test) o.last_test = when; const p = sdws3Pass(r, cfg); if (p.pass) { o.passes++; if (when > o.last_pass) o.last_pass = when; } else p.failed.forEach(f => { const k = f.split(':')[0] + (f.endsWith(':missing') ? ':missing' : ''); if (!o.failing.includes(k)) o.failing.push(k); }); });
+    Object.values(out).forEach(o => o.failing.sort());
     return out;
   }
   function mwaterLatestStatus(responses, cfg) {
@@ -467,7 +467,7 @@ const Core = (function () {
     const points = entities.map(e => {
       const rp = regionParts(regions[e.admin_region]);
       const district = e.admin_div2 || rp.district || '';
-      const st = latest[e.code] || {}; const ps = passing[e.code] || { results: 0, passes: 0, last_pass: '' };
+      const st = latest[e.code] || {}; const ps = passing[e.code] || { results: 0, passes: 0, last_pass: '', last_test: '', failing: [] };
       let stratum = mwaterStratum(district, strata);
       const excluded = MWATER.excludedDistricts.districts.some(x => x.toLowerCase() === String(district).trim().toLowerCase());
       let reason = '';
@@ -481,13 +481,13 @@ const Core = (function () {
       else { counts.eligible++; counts.eligible_by_stratum[stratum]++; }
       const coords = (e.location && e.location.coordinates) || [];
       return { water_point_id: String(e.code), name: [e.name, e.alt_id].filter(Boolean).join(' '), stratum, commune: e.admin_div3 || rp.commune || '', fokontany: e.admin_div4 || rp.fokontany || '', village: e.admin_div5 || '',
-        lat: coords.length ? coords[1] : '', lon: coords.length ? coords[0] : '', households_served: roofs[e.code] !== undefined ? Math.round(roofs[e.code]) : '', status: reason ? 'inactive' : 'active', mwater_id: e._id, pump: st.pump || e.name || '', district, status_reason: reason, sdws3_passes: ps.passes, sdws3_results: ps.results, sdws3_last_pass: String(ps.last_pass || '').slice(0, 10) };
+        lat: coords.length ? coords[1] : '', lon: coords.length ? coords[0] : '', households_served: roofs[e.code] !== undefined ? Math.round(roofs[e.code]) : '', status: reason ? 'inactive' : 'active', mwater_id: e._id, pump: st.pump || e.name || '', district, status_reason: reason, sdws3_passes: ps.passes, sdws3_results: ps.results, sdws3_last_pass: String(ps.last_pass || '').slice(0, 10), sdws3_last_test: String(ps.last_test || '').slice(0, 10), sdws3_failing: (ps.failing || []).join(';'), alt_id: e.alt_id || '' };
     }).sort((a, b) => a.water_point_id.localeCompare(b.water_point_id));
     return { points, counts };
   }
   function frameToCsv(points) { return [FRAME_COLUMNS].concat(points.map(p => FRAME_COLUMNS.map(c => p[c]))).map(r => r.map(csvEscape).join(',')).join('\r\n') + '\r\n'; }
-  const FRAME_RULE_TEXT = { en: 'A source is eligible when it belongs to the MadAvance water point register (mWater group ' + MWATER.group + '), has at least one water quality result in the form "' + MWATER.forms.sdws3.name + '" that passes all of that form\'s own pass calculations (E. coli = 0 CFU/100 mL; turbidity <= 5 NTU; conductivity < 1500 µS/cm; 6 <= pH <= 8.5; arsenic <= 10 µg/L; fluoride <= 1.5 mg/L; iron <= 0.3 mg/L and manganese <= 0.4 mg/L when measured), is not abandoned, identified-only, proposed, reported not functional in its latest maintenance record or of a non-hand-pump type, and lies in a district mapped to a stratum (Taolagnaro -> HP-FD, Maroantsetra -> HP-MA); the Marolinta area (Beloha and Amboasary districts) is excluded and any other district is unassigned.',
-    fr: 'Une source est éligible si elle appartient au registre des points d\'eau MadAvance (groupe mWater ' + MWATER.group + '), possède au moins un résultat d\'analyse dans le formulaire « ' + MWATER.forms.sdws3.name + ' » satisfaisant tous les calculs de conformité du formulaire (E. coli = 0 UFC/100 mL ; turbidité <= 5 NTU ; conductivité < 1500 µS/cm ; 6 <= pH <= 8,5 ; arsenic <= 10 µg/L ; fluorure <= 1,5 mg/L ; fer <= 0,3 mg/L et manganèse <= 0,4 mg/L lorsqu\'ils sont mesurés), n\'est pas abandonnée, seulement identifiée, proposée, déclarée non fonctionnelle dans son dernier enregistrement de maintenance ni d\'un type autre que pompe à main, et se trouve dans un district rattaché à une strate (Taolagnaro -> HP-FD, Maroantsetra -> HP-MA) ; la zone de Marolinta (districts de Beloha et Amboasary) est exclue et tout autre district est non affecté.' };
+  const FRAME_RULE_TEXT = { en: 'A source is eligible when it belongs to the MadAvance water point register (mWater group ' + MWATER.group + '), has at least one final water quality result in the form "' + MWATER.forms.sdws3.name + '" that meets the health-based rule (E. coli = 0 CFU/100 mL, arsenic <= 10 µg/L, fluoride <= 1.5 mg/L, and, where measured, nitrate <= 50 mg/L and manganese <= 0.08 mg/L; pH, conductivity, turbidity and iron are recorded but do not exclude), is not abandoned, identified-only, proposed, reported not functional in its latest maintenance record or of a non-hand-pump type, and lies in a district mapped to a stratum (Taolagnaro -> HP-FD, Maroantsetra -> HP-MA); the Marolinta area (Beloha and Amboasary districts) is excluded and any other district is unassigned.',
+    fr: 'Une source est éligible si elle appartient au registre des points d\'eau MadAvance (groupe mWater ' + MWATER.group + '), possède au moins un résultat final d\'analyse dans le formulaire « ' + MWATER.forms.sdws3.name + ' » satisfaisant la règle sanitaire (E. coli = 0 UFC/100 mL, arsenic <= 10 µg/L, fluorure <= 1,5 mg/L et, lorsqu\'ils sont mesurés, nitrate <= 50 mg/L et manganèse <= 0,08 mg/L ; le pH, la conductivité, la turbidité et le fer sont enregistrés mais n\'excluent pas), n\'est pas abandonnée, seulement identifiée, proposée, déclarée non fonctionnelle dans son dernier enregistrement de maintenance ni d\'un type autre que pompe à main, et se trouve dans un district rattaché à une strate (Taolagnaro -> HP-FD, Maroantsetra -> HP-MA) ; la zone de Marolinta (districts de Beloha et Amboasary) est exclue et tout autre district est non affecté.' };
   // --- HTTP helpers: the token only ever travels as the ?client= query parameter; errors never echo the URL ---
   async function mwaterGet(path, params, token, fetchImpl) {
     const u = new URL(MWATER.api + '/' + path); Object.keys(params || {}).forEach(k => u.searchParams.set(k, params[k])); if (token) u.searchParams.set('client', token);
@@ -534,6 +534,8 @@ const Core = (function () {
 
   /* ---------- sampling record PDF (pdf-lib, standard fonts, deterministic output) ---------- */
   const PDF_SAFE = /[^\x20-\x7E\xA0-\xFFŒœ–—‘’“”•…€]/g;
+  const RECORD_COORD_KEYS = /^(lat|lon|lng|latitude|longitude|coordinates|location|geometry)$/i;
+  function hasCoordinateKeys(obj) { if (Array.isArray(obj)) return obj.some(hasCoordinateKeys); if (obj && typeof obj === 'object') return Object.keys(obj).some(k => RECORD_COORD_KEYS.test(k) || hasCoordinateKeys(obj[k])); return false; }
   const pdfSafe = str => String(str === undefined || str === null ? '' : str).replace(/≤/g, '<=').replace(/≥/g, '>=').replace(/→/g, '->').replace(/×/g, 'x').replace(/\r?\n/g, ' ').replace(PDF_SAFE, '?');
   async function buildSamplingRecordPdf(ctx) {
     const { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PageSizes } = ctx.PDFLib;
@@ -604,7 +606,7 @@ const Core = (function () {
     return doc.save({ useObjectStreams: false, addDefaultPage: false, updateFieldAppearances: false });
   }
 
-  return { xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, pointInPolygon, convexHull, nearestNeighbourRoute, sha256, sha256Sync, stats, assignClusters, defaultClusterCount, draw, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId };
+  return { xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, pointInPolygon, convexHull, nearestNeighbourRoute, sha256, sha256Sync, stats, assignClusters, defaultClusterCount, draw, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
 
@@ -633,7 +635,7 @@ const I18N = {
     mw_token_hint: "The token stays in this browser's local storage only, is shown masked, never logged and never included in exports.", mw_stratum: 'Stratum to load', mw_all: 'All strata', mw_fetch: 'Fetch from mWater',
     mw_connected: 'Token saved: {mask}{user}', mw_not_connected: 'No mWater token. Open "mWater connection" to sign in or paste a token. The programme water points are private, so a token is required.', mw_no_token: 'Sign in or paste a token first.', mw_fetching: 'Fetching {what}: {n} rows…', mw_done: 'Fetched {n} water points ({a} active) at {t}.', mw_err: 'Fetch failed: {e}. Check the connection and the token, or use the CSV source offline.', mw_login_err: 'Sign-in failed: {e}', mw_warn: 'Partial: {w}',
     data_frame_dl: 'Download loaded frame (CSV)', data_hh_dl: 'Download household list (CSV)', data_source: 'Source', data_fetched: 'fetched', btn_mwcsv: 'Export mWater site list (CSV)',
-    p_drawn_by: 'Drawn by (name, role)', p_method: 'Sampling method', method_pps: 'Protocol v2.1 §6.4: sources PPS by households served', method_clusters: 'Commune clusters (v1)', btn_pdf: 'Export sampling record (PDF + JSON + CSV)', pdf_err: 'PDF library not loaded (needs one online visit first).', pdf_need_by: 'Enter "Drawn by" before exporting the record.', mark_title: 'Mark round in mWater', mark_off: 'Round marking in mWater is not available: response creation in the Sampling round form is refused by the API for this account. Use the mWater site list CSV export.', w_imputed: '{n} sources without a household count were given the stratum median ({value}) as sampling weight.',
+    p_drawn_by: 'Drawn by (name, role)', p_method: 'Sampling method', method_pps: 'Protocol v2.1 §6.4: sources PPS by households served', method_clusters: 'Commune clusters (v1)', btn_pdf: 'Export sampling record (PDF + JSON + CSV)', pdf_err: 'PDF library not loaded (needs one online visit first).', pdf_need_by: 'Enter "Drawn by" before exporting the record.', w_imputed: '{n} sources without a household count were given the stratum median ({value}) as sampling weight.',
     c_total: 'in MadAvance group', c_pass: 'with a passing SDWS 3 result', c_nopass: 'excluded: no passing result', c_abandoned: 'excluded: abandoned/not functional', c_marolinta: 'excluded: Marolinta', c_unassigned: 'unassigned district', c_eligible: 'eligible',
     tab_data: '1 Data', tab_params: '2 Parameters', tab_results: '3 Draw', tab_map: '4 Map', tab_sheet: '5 Field sheet', tab_how: 'How it works',
     data_title: 'Load water points', data_privacy: 'Everything runs in your browser. No file leaves this device.',
@@ -711,7 +713,7 @@ const I18N = {
     mw_token_hint: 'Le jeton reste uniquement dans le stockage local de ce navigateur, est affiché masqué, jamais journalisé ni inclus dans les exports.', mw_stratum: 'Strate à charger', mw_all: 'Toutes les strates', mw_fetch: 'Charger depuis mWater',
     mw_connected: 'Jeton enregistré : {mask}{user}', mw_not_connected: 'Aucun jeton mWater. Ouvrez « Connexion mWater » pour vous connecter ou coller un jeton. Les points d’eau du programme sont privés : un jeton est nécessaire.', mw_no_token: 'Connectez-vous ou collez un jeton d’abord.', mw_fetching: 'Chargement {what} : {n} lignes…', mw_done: '{n} points d’eau chargés ({a} actifs) à {t}.', mw_err: 'Échec du chargement : {e}. Vérifiez la connexion et le jeton, ou utilisez la source CSV hors ligne.', mw_login_err: 'Connexion échouée : {e}', mw_warn: 'Partiel : {w}',
     data_frame_dl: 'Télécharger la base chargée (CSV)', data_hh_dl: 'Télécharger la liste des ménages (CSV)', data_source: 'Source', data_fetched: 'chargé', btn_mwcsv: 'Exporter la liste de sites mWater (CSV)',
-    p_drawn_by: 'Tiré par (nom, fonction)', p_method: 'Méthode d’échantillonnage', method_pps: 'Protocole v2.1 §6.4 : sources PPS selon les ménages desservis', method_clusters: 'Grappes communales (v1)', btn_pdf: 'Exporter l’enregistrement (PDF + JSON + CSV)', pdf_err: 'Bibliothèque PDF non chargée (une visite en ligne est nécessaire).', pdf_need_by: 'Renseignez « Tiré par » avant d’exporter l’enregistrement.', mark_title: 'Marquer le cycle dans mWater', mark_off: 'Le marquage du cycle dans mWater n’est pas disponible : la création de réponses dans le formulaire Sampling round est refusée par l’API pour ce compte. Utilisez l’export CSV de la liste de sites mWater.', w_imputed: '{n} sources sans nombre de ménages ont reçu la médiane de la strate ({value}) comme poids de sondage.',
+    p_drawn_by: 'Tiré par (nom, fonction)', p_method: 'Méthode d’échantillonnage', method_pps: 'Protocole v2.1 §6.4 : sources PPS selon les ménages desservis', method_clusters: 'Grappes communales (v1)', btn_pdf: 'Exporter l’enregistrement (PDF + JSON + CSV)', pdf_err: 'Bibliothèque PDF non chargée (une visite en ligne est nécessaire).', pdf_need_by: 'Renseignez « Tiré par » avant d’exporter l’enregistrement.', w_imputed: '{n} sources sans nombre de ménages ont reçu la médiane de la strate ({value}) comme poids de sondage.',
     c_total: 'dans le groupe MadAvance', c_pass: 'avec un résultat SDWS 3 conforme', c_nopass: 'exclus : aucun résultat conforme', c_abandoned: 'exclus : abandonnés/non fonctionnels', c_marolinta: 'exclus : Marolinta', c_unassigned: 'district non affecté', c_eligible: 'éligibles',
     tab_data: '1 Données', tab_params: '2 Paramètres', tab_results: '3 Tirage', tab_map: '4 Carte', tab_sheet: '5 Fiche terrain', tab_how: 'Fonctionnement',
     data_title: 'Charger les points d’eau', data_privacy: 'Tout se passe dans votre navigateur. Aucun fichier ne quitte cet appareil.',
@@ -974,7 +976,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   }
   function auditExtra() {
     const ex = {}; const om = orderMap();
-    if (state.route) ex.visiting_order = { start: state.start, stops: state.route.stops.map((s, i) => ({ stop: i + 1, water_point_id: s.point.water_point_id, leg_km: +s.legKm.toFixed(2), cumulative_km: +s.cumKm.toFixed(2) })), total_km: +state.route.totalKm.toFixed(2) };
+    if (state.route) ex.visiting_order = { start: (state.start && state.start.label) || 'start', stops: state.route.stops.map((s, i) => ({ stop: i + 1, water_point_id: s.point.water_point_id, leg_km: +s.legKm.toFixed(2), cumulative_km: +s.cumKm.toFixed(2) })), total_km: +state.route.totalKm.toFixed(2) };
     const ks = Object.keys(state.kValues);
     if (ks.length && state.result) ex.field_rule_numbers = ks.map(id => { const w = state.result.selected.concat(state.result.replacements).find(x => x.water_point_id === id); if (!w) return null; return Object.assign({ water_point_id: id }, Core.fieldNumbers(state.result.params.seed, id, state.kValues[id], w.households.n, w.households.extra)); }).filter(Boolean);
     return ex;
@@ -985,7 +987,6 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   const fname = ext => `sanitap-${(state.result.params.roundName || 'round').replace(/\s+/g, '')}-${state.result.params.stratum}-${ext}`;
   $('btn-csv').onclick = () => { if (state.result) download(fname('selection.csv'), Core.toCsv(state.result, orderMap(), state.kValues), 'text/csv'); };
   $('btn-json').onclick = () => { if (state.result) download(fname('audit.json'), Core.auditJson(state.result, auditExtra()), 'application/json'); };
-  $('btn-mark').onclick = () => { $('res-export-msg').innerHTML = `<div class="msg warn">${t('mark_off')}</div>`; };
   $('btn-pdf').onclick = async () => {
     if (!state.result) return; const msg = $('res-export-msg'); msg.innerHTML = '';
     if (typeof PDFLib === 'undefined') { msg.innerHTML = `<div class="msg err">${t('pdf_err')}</div>`; return; }
@@ -1105,7 +1106,7 @@ ${ids.map((x, i) => `<tr><td>${x[2] ? 'R' + (i - h.n + 1) : i + 1}</td><td>${esc
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
 
   /* ---------- boot ---------- */
-  applyWp(); applyLang(); onlineBadge(); renderMw(); $('p-drawn-by').value = LS.get('drawnBy', ''); $('btn-mark').classList.toggle('hidden', !Core.MWATER.forms.samplingRound); setSource(LS.get('src', (state.wp && state.wp.source === 'csv') ? 'csv' : 'mwater'));
+  applyWp(); applyLang(); onlineBadge(); renderMw(); $('p-drawn-by').value = LS.get('drawnBy', ''); setSource(LS.get('src', (state.wp && state.wp.source === 'csv') ? 'csv' : 'mwater'));
   const last = LS.get('last', null);
   if (last && state.points.length) {
     $('p-round').value = last.roundName; $('p-stratum').value = last.stratum; $('p-target').value = last.target; $('p-hh').value = last.hhPerPoint; $('p-cmode').value = last.clusterMode;

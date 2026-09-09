@@ -35,10 +35,10 @@ Language toggle (EN/FR) is in the header; every label lives in the `I18N` object
 
 The frame is fetched in the browser from the mWater API (`https://api.mwater.co/v3`, CORS is open) and mapped by `Core.mapMwaterEntities()`.
 
-**Eligibility rule (v1.2).** A source is eligible when it
+**Eligibility rule (v1.3).** A source is eligible when it
 
 1. belongs to the MadAvance water point register (mWater group `group:aaaf0a14…`, entity type `water_point`);
-2. has at least one result in *Clean Water || Water Quality Testing_SDWS 3_Result* (form `7b33c5d7…`) that passes **all of that form's own pass calculations**: E. coli = 0 CFU/100 mL, turbidity ≤ 5 NTU, conductivity < 1500 µS/cm, 6 ≤ pH ≤ 8.5, arsenic ≤ 10 µg/L, fluoride ≤ 1.5 mg/L, iron ≤ 0.3 mg/L and manganese ≤ 0.4 mg/L when measured (a missing value for the first six is a fail, as in the form);
+2. has at least one **final** result in *Clean Water || Water Quality Testing_SDWS 3_Result* (form `7b33c5d7…`) that meets the **health-based rule**: E. coli = 0 CFU/100 mL, arsenic ≤ 10 µg/L, fluoride ≤ 1.5 mg/L (these three must be present), and, where measured, nitrate ≤ 50 mg/L and manganese ≤ 0.08 mg/L. pH, conductivity, turbidity and iron are recorded by the form but never exclude. The form has no nitrate question yet; the rule entry is in place (`q: null`) and is skipped until one exists;
 3. is not abandoned: name not "abondonné / identifié / drilling / proposal / puits ouvert", latest final record of the maintenance form not *Non fonctionnel*, type not kiosk or dug well;
 4. lies in a district mapped to a stratum: Taolagnaro → **HP-FD**, Maroantsetra → **HP-MA**. Beloha and Amboasary (the Marolinta area) are excluded; any other district is *unassigned* and excluded.
 
@@ -52,7 +52,8 @@ The exclusions are applied in that order and counted: total in group, SDWS 3 pas
 | `commune`, `fokontany`, `village` | `admin_div3`, `admin_div4`, `admin_div5` |
 | `lat`, `lon` | `location.coordinates` |
 | `households_served` | latest "Nombre de toits" in *Nombre de bénéficiaires* (form `8aa2dd78…`), used as the stage-1 sampling weight and printed on the field sheet |
-| `status`, `status_reason`, `sdws3_*` | result of the eligibility rule and the SDWS 3 pass/result counts |
+| `status`, `status_reason`, `sdws3_*` | result of the eligibility rule, SDWS 3 pass/result counts, last test date and the parameters that failed |
+| `alt_id` | pump number as registered in mWater |
 
 The fetched frame is serialised to CSV, hashed with SHA-256 and stored exactly like an uploaded CSV, so the audit record and the reproducibility guarantee are identical for both sources (`input.source` is `mwater` or `csv`). *Download loaded frame* gives the VVB the exact CSV that was hashed.
 
@@ -119,15 +120,24 @@ Every drawn round is filed in `records/<round>/<stratum>/` and served by Pages a
 # after "Export sampling record" put the three files in ~/Downloads (or pass paths)
 node bin/file-round.js                       # newest sanitap-*-record.pdf / -audit.json / -selection.csv in ~/Downloads
 node bin/file-round.js --pdf x.pdf --json x.json --csv x.csv --frame frame.csv   # explicit paths; --frame verifies the frame CSV against the audit hash
-node bin/file-round.js ... --frame frame.csv --store-frame                        # also publish the frame CSV (it contains real coordinates: default is not to)
 node bin/file-round.js --dry-run             # verify only
 ```
 
-The script verifies that the SHA-256 of the audit JSON equals the hash in the PDF footer (`/AuditSHA256`) and that the record ids match, copies the files as `sampling-record.pdf`, `audit.json`, `selection.csv` (and `frame.csv` only with `--store-frame`; keep the frame in the private archive otherwise), appends a line to `records/index.md`, commits and pushes. The record folder is **append-only**: an existing `records/<round>/<stratum>/` is never overwritten; a re-draw gets a new seed and a new round name. The only exception is the folder `records/test/`, used for rehearsals.
+The script verifies that the SHA-256 of the audit JSON equals the hash in the PDF footer (`/AuditSHA256`) and that the record ids match, copies the files as `sampling-record.pdf`, `audit.json`, `selection.csv` (the frame CSV is verified but never copied: it holds coordinates), appends a line to `records/index.md`, commits and pushes. The record folder is **append-only**: an existing `records/<round>/<stratum>/` is never overwritten; a re-draw gets a new seed and a new round name. The only exception is the folder `records/test/`, used for rehearsals.
 
-## Round marking in mWater
+## Link between mWater and a sampling record
 
-Not live. A "Sampling round" form can be created with the org credentials (`POST /v3/forms` works), but creating responses through `POST /v3/responses` is refused for this account ("Permission denied to insert") even with the account listed as enumerator of the deployment, so the tool cannot write one response per source. The test form was soft-deleted. Until mWater support confirms a response-creation path for API clients, hand the selection to mWater with *Export mWater site list (CSV)*. `MWATER.forms.samplingRound` in `app.js` is the placeholder for the form id, deployment id and question ids; the *Mark round in mWater* button appears only when it is set.
+There is no write-back from the tool to mWater. The link from mWater to a sampling record is the **record id** (`<round>-<stratum>-<seed>`, printed on the sampling record and the field sheet) entered on each PoU form response in mWater. Records are published under `records/<round>/<stratum>/` on this site and copied to the monitoring report folder of the round. *Export mWater site list (CSV)* remains available to import the selected sources into an mWater custom table.
+
+**Published record files carry no coordinates.** The sampling record PDF, the audit JSON and the selection CSV contain identifiers, pump names, communes, households served and k-values only. The field sheet (with GPS positions) and the map are downloads for the field team and are never filed; the frame CSV is kept in the private archive (`bin/file-round.js --frame` verifies its hash without publishing it). The test suite fails if any file under `records/` contains a latitude/longitude field.
+
+## SDWS 3 reconciliation
+
+```bash
+node bin/reconcile.js --env ~/mwater-mcp/.env        # or MWATER_TOKEN / MWATER_USERNAME+MWATER_PASSWORD in the environment
+```
+
+Writes `~/Downloads/sdws3_reconciliation.csv` with one row per water point of the MadAvance group (id, alt_id, pump, district, commune, status, tested Y/N, last test date, passes the health rule Y/N, failing parameters, eligible Y/N, stratum, exclusion reason; no coordinates) and prints a per-district summary (total, tested, untested, passing, eligible, failures per parameter). Nothing is written to the repository.
 
 ## Deployment
 

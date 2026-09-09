@@ -1,5 +1,5 @@
 /* SaniTap Sampler service worker: caches the app shell for offline use. Map tiles are never cached. */
-const CACHE = 'sanitap-sampler-v1.2.0';
+const CACHE = 'sanitap-sampler-v1.3.0';
 const SHELL = [
   './', './index.html', './app.js',
   './data/sample-water-points.csv',
