@@ -2,6 +2,8 @@
 
 A static, offline-capable web tool that draws **statistically valid, logistics-aware water quality monitoring samples** for the SaniTap programme under the Gold Standard *Safe Drinking Water Supply* (SDWS) methodology v2.0.
 
+**Live tool:** https://sanitap-water.github.io/sanitap-sampler/ (deployed from `main` by GitHub Actions; works offline after the first load).
+
 Plain HTML/CSS/JS, no build step, no backend, no accounts. All data stays in the browser. Map by [Leaflet](https://leafletjs.com) (cdnjs) with OpenStreetMap tiles.
 
 ```
@@ -66,6 +68,10 @@ Implemented in `Core.draw()` in `app.js`; also shown in the app under *How it wo
 
 After the first load `sw.js` caches the app shell and the Leaflet files from cdnjs; the app then opens without a connection (map tiles are not cached). Loaded CSV text, axes, the last draw parameters, K values and the start point are kept in `localStorage` on the device; *Clear stored data* removes them. The last draw is recomputed from its stored parameters on reload (it is deterministic).
 
+## Real data
+
+SaniTap water points come from mWater (entity type `water_point`, managed by the SaniTap group). Exports of real coordinates go in `data/real/`, which is git-ignored and never published. The entities carry no status field in mWater, so the export marks typed boreholes as `active` and untyped points as `unknown` (excluded by the stratum filter); stratum `FD` is the Taolagnaro district (mWater admin region 170887), commune and fokontany come from the admin region hierarchy.
+
 ## Testing
 
 Core logic runs in Node without a browser:
@@ -92,6 +98,8 @@ Push to `main`; the workflow in `.github/workflows/deploy.yml` publishes the rep
 ```
 https://<owner>.github.io/sanitap-sampler/
 ```
+
+The SaniTap-water deployment is https://sanitap-water.github.io/sanitap-sampler/.
 
 All paths are relative, so it also works from any sub-folder or from a local file.
 

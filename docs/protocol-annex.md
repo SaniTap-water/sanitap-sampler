@@ -2,6 +2,8 @@
 
 *Annex to the SaniTap Water Quality Testing Protocol. Applies to monitoring under the Gold Standard "Safe Drinking Water Supply" (SDWS) methodology v2.0.*
 
+**Live tool:** https://sanitap-water.github.io/sanitap-sampler/ — source code and version history at https://github.com/SaniTap-water/sanitap-sampler.
+
 ## 1. Purpose and standard
 
 This annex describes how the water points and households tested in each monitoring round are selected. The selection is a **multi-stage cluster sample** drawn in accordance with the CDM *Standard: Sampling and surveys for CDM project activities and programmes of activities* (UNFCCC, EB, latest version), which the Gold Standard accepts for sampling under SDWS. Selection is performed with the open-source **SaniTap Sampler** tool, which runs entirely on the sampler's phone or laptop, needs no connection and records every draw.
