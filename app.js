@@ -495,7 +495,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   function showTab(name) {
     document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
     document.querySelectorAll('section.tab').forEach(s => s.classList.toggle('active', s.id === 'tab-' + name));
-    if (name === 'map') { initMap(); setTimeout(() => { state.map.invalidateSize(); renderMap(); }, 50); }
+    if (name === 'map') { initMap(); if (state.map) setTimeout(() => { state.map.invalidateSize(); renderMap(); }, 50); }
     try { window.scrollTo(0, 0); } catch (e) {}
   }
   document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
