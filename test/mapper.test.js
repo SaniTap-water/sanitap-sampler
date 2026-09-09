@@ -65,12 +65,22 @@ test('sampling record PDF is byte-reproducible, carries the audit hash and recor
   const pts = C.normaliseWaterPoints(C.parseCsv(C.frameToCsv(C.mapMwaterEntities(ents, { roofs, passing: C.sdws3PassingPoints(ents.map(e => good(e.code)), SD) }).points)).records).points;
   const p = { roundName: '2026 R1', stratum: 'HP-FD', target: 58, hhPerPoint: 5, replacementFraction: 0.2, seed: '2026R1-HP-FD', icc: 0.1, expectedPass: 0.95, confidence: '0.90', precision: 0.1, precisionType: 'relative', hhReplacements: 2, timestamp: '2026-09-09T10:00:00.000Z', drawnBy: 'A. Tester, sampler', source: 'mwater', wpFileHash: 'ab'.repeat(32), mwater: { group: M.group, forms_used: [SD.id], fetched_at: '2026-09-09T09:59:00.000Z', counts: { total_in_group: 30, sdws3_pass_count: 30, excluded_no_pass: 0, excluded_abandoned: 0, excluded_marolinta: 0, unassigned: 0, eligible: 30, eligible_by_stratum: { 'HP-FD': 30, 'HP-MA': 0 } } }, token: 'SECRET-TOKEN' };
   const r = C.draw(p, pts); const auditText = C.auditJson(r); const auditSha = C.sha256Sync(auditText);
-  const mk = lang => C.buildSamplingRecordPdf({ PDFLib, audit: JSON.parse(auditText), auditSha, lang, url: C.APP_URL, kValues: { [r.selected[0].water_point_id]: 23 } });
+  const mk = lang => C.buildSamplingRecordPdf({ PDFLib, audit: JSON.parse(auditText), auditText, auditSha, lang, url: C.APP_URL, kValues: { [r.selected[0].water_point_id]: 23 } });
   const a = Buffer.from(await mk('en')), b = Buffer.from(await mk('en')), f = Buffer.from(await mk('fr'));
   assert.ok(a.equals(b), 'two builds differ'); assert.ok(!a.equals(f));
   const txt = a.toString('latin1'); assert.ok(txt.includes('/AuditSHA256 (' + auditSha + ')')); assert.ok(txt.includes('/RecordId (' + r.audit.record_id + ')')); assert.ok(!txt.includes('SECRET-TOKEN')); assert.ok(txt.startsWith('%PDF-1.7'));
   assert.ok(a.length > 5000);
   fs.writeFileSync(path.join(require('os').tmpdir(), 'sanitap-test-record.pdf'), a);
+  // the audit travels inside the PDF: bin/file-round.js reads it back and it hashes to the footer value
+  const F = require('../bin/file-round.js'); const back = F.extractAudit(a);
+  assert.equal(back, auditText, 'attached audit.json round-trips byte for byte'); assert.equal(F.infoValue(txt, 'AuditSHA256'), auditSha); assert.equal(F.infoValue(txt, 'Seed'), r.audit.seed);
+  assert.ok(txt.includes('/Type /EmbeddedFile') && /\/UF \(audit\.json\)|\/F \(audit\.json\)/.test(txt));
+  // selection CSV rebuilt from the audit equals the live export, and the Excel workbook has no coordinates
+  assert.equal(C.auditToCsv(JSON.parse(auditText)), C.toCsv(r, {}));
+  const wb = C.selectionWorkbook(JSON.parse(auditText), { [r.selected[0].water_point_id]: 23 }, 'en');
+  assert.deepEqual(wb.map(s => s.name), ['Selected sources', 'Replacements', 'Parameters']); assert.equal(wb[0].rows.length, 13); assert.equal(wb[1].rows.length, 4); assert.equal(wb[0].rows[1][7], 23); assert.ok(/^\d+( \d+){4}$/.test(wb[0].rows[1][8]));
+  const flat = JSON.stringify(wb).toLowerCase(); assert.ok(!/"lat"|"lon"|latitude|longitude/.test(flat)); assert.ok(!flat.includes('-25.0'));
+  assert.ok(wb[2].rows.some(x => x[0] === 'Seed' && x[1] === r.audit.seed) && wb[2].rows.some(x => x[0] === 'Design check' && x[1] === 'PASS'));
 });
 
 test('published record files never carry coordinates: audit JSON, selection CSV, PDF text, and every file under records/', async () => {
@@ -82,7 +92,8 @@ test('published record files never carry coordinates: audit JSON, selection CSV,
   assert.ok(!/lat|lon/i.test(C.toCsv(r).split('\r\n')[0]));
   const dir = path.join(__dirname, '..', 'records'); const bad = [];
   const scanText = (txt, f) => { if (/(^|[,;])\s*(lat|lon|lng|latitude|longitude)\s*([,;]|$)/im.test(txt) || /-2[0-9]\.\d{4,}/.test(txt)) bad.push(f); };
-  (function walk(d) { if (!fs.existsSync(d)) return; fs.readdirSync(d).forEach(n => { const f = path.join(d, n); if (fs.statSync(f).isDirectory()) return walk(f); if (n.endsWith('.json')) { if (C.hasCoordinateKeys(JSON.parse(fs.readFileSync(f, 'utf8')))) bad.push(f); } else if (n.endsWith('.csv') || n.endsWith('.md')) scanText(fs.readFileSync(f, 'utf8'), f); else if (n.endsWith('.pdf')) { const raw = fs.readFileSync(f); const b = raw.toString('latin1'); const zlib = require('zlib'); let runs = []; const re = /stream\r?\n/g; let m; while ((m = re.exec(b))) { const end = b.indexOf('endstream', m.index); let chunk = raw.subarray(m.index + m[0].length, end); try { chunk = zlib.inflateSync(chunk); } catch (e) { } const txt = chunk.toString('latin1'); (txt.match(/<([0-9A-Fa-f]+)> Tj/g) || []).forEach(h => runs.push(Buffer.from(h.slice(1, -4), 'hex').toString('latin1'))); } assert.ok(runs.length > 50, 'PDF text could not be extracted from ' + f); scanText(runs.join('\n'), f); if (/\/(Lat|Lon|GPS)/.test(b)) bad.push(f); } }); })(dir);
+  (function walk(d) { if (!fs.existsSync(d)) return; fs.readdirSync(d).forEach(n => { const f = path.join(d, n); if (fs.statSync(f).isDirectory()) return walk(f); if (n.endsWith('.json')) { if (C.hasCoordinateKeys(JSON.parse(fs.readFileSync(f, 'utf8')))) bad.push(f); } else if (n.endsWith('.csv') || n.endsWith('.md')) scanText(fs.readFileSync(f, 'utf8'), f); else if (n.endsWith('.xlsx')) { const raw = fs.readFileSync(f); const zlib = require('zlib'); let off = 0; while (off + 30 <= raw.length && raw.readUInt32LE(off) === 0x04034b50) { const method = raw.readUInt16LE(off + 8), csize = raw.readUInt32LE(off + 18), nlen = raw.readUInt16LE(off + 26), elen = raw.readUInt16LE(off + 28); const name = raw.toString('utf8', off + 30, off + 30 + nlen); const data = raw.subarray(off + 30 + nlen + elen, off + 30 + nlen + elen + csize); let content = data; if (method === 8) { try { content = zlib.inflateRawSync(data); } catch (e) { } } if (/\.xml$/.test(name)) scanText(content.toString('utf8'), f + ':' + name); off += 30 + nlen + elen + csize; } }
+        else if (n.endsWith('.pdf')) { const raw = fs.readFileSync(f); const b = raw.toString('latin1'); const zlib = require('zlib'); let runs = []; const re = /stream\r?\n/g; let m; while ((m = re.exec(b))) { const end = b.indexOf('endstream', m.index); let chunk = raw.subarray(m.index + m[0].length, end); try { chunk = zlib.inflateSync(chunk); } catch (e) { } const txt = chunk.toString('latin1'); (txt.match(/<([0-9A-Fa-f]+)> Tj/g) || []).forEach(h => runs.push(Buffer.from(h.slice(1, -4), 'hex').toString('latin1'))); } assert.ok(runs.length > 50, 'PDF text could not be extracted from ' + f); scanText(runs.join('\n'), f); if (/\/(Lat|Lon|GPS)/.test(b)) bad.push(f); } }); })(dir);
   assert.deepEqual(bad, [], 'files under records/ with coordinate fields: ' + bad.join(', '));
 });
 

@@ -8,7 +8,7 @@ Plain HTML/CSS/JS, no build step, no backend, no accounts. All data stays in the
 
 ```
 index.html   app shell, styles, print stylesheet
-app.js       Core (PRNG, CSV, mWater frame, draw, statistics, PDF record, exports) + i18n object + UI
+app.js       Core (PRNG, CSV, mWater frame, draw, statistics, PDF record, Excel workbook) + i18n object + UI
 sw.js        service worker: caches the app shell for offline use (tiles and the mWater API are never cached)
 data/sample-water-points.csv   60 fake points, 3 strata, 4 inactive (CSV-source demo)
 bin/file-round.js              files a drawn round under records/ (append-only) and pushes
@@ -23,8 +23,8 @@ docs/protocol-annex.md         one-page annex for the SaniTap Water Quality Test
 1. Open the app (GitHub Pages URL below, or just open `index.html` locally / serve the folder with `python3 -m http.server`).
 2. **1 Data** — default source is **mWater (live)**: open *mWater connection*, sign in (or paste a token), choose the stratum and press *Fetch from mWater*. Fallback: switch to **CSV file (offline)** and load a frame CSV, or press *Load sample data*.
 3. **1b Test A backlog** — the sources of the loaded stratum that still need an SDWS 3 test (see below); optional.
-4. **2 Parameters** — enter *Drawn by*, pick the stratum, check the defaults, note the seed, press *Draw the sample*. Tabs show ✓ when a step is done.
-5. **3 Draw** — read the design check, the selected sources and the audit record; press *Export sampling record* to get the VVB-facing PDF together with the audit JSON and the selection CSV it hashes.
+4. **2 Parameters** — round name, *drawn by*, target samples (58) and households per source (5); the stratum is the one loaded on the Data tab and the seed is computed from round and stratum (shown in the *Reproducibility* line). The statistical check settings sit behind *Advanced*. Press *Draw the sample*. Tabs show ✓ when a step is done.
+5. **3 Draw** — read the one-sentence design check and the selected sources; export the **Sampling record (PDF)** for the VVB and the **Selection (Excel)** for the team.
 6. **4 Map** — numbered markers (1…12, R1…R3) with the same numbers in the stop list beside the map, commune labels, and orange reach flags.
 7. **5 Field sheet** — the stop list with GPS, households and the field-rule numbers; print (or *Save as PDF* on the phone).
 
@@ -68,7 +68,7 @@ The fetched frame is serialised to CSV, hashed with SHA-256 and stored exactly l
 `water_point_id, name, stratum, commune, fokontany, village, lat, lon, households_served, status`
 (`latitude/longitude/lng` are accepted as aliases; `status` is `active`/`inactive`).
 
-**Round parameters**: round name (e.g. `2026 R1`), *drawn by*, stratum, target number of PoU samples (default 58), households per source (default 5), replacement fraction (default 20 %), and the **seed**, prefilled as `<round without spaces>-<stratum>` (e.g. `2026R1-HP-FD`) and editable. Statistical parameters: ICC (default 0.1), expected pass rate (default 0.95), confidence (90 % default, or 95 %), precision type (relative 10 % of p — the CDM convention — or absolute ±0.10).
+**Round parameters**: round name (e.g. `2026 R1`), *drawn by*, target number of PoU samples (default 58) and households per source (default 5). The stratum is the one loaded on the Data tab (a CSV frame with several strata gets a selector there). The replacement fraction is fixed at 20 % and the **seed** is computed as `<round without spaces>-<stratum>` (e.g. `2026R1-HP-FD`) and shown read-only. Advanced (collapsed): ICC (default 0.1), expected pass rate (default 0.95), confidence (90 % default, or 95 %), precision type (relative 10 % of p — the CDM convention — or absolute ±0.10).
 
 ## How the draw works
 
@@ -86,20 +86,14 @@ Implemented in `Core.draw()` in `app.js`; also shown in the app under *How it wo
 
 **Statistical check.** Design effect `DEFF = 1 + (m − 1) × ICC` (m = households per point). Effective sample size `n_eff = n_wp × m / DEFF`. Required size for a proportion at expected pass rate p under the CDM 90/10 rule: `n_req = z² p(1 − p) / d²`, z = 1.645 (90 %) or 1.96 (95 %), d = 0.1 × p (relative) or 0.10 (absolute). If `n_eff < n_req` the tool warns and suggests (a) fewer households per point and hence more water points/clusters, or (b) more water points at the same m.
 
-**Audit record.** Each draw produces a JSON record with: record id (`round-stratum-seed`), timestamp, who drew it, seed and its 32-bit seed word, algorithm, tool version and commit, input source (mWater group, forms used, fetch time, eligibility counts, frame rule) or CSV file name with the frame SHA-256, all parameters, the frame summary, stage-1 numbers, statistics, communes covered, sources (with weights and hit positions), replacements, the field rule, warnings, and, when available, the visiting order and the field-rule numbers generated with K. It is shown on screen, exported as JSON, hashed into the sampling record PDF, and is the evidence of random selection retained for the VVB.
+**Record.** Each draw produces the sampling record (PDF) described under Outputs; the complete machine-readable audit (seed and its 32-bit word, algorithm, tool version and commit, frame source and SHA-256, eligibility counts, parameters, stage-1 numbers, statistics, communes, sources with weights and hit positions, replacements, reach check, field rule, warnings and the field-rule numbers generated with K) is attached inside the PDF as `audit.json`, and its SHA-256 is printed in the PDF footer. It is the evidence of random selection retained for the VVB.
 
 ## Outputs
 
 - **Map**: selected sources numbered in draw order, replacements grey (`R1…`), commune labels, OSM tiles, a *Fit* button and a *Show on map: draw / Test A backlog* toggle; a stop list under the map with the same numbers (id, pump no., name, commune, fokontany, households, reach distances).
 - **Field sheet** (print stylesheet): the stop list only — number, id and name, commune and fokontany, GPS, households served, K box and the pre-generated household numbers — plus the record id and the line "Sampling steps and results are recorded in the mWater form (SDWS 22 PoU); enter the record id on every form". It carries coordinates and is never filed.
-- **CSV for mWater**: `round, stratum, cluster, water_point_id, order, household_id_or_rule, replacement_flag` — one row per household (or per point when only the rule applies). `replacement_flag` ∈ `none`, `household`, `water_point`, `water_point+household`.
-- **Audit JSON** as described above.
-- **Sampling record (PDF)**: *Export sampling record* builds, entirely in the browser with pdf-lib 1.17.1 (cdnjs, cached for offline use), a narrative record for the validator in the UI language: identification (programme, stratum, round, draw time, drawn by), method (Protocol v2.2 §6.4), frame (rule in words, mWater source and counts, frame SHA-256), randomness (seed, PRNG, exact reproduction steps), design check (n, sources, m, p, required n for 90/10, ICC, DEFF, effective n, pass/fail), tables of selected and replacement sources with K values, and a footer on every page with the record id, the audit JSON SHA-256, the tool version and commit, and page x of y. The action downloads the PDF together with the audit JSON and selection CSV it hashed. The PDF is byte-identical for the same audit record (its dates are set to the draw timestamp) and contains nothing from the API token.
-- **mWater site list (CSV)**: `code, name, round, stratum, role, order, seed, drawn_at` — one row per selected and replacement point, keyed by the mWater entity code. mWater has no entity property for a monitoring round, so this file is not imported into the site register directly: import it into mWater as a *custom table* (Data → Tables → Import CSV) or attach it to the round's dashboard, and reference it from the monitoring report. Writing a round mark onto the entity itself would need a new custom property on `water_point`; the API route for that is `PATCH /v3/entities/water_point?client=…` with `{doc, base}` (same protocol as forms), which the tool does not use.
-
-## Test A backlog
-
-Tab **1b** lists, for the loaded stratum, the sources that are in the register and not abandoned but have no passing SDWS 3 result, in three groups: **operating, untested** (a rehabilitation record, maintenance visit or beneficiaries count exists but no SDWS 3 result), **last result failed** (tested, the latest result failed a health-based parameter; the parameter is shown), and **not yet built** ("identifié"/"drilling" names without records). Columns: id, alt_id, pump name, commune/fokontany, households served, last maintenance visit (with a *rehab* mark), last test date and result. The counts appear as tiles on the Data tab next to the eligibility counts. The Map tab can show the backlog instead of the draw, with a nearest-neighbour route from the district town (Fort-Dauphin or Maroantsetra). Two exports exist for the field team only and are never filed: a printable visit sheet per commune and a CSV, both with coordinates.
+- **Sampling record (PDF)** — the record. Built entirely in the browser with pdf-lib 1.17.1 (cdnjs, cached for offline use), in the UI language, as a narrative a validator can follow: identification (programme, stratum, round, draw time, drawn by), method (Protocol v2.2 §6.4), frame (rule in words, mWater source and counts, frame SHA-256), randomness (seed, PRNG, exact reproduction steps), design check (n, sources, m, p, required n for 90/10, ICC, DEFF, effective n, pass/fail), tables of selected and replacement sources with K values, the field rule and the reach check, and a footer on every page with the record id, the audit SHA-256, the tool version and commit, and page x of y. The seed and frame hash are also in the PDF's document properties. The complete audit is attached inside the PDF as `audit.json`. The file is byte-identical for the same draw (its dates are set to the draw timestamp) and contains no coordinates and nothing from the API token.
+- **Selection (Excel)** — the data. A real `.xlsx` built in the browser with SheetJS 0.18.5 (cdnjs), three sheets: *Selected sources* and *Replacements* (number, id, pump no., name, commune, fokontany, households, K, household numbers, replacement numbers, reach flag) and *Parameters* (round, stratum, drawn by, date, record id, seed, frame hash and source, counts, target, sources, households per source, ICC, DEFF, effective n, required n, check result, tool). No coordinates.
 
 ## Offline, updates and storage
 
@@ -111,7 +105,7 @@ The programme frame is the MadAvance group in mWater (about 900 private `water_p
 
 ## Testing
 
-Mapper and audit tests (Node 18+, no dependencies):
+Mapper, draw, record and export tests (Node 18+, no dependencies):
 
 ```bash
 node --test test/mapper.test.js
@@ -124,19 +118,19 @@ Set `PDFLIB_DIR` to a folder containing `node_modules/pdf-lib` to include the PD
 Every drawn round is filed in `records/<round>/<stratum>/` and served by Pages at `https://sanitap-water.github.io/sanitap-sampler/records/<round>/<stratum>/`:
 
 ```bash
-# after "Export sampling record" put the three files in ~/Downloads (or pass paths)
-node bin/file-round.js                       # newest sanitap-*-record.pdf / -audit.json / -selection.csv in ~/Downloads
-node bin/file-round.js --pdf x.pdf --json x.json --csv x.csv --frame frame.csv   # explicit paths; --frame verifies the frame CSV against the audit hash
+# after exporting the PDF (and the Excel file) put them in ~/Downloads, or pass paths
+node bin/file-round.js                       # newest sanitap-*-record.pdf and -selection.xlsx in ~/Downloads
+node bin/file-round.js --pdf x.pdf --xlsx x.xlsx --frame frame.csv   # explicit paths; --frame verifies the frame CSV against the hash in the record
 node bin/file-round.js --dry-run             # verify only
 ```
 
-The script verifies that the SHA-256 of the audit JSON equals the hash in the PDF footer (`/AuditSHA256`) and that the record ids match, copies the files as `sampling-record.pdf`, `audit.json`, `selection.csv` (the frame CSV is verified but never copied: it holds coordinates), appends a line to `records/index.md`, commits and pushes. The record folder is **append-only**: an existing `records/<round>/<stratum>/` is never overwritten; a re-draw gets a new seed and a new round name. The only exception is the folder `records/test/`, used for rehearsals.
+The script reads the audit attached inside the PDF, checks that its SHA-256 equals the value in the PDF footer and that the record ids match, refuses files with coordinates, copies the PDF as `sampling-record.pdf` and the Excel file as `selection.xlsx`, writes `selection.csv` (mWater import layout) from the attached audit, appends a line to `records/index.md`, commits and pushes. The frame CSV is verified but never copied: it holds coordinates. The record folder is **append-only**: an existing `records/<round>/<stratum>/` is never overwritten; a re-draw gets a new seed and a new round name. The only exception is the folder `records/test/`, used for rehearsals.
 
 ## Link between mWater and a sampling record
 
-There is no write-back from the tool to mWater. The link from mWater to a sampling record is the **record id** (`<round>-<stratum>-<seed>`, printed on the sampling record and the field sheet) entered on each PoU form response in mWater. Records are published under `records/<round>/<stratum>/` on this site and copied to the monitoring report folder of the round. *Export mWater site list (CSV)* remains available to import the selected sources into an mWater custom table.
+There is no write-back from the tool to mWater. The link from mWater to a sampling record is the **record id** (`<round>-<stratum>-<seed>`, printed on the sampling record and the field sheet) entered on each PoU form response in mWater. Records are published under `records/<round>/<stratum>/` on this site and copied to the monitoring report folder of the round. The `selection.csv` written at filing time is in the mWater import layout for a custom table.
 
-**Published record files carry no coordinates.** The sampling record PDF, the audit JSON and the selection CSV contain identifiers, pump names, communes, households served and k-values only. The field sheet (with GPS positions) and the map are downloads for the field team and are never filed; the frame CSV is kept in the private archive (`bin/file-round.js --frame` verifies its hash without publishing it). The test suite fails if any file under `records/` contains a latitude/longitude field.
+**Published record files carry no coordinates.** The sampling record PDF, the Excel file and the selection CSV contain identifiers, pump names, communes, households served and k-values only. The field sheet (with GPS positions) and the map are downloads for the field team and are never filed; the frame CSV is kept in the private archive (`bin/file-round.js --frame` verifies its hash without publishing it). The test suite fails if any file under `records/` contains a latitude/longitude field.
 
 ## If the app shows an old version
 

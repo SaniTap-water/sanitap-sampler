@@ -151,6 +151,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
       <div id="mw-progress" class="muted"></div>
     </div>
     <div id="src-csv" class="hidden">
+      <div id="data-stratum-wrap" class="hidden"><label data-i18n="data_stratum">Stratum to use</label><select id="data-stratum"></select></div>
     <label data-i18n="data_wp_label">Water points CSV (mWater export)</label>
     <input type="file" id="file-wp" accept=".csv,text/csv">
     <p class="muted" data-i18n="data_wp_cols">Required columns: water_point_id, name, stratum, commune, fokontany, village, lat, lon, households_served, status</p>
@@ -187,22 +188,22 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
     <div class="grid">
       <div><label data-i18n="p_round">Round name</label><input type="text" id="p-round" value="2026 R1"></div>
       <div><label data-i18n="p_drawn_by">Drawn by (name, role)</label><input type="text" id="p-drawn-by" autocomplete="name"></div>
-
-      <div><label data-i18n="p_stratum">Stratum</label><select id="p-stratum"></select></div>
       <div><label data-i18n="p_target">Target PoU samples</label><input type="number" id="p-target" value="58" min="1"></div>
       <div><label data-i18n="p_hh">Households per source</label><input type="number" id="p-hh" value="5" min="1"></div>
-      <div><label data-i18n="p_repfrac">Replacement fraction (%)</label><input type="number" id="p-repfrac" value="20" min="0" max="100"></div>
-      <div><label><span data-i18n="p_seed">Seed</span> <small data-i18n="p_seed_hint">(reproduces the draw)</small></label><input type="text" id="p-seed"></div>
     </div>
-    <h3 data-i18n="params_stats">Statistical check</h3>
-    <div class="grid">
-      <div><label data-i18n="p_icc">Intra-cluster correlation (ICC)</label><input type="number" id="p-icc" value="0.1" step="0.01" min="0" max="1"></div>
-      <div><label data-i18n="p_pass">Expected pass rate</label><input type="number" id="p-pass" value="0.95" step="0.01" min="0.01" max="0.99"></div>
-      <div><label data-i18n="p_conf">Confidence</label><select id="p-conf"><option value="0.90">90 %</option><option value="0.95">95 %</option></select></div>
-      <div><label data-i18n="p_prec">Precision (10 %)</label><select id="p-prectype"><option value="relative" data-i18n="prec_rel">Relative to the pass rate (CDM)</option><option value="absolute" data-i18n="prec_abs">Absolute (±10 points)</option></select></div>
-    </div>
-    <div id="params-preview" class="muted" style="margin-top:.6rem"></div>
-    <div class="btnrow" style="margin-top:.6rem">
+    <p style="margin:.6rem 0 .2rem"><b data-i18n="p_stratum_loaded">Stratum (loaded on the Data tab)</b>: <span id="p-stratum-text" class="pill">—</span><select id="p-stratum" class="hidden"></select></p>
+    <p class="muted" id="p-repro"></p>
+    <div id="params-preview" class="muted"></div>
+    <details id="adv-stats" style="margin-top:.6rem">
+      <summary class="btn small secondary" data-i18n="adv_title">Advanced: statistical check</summary>
+      <div class="grid">
+        <div><label data-i18n="p_icc">Intra-cluster correlation (ICC)</label><input type="number" id="p-icc" value="0.1" step="0.01" min="0" max="1"></div>
+        <div><label data-i18n="p_pass">Expected pass rate</label><input type="number" id="p-pass" value="0.95" step="0.01" min="0.01" max="0.99"></div>
+        <div><label data-i18n="p_conf">Confidence</label><select id="p-conf"><option value="0.90">90 %</option><option value="0.95">95 %</option></select></div>
+        <div><label data-i18n="p_prec">Precision (10 %)</label><select id="p-prectype"><option value="relative" data-i18n="prec_rel">Relative to the pass rate (CDM)</option><option value="absolute" data-i18n="prec_abs">Absolute (±10 points)</option></select></div>
+      </div>
+    </details>
+    <div class="btnrow" style="margin-top:.8rem">
       <button class="btn" id="btn-draw" type="button" data-i18n="btn_draw">Draw the sample</button>
     </div>
     <div id="params-msg"></div>
@@ -219,10 +220,8 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
       <div class="stat" id="res-stats"></div>
       <div id="res-check"></div>
       <div class="btnrow" style="margin-top:.6rem">
-        <button class="btn" id="btn-csv" type="button" data-i18n="btn_csv">Export CSV (mWater)</button>
-        <button class="btn" id="btn-json" type="button" data-i18n="btn_json">Export audit JSON</button>
-        <button class="btn secondary" id="btn-mwcsv" type="button" data-i18n="btn_mwcsv">Export mWater site list (CSV)</button>
-        <button class="btn" id="btn-pdf" type="button" data-i18n="btn_pdf">Export sampling record (PDF + JSON + CSV)</button>
+        <button class="btn" id="btn-pdf" type="button" data-i18n="btn_pdf">Sampling record (PDF)</button>
+        <button class="btn" id="btn-xlsx" type="button" data-i18n="btn_xlsx">Selection (Excel)</button>
       </div>
       <div id="res-export-msg"></div>
       <div class="btnrow"><button class="btn" id="btn-next-map" type="button" data-i18n="next_map">Next: map</button></div>
@@ -234,7 +233,6 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
     <div class="card"><h2 data-i18n="res_points">Selected water points</h2>
       <p class="muted" data-i18n="res_points_hint">For points without a household list, type K (number of households counted clockwise from the pump) to generate the household numbers.</p>
       <div class="tablewrap" id="res-points"></div></div>
-    <div class="card"><h2 data-i18n="res_audit">Audit record</h2><pre class="audit" id="res-audit"></pre></div>
   </div>
 </section>
 
@@ -266,6 +264,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
 <footer>SaniTap Sampler · Gold Standard SDWS v2.0 · <span data-i18n="foot">open source, no data leaves the device</span></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin=""></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js" crossorigin=""></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin=""></script>
 <script src="app.js?v=__GIT_COMMIT__"></script>
 </body>
 </html>

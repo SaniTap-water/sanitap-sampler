@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.1.0';
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
 const APP_URL = 'https://sanitap-water.github.io/sanitap-sampler/';
@@ -492,7 +492,7 @@ const Core = (function () {
   function hasCoordinateKeys(obj) { if (Array.isArray(obj)) return obj.some(hasCoordinateKeys); if (obj && typeof obj === 'object') return Object.keys(obj).some(k => RECORD_COORD_KEYS.test(k) || hasCoordinateKeys(obj[k])); return false; }
   const pdfSafe = str => String(str === undefined || str === null ? '' : str).replace(/≤/g, '<=').replace(/≥/g, '>=').replace(/→/g, '->').replace(/×/g, 'x').replace(/\r?\n/g, ' ').replace(PDF_SAFE, '?');
   async function buildSamplingRecordPdf(ctx) {
-    const { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PageSizes } = ctx.PDFLib;
+    const { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PageSizes, AFRelationship } = ctx.PDFLib;
     const a = ctx.audit; const lang = ctx.lang === 'fr' ? 'fr' : 'en'; const T = (I18N[lang] && I18N[lang].pdf) || I18N.en.pdf; const P = a.parameters; const st = a.statistics; const kv = ctx.kValues || {};
     const rid = a.record_id || recordId({ roundName: P.round, stratum: P.stratum, seed: a.seed });
     const doc = await PDFDocument.create({ updateMetadata: false });
@@ -558,11 +558,31 @@ const Core = (function () {
     // ---- deterministic metadata: dates fixed to the draw timestamp; the token never enters this document
     const when = new Date(a.timestamp);
     doc.setTitle(pdfSafe(T.title + ' ' + rid)); doc.setAuthor(pdfSafe(a.drawn_by || 'SaniTap Sampler')); doc.setSubject(rid); doc.setKeywords(['record:' + rid, 'audit-sha256:' + (ctx.auditSha || '')]); doc.setProducer('SaniTap Sampler v' + a.version); doc.setCreator('SaniTap Sampler v' + a.version); doc.setCreationDate(when); doc.setModificationDate(when);
-    const info = doc.context.lookup(doc.context.trailerInfo.Info); if (info && info.set) { info.set(PDFName.of('RecordId'), PDFString.of(rid)); info.set(PDFName.of('AuditSHA256'), PDFString.of(ctx.auditSha || '')); info.set(PDFName.of('FrameSHA256'), PDFString.of(inp.water_points_sha256 || '')); }
+    const info = doc.context.lookup(doc.context.trailerInfo.Info); if (info && info.set) { info.set(PDFName.of('RecordId'), PDFString.of(rid)); info.set(PDFName.of('AuditSHA256'), PDFString.of(ctx.auditSha || '')); info.set(PDFName.of('FrameSHA256'), PDFString.of(inp.water_points_sha256 || '')); info.set(PDFName.of('Seed'), PDFString.of(String(a.seed))); }
+    // the full audit record travels inside the PDF as an attached file (audit.json); its SHA-256 is in the footer and the Info dictionary
+    if (ctx.auditText) { const bytes = utf8Bytes(ctx.auditText); await doc.attach(bytes, 'audit.json', { mimeType: 'application/json', description: 'SaniTap Sampler audit record ' + rid, creationDate: when, modificationDate: when, afRelationship: AFRelationship ? AFRelationship.Data : undefined }); }
     return doc.save({ useObjectStreams: false, addDefaultPage: false, updateFieldAppearances: false });
   }
 
-  return { xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
+  // Excel workbook (array-of-arrays per sheet) from the audit record: selected sources, replacements, parameters. No coordinates.
+  function selectionWorkbook(audit, kValues, lang) {
+    const T = (I18N[lang] && I18N[lang].xlsx) || I18N.en.xlsx; const P = audit.parameters, st = audit.statistics; const kv = kValues || {};
+    const far = new Set(((audit.reach_check || {}).sources || []).filter(x => x.far).map(x => x.water_point_id));
+    const numbers = w => { const K = kv[w.water_point_id]; if (!K) return ['', '', '']; const fn = fieldNumbers(audit.seed, w.water_point_id, K, w.households.n, w.households.extra); return [K, fn.primary.join(' '), fn.replacements.join(' ')]; };
+    const row = (w, rep) => [rep ? 'R' + w.order : w.order, w.water_point_id, w.alt_id || '', w.name || '', w.commune || w.cluster || '', w.fokontany || '', w.households_served === '' ? '' : w.households_served].concat(numbers(w), [far.has(w.water_point_id) ? T.far : '']);
+    const head = [T.order, T.id, T.alt, T.name, T.commune, T.fokontany, T.hh, T.k, T.numbers, T.rep_numbers, T.reach];
+    const c = ((audit.input || {}).mwater || {}).counts || {};
+    const params = [[T.param, T.value], [T.round, P.round], [T.stratum, P.stratum], [T.drawn_by, audit.drawn_by || ''], [T.drawn_at, audit.timestamp], [T.record_id, audit.record_id], [T.seed, audit.seed], [T.frame_sha, (audit.input || {}).water_points_sha256 || ''], [T.frame_source, (audit.input || {}).source || ''], [T.fetched_at, ((audit.input || {}).mwater || {}).fetched_at || ''],
+      [T.c_total, c.total_in_group === undefined ? '' : c.total_in_group], [T.c_pass, c.sdws3_pass_count === undefined ? '' : c.sdws3_pass_count], [T.c_eligible, (audit.frame || {}).eligible_points], [T.target, P.target_samples], [T.sources, st.nWp], [T.m, P.households_per_point], [T.n, st.nActual], [T.pass_rate, st.expectedPass], [T.icc, st.icc], [T.deff, st.deff], [T.neff, st.nEff], [T.nreq, st.nReq], [T.check, st.pass ? T.check_ok : T.check_fail], [T.tool, 'SaniTap Sampler v' + audit.version + ' (' + (audit.commit || 'dev') + ')'], [T.protocol, audit.methodology || '']];
+    return [{ name: T.sheet_selected, rows: [head].concat(audit.water_points.map(w => row(w, false))) }, { name: T.sheet_replacements, rows: [head].concat(audit.replacements.map(w => row(w, true))) }, { name: T.sheet_params, rows: params }];
+  }
+  // selection CSV (mWater import layout) rebuilt from an audit record, using the field-rule numbers stored in it
+  function auditToCsv(audit) {
+    const kv = { __seed: audit.seed }; (audit.field_rule_numbers || []).forEach(x => { kv[x.water_point_id] = x.K; });
+    return toCsv({ params: { roundName: audit.parameters.round, stratum: audit.parameters.stratum, seed: audit.seed }, selected: audit.water_points, replacements: audit.replacements }, kv);
+  }
+
+  return { selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
 
@@ -590,13 +610,15 @@ const I18N = {
     src_mwater: 'mWater (live)', src_csv: 'CSV file (offline)', mw_settings: 'mWater connection', mw_user: 'mWater username or email', mw_pass: 'Password', mw_pass_hint: '(used once to obtain a token; never stored)', mw_login: 'Sign in', mw_token: '…or paste an API token (client id)', mw_save: 'Save token', mw_forget: 'Forget token',
     mw_token_hint: "The token stays in this browser's local storage only, is shown masked, never logged and never included in exports.", mw_stratum: 'Stratum to load', mw_all: 'All strata', mw_fetch: 'Fetch from mWater',
     mw_connected: 'Token saved: {mask}{user}', mw_not_connected: 'No mWater token. Open "mWater connection" to sign in or paste a token. The programme water points are private, so a token is required.', mw_no_token: 'Sign in or paste a token first.', mw_fetching: 'Fetching {what}: {n} rows…', mw_done: 'Fetched {n} water points ({a} active) at {t}.', mw_err: 'Fetch failed: {e}. Check the connection and the token, or use the CSV source offline.', mw_login_err: 'Sign-in failed: {e}', mw_warn: 'Partial: {w}',
-    data_frame_dl: 'Download loaded frame (CSV)', data_hh_dl: 'Download household list (CSV)', data_source: 'Source', data_fetched: 'fetched', btn_mwcsv: 'Export mWater site list (CSV)',
-    p_drawn_by: 'Drawn by (name, role)', btn_pdf: 'Export sampling record (PDF + JSON + CSV)', pdf_err: 'PDF library not loaded (needs one online visit first).', pdf_need_by: 'Enter "Drawn by" before exporting the record.', w_imputed: '{n} sources without a household count were given the stratum median ({value}) as sampling weight.',
+    data_frame_dl: 'Download loaded frame (CSV)', data_hh_dl: 'Download household list (CSV)', data_source: 'Source', data_fetched: 'fetched',
+    p_drawn_by: 'Drawn by (name, role)', pdf_err: 'PDF library not loaded (needs one online visit first).', pdf_need_by: 'Enter "Drawn by" before exporting the record.', w_imputed: '{n} sources without a household count were given the stratum median ({value}) as sampling weight.',
     c_total: 'in MadAvance group', c_pass: 'with a passing SDWS 3 result', c_nopass: 'excluded: no passing result', c_abandoned: 'excluded: abandoned/not functional', c_marolinta: 'excluded: Marolinta', c_unassigned: 'unassigned district', c_eligible: 'eligible',
     tab_backlog: '1b Test A backlog', next_params: 'Next: set parameters and draw', bl_title: 'Test A backlog — SDWS 3', bl_intro: 'Sources of the loaded stratum that are in the register and not abandoned but have no passing SDWS 3 result yet.', bl_operating: 'Operating, untested', bl_failing: 'Last result failed', bl_notbuilt: 'Not yet built', bl_other: 'No records, unclassified', bl_none: 'No backlog for this stratum, or no frame loaded.', bl_csv: 'Export backlog CSV (with coordinates, download only)', bl_print: 'Print visit sheets per commune', bl_print_hint: 'Visit sheets and the CSV carry coordinates: for the field team only, never filed.', col_fokontany: 'Fokontany', col_last_visit: 'Last maintenance', col_last_test: 'Last test', col_result: 'Result', col_pattern: 'Name', col_records: 'Records', map_show: 'Show on map', map_show_draw: 'the draw', map_show_backlog: 'the Test A backlog (route from {town})', bl_sheet_title: 'Test A visit sheet', bl_sheet_commune: 'Commune', bl_sheet_cols: ['#', 'Source', 'Name', 'Fokontany', 'GPS', 'Group', 'Last maintenance', 'Households', 'Sample ID / result', 'Notes'], step_done: 'done', step_current: 'current', step_pending: 'pending', update_banner: 'New version available', update_reload: 'Reload',
     col_sel_short: 'Selected', k_blank_short: 'numbers appear when K is entered in the app', record_id_label: 'Record id', next_backlog: 'Next: Test A backlog', next_draw: 'Next: draw', next_map: 'Next: map', next_sheet: 'Next: field sheet', col_alt: 'Pump no.', reach_far: 'Far from the rest: replace in the field only if unreachable, and record the reason', reach_col: 'Reach', reach_ok: 'ok', reach_dist: 'nearest {n} km · town {t} km', map_list_title: 'Stops (number on the map = row)', w_far: 'Source {id} is more than 25 km from every other selected source and from the district town (nearest {nearest_km} km, town {town_km} km): replace in the field only if unreachable, and record the reason.',
     sheet_rule: 'Field rule (Protocol v2.2 §6.4): count the households served by this source (K), then take the k-th household met when walking from the source for each drawn number k. Sterile sampling equipment; no flaming. Enter K in the app to get the numbers, or use the pre-generated numbers below.', sheet_mwater: 'Sampling steps and results are recorded in the mWater form (SDWS 22 PoU); enter the record id {rid} on every form.', sheet_stops: 'Stop list',
     rule_short: '{n} of K: the k-th household walking from the source', sug_fewer: 'Keep {t} samples but use at most {m} households per source ({w} sources).', sug_more: 'Keep {m} households per source but select {w} sources ({s} samples).', w_insufficient: 'The stratum holds {have} eligible sources; {needed} were needed ({w} + {r} replacements).',
+    xlsx: { sheet_selected: 'Selected sources', sheet_replacements: 'Replacements', sheet_params: 'Parameters', order: 'No.', id: 'Source id', alt: 'Pump no.', name: 'Name', commune: 'Commune', fokontany: 'Fokontany', hh: 'Households served', k: 'K', numbers: 'Household numbers', rep_numbers: 'Replacement numbers', reach: 'Reach', far: 'Far from the rest: replace in the field only if unreachable, and record the reason', param: 'Parameter', value: 'Value', round: 'Round', stratum: 'Stratum', drawn_by: 'Drawn by', drawn_at: 'Draw date/time (UTC)', record_id: 'Record id', seed: 'Seed', frame_sha: 'Frame SHA-256', frame_source: 'Frame source', fetched_at: 'Frame fetched at (UTC)', c_total: 'Water points in the MadAvance group', c_pass: 'With a passing SDWS 3 result', c_eligible: 'Eligible sources in the stratum', target: 'Target PoU samples', sources: 'Sources to select', m: 'Households per source', n: 'PoU samples planned', pass_rate: 'Expected pass rate', icc: 'ICC', deff: 'Design effect', neff: 'Effective sample size', nreq: 'Required sample size (90/10)', check: 'Design check', check_ok: 'PASS', check_fail: 'FAIL', tool: 'Tool', protocol: 'Methodology' },
+    btn_pdf: 'Sampling record (PDF)', p_stratum_loaded: 'Stratum (loaded on the Data tab)', repro_line: 'Seed {seed}; the same seed and water point list reproduce this draw.', adv_title: 'Advanced: statistical check', btn_xlsx: 'Selection (Excel)', xlsx_err: 'Excel library not loaded (needs one online visit first).', data_stratum: 'Stratum to use',
     tab_data: '1 Data', tab_params: '2 Parameters', tab_results: '3 Draw', tab_map: '4 Map', tab_sheet: '5 Field sheet', tab_how: 'How it works',
     data_title: 'Load water points', data_privacy: 'Everything runs in your browser. No file leaves this device.',
     data_wp_label: 'Water points CSV (mWater export)', data_wp_cols: 'Required columns: water_point_id, name, stratum, commune, fokontany, village, lat, lon, households_served, status',
@@ -609,8 +631,8 @@ const I18N = {
     p_icc: 'Intra-cluster correlation (ICC)', p_pass: 'Expected pass rate', p_conf: 'Confidence', p_prec: 'Precision (10 %)', prec_rel: 'Relative to the pass rate (CDM)', prec_abs: 'Absolute (±10 points)',
     btn_draw: 'Draw the sample', preview: 'Eligible sources: {n} in {c} communes. Sources to select: {w} + {r} replacements = {t}.',
     err_nodata: 'Load water points first.', err_noeligible: 'No active water points in this stratum (or none inside an axis).',
-    res_empty: 'No draw yet. Load data and set parameters first.', res_title: 'Draw result', btn_csv: 'Export CSV (mWater)', btn_json: 'Export audit JSON', btn_print: 'Print field sheet',
-    res_clusters: 'Clusters', res_points: 'Selected water points', res_points_hint: 'Type K (households served by the source, counted on the day) to generate the household numbers: the k-th household walking from the source.', res_audit: 'Audit record',
+    res_empty: 'No draw yet. Load data and set parameters first.', res_title: 'Draw result', btn_print: 'Print field sheet',
+    res_clusters: 'Clusters', res_points: 'Selected water points', res_points_hint: 'Type K (households served by the source, counted on the day) to generate the household numbers: the k-th household walking from the source.',
     st_nwp: 'Water points', st_nact: 'PoU samples planned', st_deff: 'Design effect', st_neff: 'Effective n', st_nreq: 'Required n ({c} % / {p} %)', st_rep: 'Replacement points',
     check_ok: 'Effective sample size {ne} ≥ required {nr}: the design meets the {c}/{p} rule for an expected pass rate of {pr}.',
     check_fail: 'Effective sample size {ne} < required {nr}. The design does NOT meet the {c}/{p} rule.',
@@ -645,8 +667,8 @@ const I18N = {
 <p>A selected source more than 25 km from every other selected source and from the district town is marked orange on the map and in the lists: replace it in the field only if it is unreachable, and record the reason.</p>
 <h3>Statistical check</h3>
 <p>Households sampled at the same water point are correlated. The design effect is <code>DEFF = 1 + (m − 1) × ICC</code> with m households per point and ICC default 0.1 (editable). Effective sample size is <code>n / DEFF</code>. The required sample size for a proportion at the expected pass rate p follows the CDM 90/10 rule: <code>n = z² p(1 − p) / d²</code> with z = 1.645 for 90 % confidence and d = 10 % of p (relative precision, CDM default) or 0.10 absolute. If the effective size is below the requirement the tool proposes fewer households per point (hence more water points and clusters) or more water points.</p>
-<h3>Audit record</h3>
-<p>Every draw writes a JSON record: timestamp, seed, algorithm, input file names and SHA-256 hashes, parameters, frame, selected clusters, water points, replacements and households or field rule. It is shown on screen, exported as JSON and is the evidence of random selection retained for the validation and verification body (VVB).</p>
+<h3>Record and data</h3>
+<p>The <b>sampling record (PDF)</b> is the evidence of random selection kept for the validation and verification body (VVB): it narrates the method, frame, seed, design check and selection, carries the seed and the frame hash in its footer, and contains the complete machine-readable audit as an attached file. The <b>selection (Excel)</b> file holds the same sources, replacements and parameters as data for the team. Neither contains coordinates.</p>
 <h3>Map</h3>
 <p>The map shows the selected sources numbered in draw order and the replacements (R1, R2, …) in grey, with the same numbers in the stop list beside it.</p>
 <h3>Offline</h3>
@@ -674,13 +696,15 @@ const I18N = {
     src_mwater: 'mWater (en direct)', src_csv: 'Fichier CSV (hors ligne)', mw_settings: 'Connexion mWater', mw_user: 'Identifiant ou e-mail mWater', mw_pass: 'Mot de passe', mw_pass_hint: '(utilisé une fois pour obtenir un jeton ; jamais stocké)', mw_login: 'Se connecter', mw_token: '…ou coller un jeton API (client id)', mw_save: 'Enregistrer le jeton', mw_forget: 'Oublier le jeton',
     mw_token_hint: 'Le jeton reste uniquement dans le stockage local de ce navigateur, est affiché masqué, jamais journalisé ni inclus dans les exports.', mw_stratum: 'Strate à charger', mw_all: 'Toutes les strates', mw_fetch: 'Charger depuis mWater',
     mw_connected: 'Jeton enregistré : {mask}{user}', mw_not_connected: 'Aucun jeton mWater. Ouvrez « Connexion mWater » pour vous connecter ou coller un jeton. Les points d’eau du programme sont privés : un jeton est nécessaire.', mw_no_token: 'Connectez-vous ou collez un jeton d’abord.', mw_fetching: 'Chargement {what} : {n} lignes…', mw_done: '{n} points d’eau chargés ({a} actifs) à {t}.', mw_err: 'Échec du chargement : {e}. Vérifiez la connexion et le jeton, ou utilisez la source CSV hors ligne.', mw_login_err: 'Connexion échouée : {e}', mw_warn: 'Partiel : {w}',
-    data_frame_dl: 'Télécharger la base chargée (CSV)', data_hh_dl: 'Télécharger la liste des ménages (CSV)', data_source: 'Source', data_fetched: 'chargé', btn_mwcsv: 'Exporter la liste de sites mWater (CSV)',
-    p_drawn_by: 'Tiré par (nom, fonction)', btn_pdf: 'Exporter l’enregistrement (PDF + JSON + CSV)', pdf_err: 'Bibliothèque PDF non chargée (une visite en ligne est nécessaire).', pdf_need_by: 'Renseignez « Tiré par » avant d’exporter l’enregistrement.', w_imputed: '{n} sources sans nombre de ménages ont reçu la médiane de la strate ({value}) comme poids de sondage.',
+    data_frame_dl: 'Télécharger la base chargée (CSV)', data_hh_dl: 'Télécharger la liste des ménages (CSV)', data_source: 'Source', data_fetched: 'chargé',
+    p_drawn_by: 'Tiré par (nom, fonction)', pdf_err: 'Bibliothèque PDF non chargée (une visite en ligne est nécessaire).', pdf_need_by: 'Renseignez « Tiré par » avant d’exporter l’enregistrement.', w_imputed: '{n} sources sans nombre de ménages ont reçu la médiane de la strate ({value}) comme poids de sondage.',
     c_total: 'dans le groupe MadAvance', c_pass: 'avec un résultat SDWS 3 conforme', c_nopass: 'exclus : aucun résultat conforme', c_abandoned: 'exclus : abandonnés/non fonctionnels', c_marolinta: 'exclus : Marolinta', c_unassigned: 'district non affecté', c_eligible: 'éligibles',
     tab_backlog: '1b À tester (SDWS 3)', next_params: 'Suite : paramètres et tirage', bl_title: 'À tester — SDWS 3', bl_intro: 'Sources de la strate chargée qui sont dans le registre et non abandonnées mais sans résultat SDWS 3 conforme.', bl_operating: 'En service, non testées', bl_failing: 'Dernier résultat non conforme', bl_notbuilt: 'Pas encore construites', bl_other: 'Sans enregistrement, non classées', bl_none: 'Aucun point à tester pour cette strate, ou aucune base chargée.', bl_csv: 'Exporter le CSV (avec coordonnées, téléchargement seulement)', bl_print: 'Imprimer les fiches de visite par commune', bl_print_hint: 'Les fiches de visite et le CSV contiennent des coordonnées : pour l’équipe terrain seulement, jamais archivés.', col_fokontany: 'Fokontany', col_last_visit: 'Dernière maintenance', col_last_test: 'Dernier test', col_result: 'Résultat', col_pattern: 'Nom', col_records: 'Enregistrements', map_show: 'Afficher sur la carte', map_show_draw: 'le tirage', map_show_backlog: 'les points à tester (itinéraire depuis {town})', bl_sheet_title: 'Fiche de visite Test A', bl_sheet_commune: 'Commune', bl_sheet_cols: ['N°', 'Source', 'Nom', 'Fokontany', 'GPS', 'Groupe', 'Dernière maintenance', 'Ménages', 'ID échantillon / résultat', 'Notes'], step_done: 'fait', step_current: 'en cours', step_pending: 'à faire', update_banner: 'Nouvelle version disponible', update_reload: 'Recharger',
     col_sel_short: 'Sélectionnées', k_blank_short: 'les numéros apparaissent quand K est saisi dans l’application', record_id_label: 'Identifiant d’enregistrement', next_backlog: 'Suite : points à tester', next_draw: 'Suite : tirage', next_map: 'Suite : carte', next_sheet: 'Suite : fiche terrain', col_alt: 'N° pompe', reach_far: 'Éloignée des autres : remplacer sur le terrain seulement si inaccessible, et noter la raison', reach_col: 'Accès', reach_ok: 'ok', reach_dist: 'plus proche {n} km · ville {t} km', map_list_title: 'Étapes (numéro sur la carte = ligne)', w_far: 'La source {id} est à plus de 25 km de toute autre source sélectionnée et de la ville du district (plus proche {nearest_km} km, ville {town_km} km) : remplacer sur le terrain seulement si inaccessible, et noter la raison.',
     sheet_rule: 'Règle terrain (Protocole v2.2 §6.4) : compter les ménages desservis par cette source (K), puis prendre le k-ième ménage rencontré en marchant depuis la source pour chaque numéro k tiré. Matériel de prélèvement stérile ; pas de flambage. Saisir K dans l’application pour obtenir les numéros, ou utiliser les numéros pré-générés ci-dessous.', sheet_mwater: 'Les étapes et résultats du prélèvement sont enregistrés dans le formulaire mWater (SDWS 22 PoU) ; inscrire l’identifiant d’enregistrement {rid} sur chaque formulaire.', sheet_stops: 'Liste des étapes',
     rule_short: '{n} parmi K : le k-ième ménage en marchant depuis la source', sug_fewer: 'Garder {t} échantillons mais au plus {m} ménages par source ({w} sources).', sug_more: 'Garder {m} ménages par source mais sélectionner {w} sources ({s} échantillons).', w_insufficient: 'La strate compte {have} sources éligibles ; il en fallait {needed} ({w} + {r} remplacements).',
+    xlsx: { sheet_selected: 'Sources sélectionnées', sheet_replacements: 'Remplacements', sheet_params: 'Paramètres', order: 'N°', id: 'Id source', alt: 'N° pompe', name: 'Nom', commune: 'Commune', fokontany: 'Fokontany', hh: 'Ménages desservis', k: 'K', numbers: 'Numéros de ménages', rep_numbers: 'Numéros de remplacement', reach: 'Accès', far: 'Éloignée des autres : remplacer sur le terrain seulement si inaccessible, et noter la raison', param: 'Paramètre', value: 'Valeur', round: 'Cycle', stratum: 'Strate', drawn_by: 'Tiré par', drawn_at: 'Date/heure du tirage (UTC)', record_id: 'Identifiant', seed: 'Graine', frame_sha: 'SHA-256 de la base', frame_source: 'Source de la base', fetched_at: 'Base chargée le (UTC)', c_total: 'Points d’eau du groupe MadAvance', c_pass: 'Avec un résultat SDWS 3 conforme', c_eligible: 'Sources éligibles dans la strate', target: 'Échantillons PoU visés', sources: 'Sources à sélectionner', m: 'Ménages par source', n: 'Échantillons PoU prévus', pass_rate: 'Taux de conformité attendu', icc: 'ICC', deff: 'Effet de plan', neff: 'Taille effective', nreq: 'Taille requise (90/10)', check: 'Vérification du plan', check_ok: 'CONFORME', check_fail: 'NON CONFORME', tool: 'Outil', protocol: 'Méthodologie' },
+    btn_pdf: 'Enregistrement d’échantillonnage (PDF)', p_stratum_loaded: 'Strate (chargée dans l’onglet Données)', repro_line: 'Graine {seed} ; la même graine et la même liste de points d’eau reproduisent ce tirage.', adv_title: 'Avancé : vérification statistique', btn_xlsx: 'Sélection (Excel)', xlsx_err: 'Bibliothèque Excel non chargée (une visite en ligne est nécessaire).', data_stratum: 'Strate à utiliser',
     tab_data: '1 Données', tab_params: '2 Paramètres', tab_results: '3 Tirage', tab_map: '4 Carte', tab_sheet: '5 Fiche terrain', tab_how: 'Fonctionnement',
     data_title: 'Charger les points d’eau', data_privacy: 'Tout se passe dans votre navigateur. Aucun fichier ne quitte cet appareil.',
     data_wp_label: 'CSV des points d’eau (export mWater)', data_wp_cols: 'Colonnes requises : water_point_id, name, stratum, commune, fokontany, village, lat, lon, households_served, status',
@@ -693,8 +717,8 @@ const I18N = {
     p_icc: 'Corrélation intra-grappe (ICC)', p_pass: 'Taux de conformité attendu', p_conf: 'Confiance', p_prec: 'Précision (10 %)', prec_rel: 'Relative au taux attendu (CDM)', prec_abs: 'Absolue (±10 points)',
     btn_draw: 'Tirer l’échantillon', preview: 'Sources éligibles : {n} dans {c} communes. Sources à sélectionner : {w} + {r} remplacements = {t}.',
     err_nodata: 'Chargez d’abord les points d’eau.', err_noeligible: 'Aucun point d’eau actif dans cette strate (ou aucun à l’intérieur d’un axe).',
-    res_empty: 'Pas encore de tirage. Chargez les données et fixez les paramètres.', res_title: 'Résultat du tirage', btn_csv: 'Exporter CSV (mWater)', btn_json: 'Exporter l’audit JSON', btn_print: 'Imprimer la fiche terrain',
-    res_clusters: 'Grappes', res_points: 'Points d’eau sélectionnés', res_points_hint: 'Saisissez K (ménages desservis par la source, comptés le jour même) pour générer les numéros de ménages : le k-ième ménage en marchant depuis la source.', res_audit: 'Enregistrement d’audit',
+    res_empty: 'Pas encore de tirage. Chargez les données et fixez les paramètres.', res_title: 'Résultat du tirage', btn_print: 'Imprimer la fiche terrain',
+    res_clusters: 'Grappes', res_points: 'Points d’eau sélectionnés', res_points_hint: 'Saisissez K (ménages desservis par la source, comptés le jour même) pour générer les numéros de ménages : le k-ième ménage en marchant depuis la source.',
     st_nwp: 'Points d’eau', st_nact: 'Échantillons PoU prévus', st_deff: 'Effet de plan', st_neff: 'n effectif', st_nreq: 'n requis ({c} % / {p} %)', st_rep: 'Points de remplacement',
     check_ok: 'Taille effective {ne} ≥ requise {nr} : le plan respecte la règle {c}/{p} pour un taux de conformité attendu de {pr}.',
     check_fail: 'Taille effective {ne} < requise {nr}. Le plan NE respecte PAS la règle {c}/{p}.',
@@ -729,8 +753,8 @@ const I18N = {
 <p>Une source sélectionnée à plus de 25 km de toute autre source sélectionnée et de la ville du district est marquée en orange sur la carte et dans les listes : ne la remplacer sur le terrain que si elle est inaccessible, et noter la raison.</p>
 <h3>Vérification statistique</h3>
 <p>Les ménages d’un même point d’eau sont corrélés. L’effet de plan est <code>DEFF = 1 + (m − 1) × ICC</code> avec m ménages par point et ICC = 0,1 par défaut (modifiable). La taille effective est <code>n / DEFF</code>. La taille requise pour une proportion au taux attendu p suit la règle 90/10 du MDP : <code>n = z² p(1 − p) / d²</code> avec z = 1,645 pour 90 % de confiance et d = 10 % de p (précision relative, défaut MDP) ou 0,10 en absolu. Si la taille effective est insuffisante, l’outil propose moins de ménages par point (donc plus de points et de grappes) ou plus de points d’eau.</p>
-<h3>Enregistrement d’audit</h3>
-<p>Chaque tirage écrit un enregistrement JSON : horodatage, graine, algorithme, noms et empreintes SHA-256 des fichiers, paramètres, base, grappes retenues, points d’eau, remplacements et ménages ou règle terrain. Il est affiché, exporté en JSON et constitue la preuve de sélection aléatoire conservée pour l’organisme de validation et vérification (VVB).</p>
+<h3>Enregistrement et données</h3>
+<p>L’<b>enregistrement d’échantillonnage (PDF)</b> est la preuve de sélection aléatoire conservée pour l’organisme de validation et vérification (VVB) : il décrit la méthode, la base, la graine, la vérification du plan et la sélection, porte la graine et l’empreinte de la base en pied de page, et contient l’audit complet lisible par machine en fichier joint. Le fichier <b>sélection (Excel)</b> contient les mêmes sources, remplacements et paramètres sous forme de données pour l’équipe. Aucun des deux ne contient de coordonnées.</p>
 <h3>Carte</h3>
 <p>La carte montre les sources sélectionnées numérotées dans l’ordre du tirage et les remplacements (R1, R2, …) en gris, avec les mêmes numéros dans la liste des étapes à côté.</p>
 <h3>Hors ligne</h3>
@@ -795,6 +819,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     const sel = $('p-stratum'); const cur = sel.value;
     sel.innerHTML = strata.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
     if (strata.includes(cur)) sel.value = cur;
+    const ds = $('data-stratum'); ds.innerHTML = sel.innerHTML; ds.value = sel.value; $('data-stratum-wrap').classList.toggle('hidden', strata.length < 2);
     updateSeed();
   }
   $('file-wp').onchange = async e => { const f = e.target.files[0]; if (!f) return; await loadWp(await readFile(f), f.name, { source: 'csv' }); setSource('csv'); renderData(); renderPreview(); renderBacklog(); updateSteps(); };
@@ -855,7 +880,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
       const counts = Object.assign({}, r.counts, { fetched: points.length, active: points.filter(p => p.status === 'active').length });
       const mwMeta = Object.assign({}, r.source, { fetched_at: r.fetchedAt, stratum_filter: stratum || null, forms_used: r.formsUsed, sdws3_responses: r.sdws3Responses, counts, frame_rule: Core.FRAME_RULE_TEXT.en });
       await loadWp(frameCsv, 'mwater:' + Core.MWATER.entityType + (stratum ? ':' + stratum : '') + '@' + r.fetchedAt, { source: 'mwater', fetchedAt: r.fetchedAt, counts, mwater: mwMeta });
-      if (stratum) { $('p-stratum').value = stratum; seedTouched = false; updateSeed(); }
+      if (stratum) { $('p-stratum').value = stratum; $('data-stratum').value = stratum; updateSeed(); }
       out.innerHTML = `<div class="msg ok">${t('mw_done', { n: counts.fetched, a: counts.active, t: r.fetchedAt })}</div><button class="btn" type="button" onclick="document.getElementById('btn-next-params').click()">${t('next_params')}</button>` + (warns.length ? `<div class="msg warn">${esc(t('mw_warn', { w: warns.join('; ') }))}</div>` : '');
       renderData(); renderPreview(); renderBacklog(); updateSteps();
     } catch (e) { out.innerHTML = `<div class="msg err">${esc(t('mw_err', { e: e.message }))}</div>`; }
@@ -889,17 +914,16 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   $('btn-next-sheet').onclick = () => showTab('sheet');
 
   /* ---------- parameters ---------- */
-  let seedTouched = false;
-  function updateSeed() { if (!seedTouched) $('p-seed').value = ($('p-round').value.replace(/\s+/g, '') || 'round') + '-' + ($('p-stratum').value || 'stratum'); }
-  $('p-seed').oninput = () => { seedTouched = $('p-seed').value.trim() !== ''; };
-  ['p-round', 'p-stratum'].forEach(id => $(id).addEventListener('input', () => { seedTouched = false; updateSeed(); renderPreview(); if (id === 'p-stratum') renderBacklog(); }));
-  ['p-target', 'p-hh', 'p-repfrac', 'p-icc', 'p-pass', 'p-conf', 'p-prectype'].forEach(id => $(id).addEventListener('input', renderPreview));
+  function computedSeed() { return ($('p-round').value.replace(/\s+/g, '') || 'round') + '-' + ($('p-stratum').value || 'stratum'); }
+  function updateSeed() { $('p-stratum-text').textContent = $('p-stratum').value || '—'; $('p-repro').textContent = t('repro_line', { seed: computedSeed() }); }
+  ['p-round', 'p-stratum', 'data-stratum'].forEach(id => $(id).addEventListener('input', () => { if (id === 'data-stratum') $('p-stratum').value = $('data-stratum').value; updateSeed(); renderPreview(); renderBacklog(); }));
+  ['p-target', 'p-hh', 'p-icc', 'p-pass', 'p-conf', 'p-prectype'].forEach(id => $(id).addEventListener('input', renderPreview));
   $('p-drawn-by').addEventListener('input', () => LS.set('drawnBy', $('p-drawn-by').value));
   function readParams() {
     const num = (id, d) => { const v = parseFloat($(id).value); return isNaN(v) ? d : v; };
     return {
       roundName: $('p-round').value.trim(), stratum: $('p-stratum').value, drawnBy: $('p-drawn-by').value.trim(), method: 'pps_households', target: Math.max(1, Math.round(num('p-target', 58))), hhPerPoint: Math.max(1, Math.round(num('p-hh', 5))),
-      replacementFraction: Math.min(1, Math.max(0, num('p-repfrac', 20) / 100)), hhReplacements: 2, seed: $('p-seed').value.trim() || 'seed',
+      replacementFraction: 0.2, hhReplacements: 2, seed: computedSeed(),
       icc: Math.min(1, Math.max(0, num('p-icc', 0.1))), expectedPass: Math.min(0.99, Math.max(0.01, num('p-pass', 0.95))), confidence: $('p-conf').value, precision: 0.10, precisionType: $('p-prectype').value,
       wpFileName: state.wp && state.wp.name, wpFileHash: state.wp && state.wp.hash,
       source: (state.wp && state.wp.source) || 'csv', mwater: state.wp && state.wp.source === 'mwater' ? state.wp.mwater : null
@@ -963,7 +987,6 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     const row = (w, rep) => `<tr class="${rep ? 'rep' : ''}"><td>${rep ? 'R' + w.order : w.order}${far.has(w.water_point_id) ? ' <span class="pill" style="background:#fff4e5;color:#b45309" title="' + esc(t('reach_far')) + '">⚠</span>' : ''}</td><td><b>${esc(w.water_point_id)}</b><br><small>${esc(w.name)}${w.households_served ? ' · ' + w.households_served + ' hh' : ''}</small></td><td>${esc(w.cluster)}<br><small>${esc(w.fokontany)} / ${esc(w.village)}</small></td><td>${hhCell(w)}</td></tr>`;
     $('res-points').innerHTML = `<table><tr><th>${t('col_order')}</th><th>${t('col_id')}</th><th>${t('col_cluster')}</th><th>${t('col_hh')}</th></tr>` + r.selected.map(w => row(w, false)).join('') + r.replacements.map(w => row(w, true)).join('') + '</table>';
     $('res-points').querySelectorAll('input[data-k]').forEach(inp => inp.addEventListener('change', () => { const v = parseInt(inp.value, 10); if (v > 0) state.kValues[inp.dataset.k] = v; else delete state.kValues[inp.dataset.k]; LS.set('k', state.kValues); renderResults(); renderSheet(); }));
-    $('res-audit').textContent = Core.auditJson(r, auditExtra());
   }
   function auditExtra() {
     const ex = {};
@@ -975,26 +998,24 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     const blob = new Blob([content], { type }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
   const fname = ext => `sanitap-${(state.result.params.roundName || 'round').replace(/\s+/g, '')}-${state.result.params.stratum}-${ext}`;
-  $('btn-csv').onclick = () => { if (state.result) download(fname('selection.csv'), Core.toCsv(state.result, state.kValues), 'text/csv'); };
-  $('btn-json').onclick = () => { if (state.result) download(fname('audit.json'), Core.auditJson(state.result, auditExtra()), 'application/json'); };
   $('btn-pdf').onclick = async () => {
     if (!state.result) return; const msg = $('res-export-msg'); msg.innerHTML = '';
     if (typeof PDFLib === 'undefined') { msg.innerHTML = `<div class="msg err">${t('pdf_err')}</div>`; return; }
     if (!state.result.audit.drawn_by) { msg.innerHTML = `<div class="msg warn">${t('pdf_need_by')}</div>`; }
     try {
       const auditText = Core.auditJson(state.result, auditExtra()); const auditSha = await Core.sha256(auditText);
-      const bytes = await Core.buildSamplingRecordPdf({ PDFLib, audit: JSON.parse(auditText), auditSha, lang: state.lang, url: Core.APP_URL, kValues: state.kValues });
+      const bytes = await Core.buildSamplingRecordPdf({ PDFLib, audit: JSON.parse(auditText), auditText, auditSha, lang: state.lang, url: Core.APP_URL, kValues: state.kValues });
       state.lastRecord = { auditSha, recordId: state.result.audit.record_id }; LS.set('lastRecord', state.lastRecord);
-      download(fname('record.pdf'), bytes, 'application/pdf'); download(fname('audit.json'), auditText, 'application/json'); download(fname('selection.csv'), Core.toCsv(state.result, state.kValues), 'text/csv');
+      download(fname('record.pdf'), bytes, 'application/pdf');
       msg.innerHTML = `<div class="msg ok">${esc(state.result.audit.record_id)} · ${t('sha')} ${auditSha}</div>`;
     } catch (e) { msg.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   };
-  $('btn-mwcsv').onclick = () => {
-    if (!state.result) return; const r = state.result, p = r.params;
-    const rows = [['code', 'name', 'round', 'stratum', 'role', 'order', 'seed', 'drawn_at']];
-    r.selected.forEach(w => rows.push([w.water_point_id, w.name, p.roundName, p.stratum, 'selected', w.order, p.seed, r.audit.timestamp]));
-    r.replacements.forEach(w => rows.push([w.water_point_id, w.name, p.roundName, p.stratum, 'replacement', 'R' + w.order, p.seed, r.audit.timestamp]));
-    download(fname('mwater-sites.csv'), rows.map(x => x.map(Core.csvEscape).join(',')).join('\r\n') + '\r\n', 'text/csv');
+  $('btn-xlsx').onclick = () => {
+    if (!state.result) return; const msg = $('res-export-msg');
+    if (typeof XLSX === 'undefined') { msg.innerHTML = `<div class="msg err">${t('xlsx_err')}</div>`; return; }
+    const audit = JSON.parse(Core.auditJson(state.result, auditExtra()));
+    const wb = XLSX.utils.book_new(); Core.selectionWorkbook(audit, state.kValues, state.lang).forEach(sh => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sh.rows), sh.name.slice(0, 31)));
+    const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }); download(fname('selection.xlsx'), out, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   };
   $('btn-print').onclick = $('btn-print2').onclick = () => { showTab('sheet'); setTimeout(() => window.print(), 100); };
 
@@ -1088,7 +1109,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   const last = LS.get('last', null);
   if (last && state.points.length) {
     $('p-round').value = last.roundName; $('p-stratum').value = last.stratum; $('p-target').value = last.target; $('p-hh').value = last.hhPerPoint;
-    $('p-repfrac').value = Math.round(last.replacementFraction * 100); $('p-seed').value = last.seed; seedTouched = true; $('p-drawn-by').value = last.drawnBy || '';
+    $('p-drawn-by').value = last.drawnBy || ''; $('data-stratum').value = last.stratum; updateSeed();
     $('p-icc').value = last.icc; $('p-pass').value = last.expectedPass; $('p-conf').value = last.confidence; $('p-prectype').value = last.precisionType;
     runDraw(last, false);
   }
