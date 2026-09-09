@@ -495,12 +495,17 @@ const Core = (function () {
     if (!r.ok) throw new Error('mWater HTTP ' + r.status + ' on /' + path);
     return r.json();
   }
+  // The API has no stable sort, so limit/skip pages beyond the first can overlap or skip rows. Fetch in one large page (5000 rows fits every
+  // programme collection) and only fall back to skip-paging, with a warning, if a page comes back full. Duplicates are removed by _id.
   async function mwaterPages(path, filter, fields, token, onProgress, fetchImpl, size) {
-    size = size || 200; const out = [];
+    size = size || 5000; const out = []; const seen = new Set();
     for (let skip = 0; ; skip += size) {
       const page = await mwaterGet(path, { filter: JSON.stringify(filter), fields: JSON.stringify(fields), limit: String(size), skip: String(skip) }, token, fetchImpl);
       if (!Array.isArray(page)) throw new Error('mWater: unexpected reply on /' + path);
-      out.push.apply(out, page); if (onProgress) onProgress(path, out.length); if (page.length < size) break;
+      page.forEach(r => { const id = r._id || JSON.stringify(r); if (!seen.has(id)) { seen.add(id); out.push(r); } });
+      if (onProgress) onProgress(path, out.length);
+      if (page.length < size) break;
+      if (onProgress) onProgress('warn', path + ': more than ' + size + ' rows, paging without a stable sort');
     }
     return out;
   }
@@ -513,16 +518,16 @@ const Core = (function () {
   // Full frame load: entities of the programme group, admin regions for rows without admin_div fields, households served, latest functional status, SDWS 3 results
   async function mwaterLoadFrame(token, opts) {
     const o = opts || {}; const prog = o.onProgress || function () {}; const F = o.fetchImpl; const cfg = MWATER.forms; const used = [];
-    const entities = await mwaterPages('entities/' + MWATER.entityType, { _managed_by: MWATER.group }, MWATER.entityFields, token, prog, F, 100);
+    const entities = await mwaterPages('entities/' + MWATER.entityType, { _managed_by: MWATER.group }, MWATER.entityFields, token, prog, F);
     const missing = [...new Set(entities.filter(e => !e.admin_div2 && e.admin_region).map(e => e.admin_region))];
     const regionsById = {};
     if (missing.length) { const regs = await mwaterGet('admin_regions', { filter: JSON.stringify({ _id: { $in: missing } }), fields: JSON.stringify({ _id: 1, full_name: 1 }), limit: String(missing.length) }, token, F); regs.forEach(r => { regionsById[r._id] = r; }); }
     const sd = cfg.sdws3; const sdFields = { ['data.' + sd.wpQ]: 1, ['data.' + sd.dateQ]: 1, submittedOn: 1, status: 1 }; sd.params.forEach(pm => { sdFields['data.' + pm.q] = 1; });
-    const sdResp = await mwaterPages('responses', { form: sd.id, status: 'final' }, sdFields, token, prog, F, 500); used.push(sd.id);
+    const sdResp = await mwaterPages('responses', { form: sd.id, status: 'final' }, sdFields, token, prog, F); used.push(sd.id);
     const passing = sdws3PassingPoints(sdResp, sd);
     let roofs = {}, latest = {};
-    try { const rr = await mwaterPages('responses', { form: cfg.beneficiaries.id, status: 'final' }, { ['data.' + cfg.beneficiaries.wpQ]: 1, ['data.' + cfg.beneficiaries.roofsQ]: 1, submittedOn: 1, status: 1 }, token, prog, F, 500); roofs = mwaterRoofs(rr, cfg.beneficiaries); used.push(cfg.beneficiaries.id); } catch (e) { prog('warn', 'beneficiaries: ' + e.message); }
-    try { const m = cfg.maintenance; const rr = await mwaterPages('responses', { form: m.id, status: 'final' }, { ['data.' + m.wpQ]: 1, ['data.' + m.statusQ]: 1, ['data.' + m.status2Q]: 1, ['data.' + m.pumpQ]: 1, submittedOn: 1, status: 1 }, token, prog, F, 500); latest = mwaterLatestStatus(rr, m); used.push(m.id); } catch (e) { prog('warn', 'maintenance: ' + e.message); }
+    try { const rr = await mwaterPages('responses', { form: cfg.beneficiaries.id, status: 'final' }, { ['data.' + cfg.beneficiaries.wpQ]: 1, ['data.' + cfg.beneficiaries.roofsQ]: 1, submittedOn: 1, status: 1 }, token, prog, F); roofs = mwaterRoofs(rr, cfg.beneficiaries); used.push(cfg.beneficiaries.id); } catch (e) { prog('warn', 'beneficiaries: ' + e.message); }
+    try { const m = cfg.maintenance; const rr = await mwaterPages('responses', { form: m.id, status: 'final' }, { ['data.' + m.wpQ]: 1, ['data.' + m.statusQ]: 1, ['data.' + m.status2Q]: 1, ['data.' + m.pumpQ]: 1, submittedOn: 1, status: 1 }, token, prog, F); latest = mwaterLatestStatus(rr, m); used.push(m.id); } catch (e) { prog('warn', 'maintenance: ' + e.message); }
     const mapped = mapMwaterEntities(entities, { roofs, latest, regionsById, passing });
     return { fetchedAt: new Date().toISOString(), points: mapped.points, counts: mapped.counts, frameCsv: frameToCsv(mapped.points), formsUsed: used, sdws3Responses: sdResp.length, source: { api: MWATER.api, group: MWATER.group, entity_type: MWATER.entityType } };
   }
