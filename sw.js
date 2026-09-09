@@ -24,6 +24,7 @@ self.addEventListener('message', ev => { const d = ev.data || {}; if (d.type ===
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
+  if (url.origin === location.origin && url.pathname.endsWith('/reset.html')) return; // always from the network
   if (url.hostname.endsWith('openstreetmap.org')) return; // tiles: network only, never cached
   if (url.hostname === 'api.mwater.co') return; // mWater API: network only, never cached (URLs carry the client token)
   // index.html and app.js: network first so a new deploy is picked up, cache fallback offline

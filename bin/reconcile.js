@@ -30,7 +30,7 @@ const namePattern = n => /identifi/i.test(n || '') ? 'identifié' : /drilling|pr
   // first_seen: earliest response referencing the point in any programme form that links water points (server-computed "entities" field)
   const forms = (await C.mwaterPages('forms', {}, { 'design.name': 1, state: 1, _entity_types: 1, deployments: 1 }, token, prog)).filter(f => f.state !== 'deleted' && (f._entity_types || []).includes('water_point') && (/^(Clean Water|Eau potable|MadAvance|SaniTap)/i.test(loc(f.design && f.design.name)) || /dauphin|maroantsetra|tolagnaro|marolinta/i.test(JSON.stringify(f.deployments || []))));
   const firstSeen = {}; let refs = 0;
-  for (const f of forms) { let rr = []; try { rr = await C.mwaterPages('responses', { form: f._id }, { entities: 1, submittedOn: 1, status: 1 }, token, prog); } catch (e) { warns.push(loc(f.design.name).slice(0, 40) + ': ' + e.message); }
+  for (const f of forms) { let rr = []; try { rr = await C.mwaterPages('responses', { form: f._id }, { entities: 1, submittedOn: 1, status: 1 }, token, prog, null, 20000); } catch (e) { warns.push(loc(f.design.name).slice(0, 40) + ': ' + e.message); }
     rr.forEach(x => (x.entities || []).forEach(e => { if (e.entityType !== 'water_point' || !e.value) return; refs++; const when = day(x.submittedOn); if (when && (!firstSeen[e.value] || when < firstSeen[e.value])) firstSeen[e.value] = when; })); }
   // rows
   const Y = b => b ? 'Y' : 'N';
@@ -48,6 +48,23 @@ const namePattern = n => /identifi/i.test(n || '') ? 'identifié' : /drilling|pr
     else { status = 'other'; note = tested && !passing ? 'tested, failing: ' + p.sdws3_failing : passing && !hasRehab ? 'passing SDWS 3, no rehabilitation record' : passing && p.status !== 'active' ? 'passing but ' + p.status_reason : !hasRecords && !tested ? 'no records' : 'unclassified'; }
     return { id: p.water_point_id, alt_id: p.alt_id || '', name: ent.name || '', pump_type_maintenance: st.pump || '', name_pattern: pat, district, commune: p.commune, stratum: p.stratum, status: p.status, status_reason: p.status_reason, sdws3_tested: Y(tested), last_test_date: p.sdws3_last_test, passes_health_rule: Y(passing), failing_parameters: passing ? '' : p.sdws3_failing, eligible: Y(p.status === 'active'), installation_date: rehab[p.water_point_id] || '', has_rehab_record: Y(hasRehab), last_maintenance_visit: day(st.last_visit), households_served: roofs !== undefined ? Math.round(roofs) : '', first_seen: firstSeen[p.water_point_id] || '', status_for_crediting: status, crediting_note: note };
   });
+  // probable duplicate register entries in Marolinta: entries of different series (Aug-2025 assessment, Jun-2026 registration, "Drilling" placeholders) within 50 m in the same commune
+  const series = x => /drilling/i.test(x.name || '') ? 'drilling' : /^2025-08-2/.test(x.first_seen) ? 'assessment-2025-08' : /^2026-06-1/.test(x.first_seen) ? 'registration-2026-06' : '';
+  const pairs = []; const dupOf = {};
+  const mar = rows.filter(x => /marolinta/i.test(x.commune || '') || (x.district === 'Beloha' && !x.commune)).map(x => Object.assign({ series: series(x), ent: entByCode[x.id] || {} }, x));
+  for (let i = 0; i < mar.length; i++) for (let j = i + 1; j < mar.length; j++) {
+    const a = mar[i], b = mar[j]; if (!a.series || !b.series || a.series === b.series) continue;
+    const la = a.ent.location && a.ent.location.coordinates, lb = b.ent.location && b.ent.location.coordinates; if (!la || !lb) continue;
+    const d = C.haversineKm({ lat: la[1], lon: la[0] }, { lat: lb[1], lon: lb[0] }) * 1000;
+    if (d <= 50) { pairs.push([a.id, b.id, Math.round(d), a.series + ' "' + a.name + '"', b.series + ' "' + b.name + '"']); (dupOf[a.id] = dupOf[a.id] || []).push(b.id); (dupOf[b.id] = dupOf[b.id] || []).push(a.id); }
+  }
+  // Marolinta register entries are not all pumps: classify them
+  const marClass = x => { if (x.has_rehab_record === 'Y' || x.installation_date) return 'rehabilitated'; if (/forage|forrage|drilling|nouveau|noveau/i.test(x.name || '') && /^2026/.test(x.first_seen)) return 'new borehole'; if (/^2025-08/.test(x.first_seen) && x.has_rehab_record !== 'Y') return 'assessment'; return 'other'; };
+  const marIds = new Set(mar.map(m => m.id));
+  rows.forEach(x => { x.marolinta_class = marIds.has(x.id) ? marClass(x) : ''; x.register_series = marIds.has(x.id) ? series(x) : ''; x.duplicate_candidate = dupOf[x.id] ? 'Y' : 'N'; x.duplicate_pair_ids = (dupOf[x.id] || []).join(';'); });
+  const marCounts = {}; rows.filter(x => x.marolinta_class).forEach(x => { marCounts[x.marolinta_class] = (marCounts[x.marolinta_class] || 0) + 1; });
+  const marPumps = (marCounts['rehabilitated'] || 0) + (marCounts['new borehole'] || 0);
+  const marLine = 'Marolinta (Beloha): ' + marPumps + ' programme pumps (rehabilitated ' + (marCounts['rehabilitated'] || 0) + ' + new boreholes ' + (marCounts['new borehole'] || 0) + ') among ' + mar.length + ' register entries, outside the carbon frame; ' + (marCounts['assessment'] || 0) + ' assessment entries (Aug 2025) and ' + (marCounts['other'] || 0) + ' other.';
   const header = Object.keys(rows[0]);
   let out = args.out; if (!out) { const win = '/mnt/c/Users/bushp/Downloads'; out = path.join(fs.existsSync(win) ? win : path.join(os.homedir(), 'Downloads'), 'sdws3_reconciliation.csv'); }
   fs.mkdirSync(path.dirname(out), { recursive: true });
@@ -63,7 +80,10 @@ const namePattern = n => /identifi/i.test(n || '') ? 'identifié' : /drilling|pr
   const untested = rows.filter(x => x.status_for_crediting === 'operating-untested').sort((a, b) => a.district.localeCompare(b.district) || a.commune.localeCompare(b.commune) || a.id.localeCompare(b.id));
   const ut = [['id', 'alt_id', 'name', 'district', 'commune', 'last_maintenance_visit', 'households_served', 'records']].concat(untested.map(x => [x.id, x.alt_id, x.name, x.district, x.commune, x.last_maintenance_visit, x.households_served, x.crediting_note]));
   console.log('\noperating-untested (' + untested.length + '):'); console.log(pad(ut));
+  const ms = {}; mar.forEach(m => { ms[m.series || '(other)'] = (ms[m.series || '(other)'] || 0) + 1; });
+  console.log('\n' + marLine + '\nMarolinta by class ' + JSON.stringify(marCounts) + ' | by series ' + JSON.stringify(ms) + ' | duplicate candidates ' + Object.keys(dupOf).length + ' entries in ' + pairs.length + ' pairs (<= 50 m, different series):');
+  pairs.sort((a, b) => a[2] - b[2]).forEach(p => console.log('  ' + p[0] + ' <-> ' + p[1] + '  ' + p[2] + ' m  ' + p[3] + ' / ' + p[4]));
   console.log('\nfetched ' + r.fetchedAt + ' | entities ' + r.entities.length + ' | SDWS 3 final results ' + r.sdws3Responses + ' | rehab records for ' + Object.keys(rehab).length + ' points | forms scanned for first_seen ' + forms.length + ' (' + refs + ' references)' + (warns.length ? ' | warnings: ' + warns.join('; ') : ''));
   console.log('written ' + out + ' (' + rows.length + ' rows, no coordinates)');
-  if (args.md) { const md = t => '| ' + t[0].join(' | ') + ' |\n|' + t[0].map(() => '---').join('|') + '|\n' + t.slice(1).map(l => '| ' + l.join(' | ') + ' |').join('\n'); fs.writeFileSync(args.md, '_Generated ' + r.fetchedAt.slice(0, 10) + ' by `bin/reconcile.js` from ' + r.entities.length + ' water points of the MadAvance group, ' + r.sdws3Responses + ' final SDWS 3 results, rehabilitation records for ' + Object.keys(rehab).length + ' points._\n\n**Per district × crediting status**\n\n' + md(table) + '\n\n"Other" breakdown: ' + Object.entries(otherNotes).map(([k, v]) => k + ' ' + v).join('; ') + '.\n\n**Operating but untested (' + untested.length + ')**\n\n' + md(ut) + '\n'); }
+  if (args.md) { const md = t => '| ' + t[0].join(' | ') + ' |\n|' + t[0].map(() => '---').join('|') + '|\n' + t.slice(1).map(l => '| ' + l.join(' | ') + ' |').join('\n'); fs.writeFileSync(args.md, '_Generated ' + r.fetchedAt.slice(0, 10) + ' by `bin/reconcile.js` from ' + r.entities.length + ' water points of the MadAvance group, ' + r.sdws3Responses + ' final SDWS 3 results, rehabilitation records for ' + Object.keys(rehab).length + ' points._\n\n**Per district × crediting status**\n\n' + md(table) + '\n\n"Other" breakdown: ' + Object.entries(otherNotes).map(([k, v]) => k + ' ' + v).join('; ') + '.\n\n' + marLine + ' Probable duplicate register entries (different series within 50 m): ' + Object.keys(dupOf).length + ' entries in ' + pairs.length + ' pairs, flagged in `duplicate_candidate`.\n\n**Operating but untested (' + untested.length + ')**\n\n' + md(ut) + '\n'); }
 })().catch(e => { console.error('ERROR ' + e.message); process.exit(1); });

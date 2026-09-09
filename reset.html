@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SaniTap Sampler — reset</title>
+<style>body{font:16px system-ui,sans-serif;padding:2rem;color:#111}b{color:#0b5e8a}</style></head>
+<body><p><b>SaniTap Sampler</b> — resetting: removing the cached copy and the service worker, keeping your mWater token and settings…</p>
+<script>
+// This page is never cached by any version of the service worker, so it works even when an old worker still serves the cached app.
+(async () => {
+  const log = []; const note = m => { log.push(m); try { sessionStorage.setItem('sanitap.reset.log', log.join(' | ')); } catch (e) {} };
+  try { if (navigator.serviceWorker) { const regs = await navigator.serviceWorker.getRegistrations(); const res = await Promise.all(regs.map(r => r.unregister())); note('unregistered ' + res.filter(Boolean).length + '/' + regs.length + (navigator.serviceWorker.controller ? ' (page still controlled)' : '')); } } catch (e) { note('unregister failed: ' + e.message); }
+  try { if (window.caches) { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); note('caches deleted ' + keys.length); } } catch (e) { note('cache delete failed: ' + e.message); }
+  // refresh the browser HTTP cache too (GitHub Pages serves with max-age=600): fetch the shell files from the network, bypassing any worker
+  try { const rs = await Promise.all(['./', './app.js', './sw.js'].map(u => fetch(u, { cache: 'reload' }).then(r => u + ':' + r.status + (r.headers.get('etag') ? '' : '') ).catch(e => u + ':err'))); note('refetched ' + rs.join(' ')); } catch (e) { note('refetch failed: ' + e.message); }
+  note('done at ' + new Date().toISOString());
+  location.replace('./');
+})();
+</script></body></html>

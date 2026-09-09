@@ -21,14 +21,14 @@ test('SDWS 3 health-based pass rule: E. coli, arsenic, fluoride required; nitrat
 });
 
 test('frame rule: pass, abandoned, Marolinta, unassigned, per-stratum counts, in that order', () => {
-  const ents = [ent({ code: '1' }), ent({ code: '2', name: "Point d'eau abondonné" }), ent({ code: '3', admin_div2: 'Beloha', admin_div3: 'Marolinta' }), ent({ code: '4', admin_div2: 'Betroka' }), ent({ code: '5' }), ent({ code: '6', admin_div2: 'Maroantsetra' }), ent({ code: '7', admin_div2: '', admin_region: 9 })];
-  const passing = C.sdws3PassingPoints(['1', '2', '3', '4', '6', '7'].map(c => good(c)), SD);
+  const ents = [ent({ code: '1' }), ent({ code: '2', name: "Point d'eau abondonné" }), ent({ code: '3', admin_div2: 'Beloha', admin_div3: 'Marolinta' }), ent({ code: '4', admin_div2: 'Betroka' }), ent({ code: '5' }), ent({ code: '6', admin_div2: 'Maroantsetra' }), ent({ code: '7', admin_div2: '', admin_region: 9 }), ent({ code: '8', admin_div2: 'Amboasary-Atsimo', admin_div3: 'Ifotaka' })];
+  const passing = C.sdws3PassingPoints(['1', '2', '3', '4', '6', '7', '8'].map(c => good(c)), SD);
   const latest = C.mwaterLatestStatus([resp({ [M.forms.maintenance.wpQ]: site('1'), [M.forms.maintenance.statusQ]: { value: 'asVbMu3' } })], M.forms.maintenance);
   const m = C.mapMwaterEntities(ents, { passing, latest, regionsById: { 9: { full_name: 'F, C, Maroantsetra, Analanjirofo, Madagascar' } } });
-  assert.deepEqual(m.counts, { total_in_group: 7, sdws3_pass_count: 6, excluded_no_pass: 1, excluded_abandoned: 1, excluded_marolinta: 1, unassigned: 1, eligible: 3, eligible_by_stratum: { 'HP-FD': 1, 'HP-MA': 2 } });
+  assert.deepEqual(m.counts, { total_in_group: 8, sdws3_pass_count: 7, excluded_no_pass: 1, excluded_abandoned: 1, excluded_marolinta: 1, unassigned: 1, eligible: 4, eligible_by_stratum: { 'HP-FD': 2, 'HP-MA': 2 } });
   const by = Object.fromEntries(m.points.map(p => [p.water_point_id, p]));
-  assert.equal(by['5'].status_reason, 'no_passing_sdws3_result'); assert.match(by['2'].status_reason, /^abandoned:/); assert.equal(by['3'].status_reason, 'excluded_district:Beloha'); assert.equal(by['4'].stratum, 'unassigned'); assert.equal(by['7'].stratum, 'HP-MA'); assert.equal(by['1'].status, 'active'); assert.equal(by['1'].sdws3_passes, 1); assert.equal(by['1'].alt_id, '01');
-  const csv = C.frameToCsv(m.points); const n = C.normaliseWaterPoints(C.parseCsv(csv).records); assert.equal(n.errors.length, 0); assert.equal(n.points.filter(p => p.active).length, 3);
+  assert.equal(by['5'].status_reason, 'no_passing_sdws3_result'); assert.match(by['2'].status_reason, /^abandoned:/); assert.equal(by['3'].status_reason, 'excluded_district:Beloha'); assert.equal(by['4'].stratum, 'unassigned'); assert.equal(by['8'].stratum, 'HP-FD'); assert.equal(by['8'].status, 'active'); assert.equal(by['7'].stratum, 'HP-MA'); assert.equal(by['1'].status, 'active'); assert.equal(by['1'].sdws3_passes, 1); assert.equal(by['1'].alt_id, '01');
+  const csv = C.frameToCsv(m.points); const n = C.normaliseWaterPoints(C.parseCsv(csv).records); assert.equal(n.errors.length, 0); assert.equal(n.points.filter(p => p.active).length, 4);
 });
 
 test('systematic PPS: proportional hits, certainty selection, no duplicates, reproducible', () => {
@@ -50,7 +50,7 @@ test('draw (pps_households): field rule only, communes covered, audit carries st
   assert.equal(a.selected.length, 12); assert.equal(a.replacements.length, 3); assert.equal(a.stats.deff, 1.4);
   assert.ok(a.selected.every(w => w.households.mode === 'rule')); assert.equal(new Set(a.selected.concat(a.replacements).map(w => w.water_point_id)).size, 15);
   assert.equal(a.audit.stage1.method, 'pps_households'); assert.equal(a.audit.stage1.imputed_count, 1); assert.ok(a.audit.stage1.interval > 0); assert.ok(a.audit.selected_clusters.length >= 3);
-  assert.equal(a.audit.record_id, '2026R1-HP-FD-2026R1-HP-FD'); assert.equal(a.audit.drawn_by, 'Tester'); assert.equal(a.audit.parameters.method, 'pps_households');
+  assert.equal(a.audit.record_id, '2026R1-HP-FD-2026R1-HP-FD'); assert.equal(a.audit.drawn_by, 'Tester'); assert.equal(a.audit.protocol_version, C.PROTOCOL_VERSION); assert.match(a.audit.methodology, /Protocol v2\.2 section 6\.4/); assert.equal(a.audit.parameters.method, 'pps_households');
   assert.equal(JSON.stringify(a.audit), JSON.stringify(b.audit)); assert.ok(!C.auditJson(a).includes('SECRET-TOKEN')); assert.ok(!C.toCsv(a).includes('SECRET-TOKEN'));
   assert.equal(a.selected.every(w => w.commune === w.cluster), true);
   const c = C.draw(Object.assign({}, base, { method: 'commune_clusters', clusterMode: 'commune', nClusters: null }), pts, []); assert.equal(c.audit.stage1.method, 'commune_clusters'); assert.equal(c.selected.length, 12);

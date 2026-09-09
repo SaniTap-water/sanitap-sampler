@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0b5e8a">
 <title>SaniTap Sampler</title>
+<script>
+// ?reset=1 — before anything else: drop every service worker and cache (keeps localStorage, i.e. the mWater token and settings), then reload the plain URL
+if (/(^|[?&])reset=1(&|$)/.test(location.search)) {
+  (async () => {
+    try { if (navigator.serviceWorker) { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r => r.unregister())); } } catch (e) {}
+    try { if (window.caches) { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } } catch (e) {}
+  // refresh the browser HTTP cache too (GitHub Pages serves with max-age=600): fetch the shell files from the network
+  try { await Promise.all(['./', './index.html', './app.js', './sw.js'].map(u => fetch(u, { cache: 'reload' }).catch(() => null))); } catch (e) {}
+    location.replace(location.pathname);
+  })();
+  document.documentElement.innerHTML = '<body style="font-family:system-ui;padding:2rem">Resetting SaniTap Sampler…</body>';
+}
+</script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="">
 <style>
 :root{--blue:#0b5e8a;--blue-d:#08466a;--grey:#6b7280;--bg:#f4f6f8;--card:#fff;--line:#d9dee3;--ok:#157347;--warn:#b45309;--err:#b91c1c;--fs:16px}
@@ -262,6 +275,6 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
 <footer>SaniTap Sampler · Gold Standard SDWS v2.0 · <span data-i18n="foot">open source, no data leaves the device</span></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin=""></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js" crossorigin=""></script>
-<script src="app.js"></script>
+<script src="app.js?v=__GIT_COMMIT__"></script>
 </body>
 </html>
