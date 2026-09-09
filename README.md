@@ -131,13 +131,61 @@ There is no write-back from the tool to mWater. The link from mWater to a sampli
 
 **Published record files carry no coordinates.** The sampling record PDF, the audit JSON and the selection CSV contain identifiers, pump names, communes, households served and k-values only. The field sheet (with GPS positions) and the map are downloads for the field team and are never filed; the frame CSV is kept in the private archive (`bin/file-round.js --frame` verifies its hash without publishing it). The test suite fails if any file under `records/` contains a latitude/longitude field.
 
-## SDWS 3 reconciliation
+## Reconciliation
 
 ```bash
 node bin/reconcile.js --env ~/mwater-mcp/.env        # or MWATER_TOKEN / MWATER_USERNAME+MWATER_PASSWORD in the environment
 ```
 
-Writes `~/Downloads/sdws3_reconciliation.csv` with one row per water point of the MadAvance group (id, alt_id, pump, district, commune, status, tested Y/N, last test date, passes the health rule Y/N, failing parameters, eligible Y/N, stratum, exclusion reason; no coordinates) and prints a per-district summary (total, tested, untested, passing, eligible, failures per parameter). Nothing is written to the repository.
+Writes `sdws3_reconciliation.csv` to the Windows Downloads folder (`/mnt/c/Users/bushp/Downloads`, else `~/Downloads`) with one row per water point of the MadAvance group and no coordinates: id, alt_id, registered pump name, pump type from maintenance, name pattern (identifié / drilling / abandonné / normal), district, commune, stratum, eligibility status and reason, SDWS 3 tested (Y/N), last test date, passes the health rule (Y/N), failing parameters, eligible (Y/N), installation date (earliest end-of-works date of a rehabilitation record), rehabilitation record (Y/N, from the maintenance form's *Première réhabilitation* records and the *Suivi avancement nouveau forage et réhabilitation* form; no form is named SDWS 2), last maintenance visit, households served (*Nombre de toits*), first seen (earliest response referencing the point in any programme form that links water points), and `status_for_crediting`:
+
+| Status | Rule |
+|---|---|
+| `outside-carbon` | district Beloha or Amboasary |
+| `abandoned` | name "abondonné" or latest maintenance record not functional |
+| `credited-eligible` | rehabilitation record and a passing SDWS 3 result (and eligible) |
+| `operating-untested` | rehabilitation record, maintenance visit or beneficiaries count, but no SDWS 3 result |
+| `not-yet-built` | name "identifié" or "drilling" and no records |
+| `other` | anything else; `crediting_note` says why (tested but failing, passing without rehabilitation record, no records) |
+
+_Generated 2026-09-09 by `bin/reconcile.js` from 908 water points of the MadAvance group, 732 final SDWS 3 results, rehabilitation records for 784 points._
+
+**Per district × crediting status**
+
+| district | total | credited-eligible | operating-untested | not-yet-built | abandoned | outside-carbon | other |
+|---|---|---|---|---|---|---|---|
+| (none) | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
+| Amboasary-Atsimo | 1 | 0 | 0 | 0 | 0 | 1 | 0 |
+| Ampanihy Ouest | 1 | 0 | 0 | 1 | 0 | 0 | 0 |
+| Antananarivo Renivohitra | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
+| Beloha | 91 | 0 | 0 | 0 | 0 | 91 | 0 |
+| Maroantsetra | 636 | 599 | 9 | 0 | 14 | 0 | 14 |
+| Moramanga | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
+| Taolagnaro | 176 | 124 | 7 | 0 | 40 | 0 | 5 |
+| TOTAL | 908 | 723 | 16 | 1 | 54 | 92 | 22 |
+
+"Other" breakdown: no records 15; passing SDWS 3, no rehabilitation record 4; tested, failing 3.
+
+**Operating but untested (16)**
+
+| id | alt_id | name | district | commune | last_maintenance_visit | households_served | records |
+|---|---|---|---|---|---|---|---|
+| 847071188 |  | Point d'eau identifié | Maroantsetra | Andranofotsy | 2025-05-30 |  | maintenance |
+| 841871296 |  | Point d'eau identifié | Maroantsetra | Anjanazana | 2025-05-30 |  | maintenance |
+| 846562715 |  | Point d'eau identifié | Maroantsetra | Anjanazana | 2025-05-30 |  | maintenance |
+| 905251482 | N/A | Pompe aspirante  | Maroantsetra | Anjanazana | 2025-05-30 |  | maintenance |
+| 905251499 |  | Canzee | Maroantsetra | Anjanazana | 2025-05-30 |  | maintenance |
+| 833033404 |  | Point d'eau identifié | Maroantsetra | Ankofabe | 2025-05-30 |  | maintenance |
+| 833033411 |  | Point d'eau identifié | Maroantsetra | Ankofabe | 2025-05-30 |  | maintenance |
+| 833066068 |  | IndiaMark | Maroantsetra | Maroantsetra | 2025-05-29 |  | maintenance |
+| 835481092 |  | Canzee | Maroantsetra | Maroantsetra | 2025-05-29 |  | maintenance |
+| 987623074 |  | Canzee | Taolagnaro |  | 2025-08-22 |  | maintenance |
+| 742895223 |  | Canzee | Taolagnaro | Mahatalaky | 2024-05-30 |  | rehab+maintenance |
+| 742895357 |  | Canzee | Taolagnaro | Mahatalaky | 2024-06-01 |  | rehab+maintenance |
+| 742895364 |  | Canzee | Taolagnaro | Mahatalaky | 2024-06-01 |  | rehab+maintenance |
+| 742895388 |  | Canzee | Taolagnaro | Mahatalaky | 2024-06-01 |  | rehab+maintenance |
+| 742895711 |  | Canzee | Taolagnaro | Manantenina | 2025-01-17 |  | rehab+maintenance |
+| 742895113 |  | Canzee | Taolagnaro | Ranopiso | 2025-04-27 |  | rehab+maintenance |
 
 ## Deployment
 
