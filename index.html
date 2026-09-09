@@ -70,6 +70,9 @@ tr.rep td{color:var(--grey);background:#fafafa}
 .num-icon.far{background:#e07b00}
 .commune-label{font:600 .75rem system-ui,sans-serif;color:#0b5e8a;background:rgba(255,255,255,.75);padding:0 .3rem;border-radius:4px;text-align:center;white-space:nowrap;pointer-events:none}
 tr.far td{background:#fff4e5}
+.legend{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;margin:.5rem 0;font-size:.9rem}.legend>span{display:inline-flex;align-items:center;gap:.4rem}.legend .num-icon{flex:0 0 auto;width:24px;height:24px;line-height:20px;font-size:.75rem}
+.rep-badge{background:#9aa3ad;color:#fff}
+.sheet .legend{font-size:9.5pt;margin:.3rem 0}.sheet .legend .num-icon{box-shadow:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 pre.audit{background:#0f172a;color:#d7e3f4;padding:.7rem;border-radius:8px;font-size:.75rem;overflow:auto;max-height:50vh}
 .kinput{width:5.5rem;min-height:36px;padding:.3rem}
 .howto p,.howto li{font-size:.95rem}
@@ -243,9 +246,11 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
       <button class="btn small secondary" id="btn-fit" type="button" data-i18n="map_fit">Fit</button>
       <label style="display:inline-flex;align-items:center;gap:.3rem;margin:0"><span data-i18n="map_show">Show on map</span> <select id="map-mode" style="width:auto"><option value="draw" data-i18n="map_show_draw">the draw</option><option value="backlog" data-i18n="tab_backlog">Test A backlog</option></select></label>
     </div>
+    <div id="map-legend-top"></div>
     <div id="map-msg" class="muted"></div>
   </div>
   <div id="map"></div>
+  <div class="card" id="map-legend-bottom"></div>
   <div class="card" id="map-list"></div>
   <div class="card"><div class="btnrow"><button class="btn" id="btn-next-sheet" type="button" data-i18n="next_sheet">Next: field sheet</button></div></div>
 </section>
