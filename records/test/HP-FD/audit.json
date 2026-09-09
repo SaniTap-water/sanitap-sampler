@@ -1,0 +1,509 @@
+{
+  "tool": "SaniTap Sampler",
+  "version": "1.3.0",
+  "commit": "7a84817",
+  "methodology": "Gold Standard SDWS v2.0; SaniTap Water Quality Testing Protocol v2.1 section 6.4",
+  "record_id": "2026R1-HP-FD-2026R1-HP-FD",
+  "timestamp": "2026-09-09T08:55:38.278Z",
+  "drawn_by": "Adriaan Mol (SaniTap) — test draw via SaniTap Sampler CLI",
+  "seed": "2026R1-HP-FD",
+  "seed_word_uint32": 3423278703,
+  "algorithm": "seed string -> xmur3 32-bit hash -> mulberry32 PRNG (v1.2.0); stage 1: systematic PPS of sources proportional to households served, frame ordered by commune then water_point_id, one random start, certainty selection for sources larger than the interval; replacements: sequential PPS without replacement in random order; stage 2: households by the field rule (k-th household walking clockwise from the source), numbers from mulberry32 seeded with seed|water_point_id|K",
+  "input": {
+    "source": "mwater",
+    "water_points_file": "mwater:water_point:HP-FD@2026-09-09T08:55:38.233Z",
+    "water_points_sha256": "de62c0b1ae0b11946bcfefbdc2e03b61a1fbeb0372db41d1b8b9664574443f0e",
+    "frame_rule": "A source is eligible when it belongs to the MadAvance water point register (mWater group group:aaaf0a14e4ce44eaa7a2bcfd1c74aa56), has at least one final water quality result in the form \"Clean Water || Water Quality Testing_SDWS 3_Result\" that meets the health-based rule (E. coli = 0 CFU/100 mL, arsenic <= 10 µg/L, fluoride <= 1.5 mg/L, and, where measured, nitrate <= 50 mg/L and manganese <= 0.08 mg/L; pH, conductivity, turbidity and iron are recorded but do not exclude), is not abandoned, identified-only, proposed, reported not functional in its latest maintenance record or of a non-hand-pump type, and lies in a district mapped to a stratum (Taolagnaro -> HP-FD, Maroantsetra -> HP-MA); the Marolinta area (Beloha and Amboasary districts) is excluded and any other district is unassigned.",
+    "mwater": {
+      "api": "https://api.mwater.co/v3",
+      "group": "group:aaaf0a14e4ce44eaa7a2bcfd1c74aa56",
+      "entity_type": "water_point",
+      "fetched_at": "2026-09-09T08:55:38.233Z",
+      "stratum_filter": "HP-FD",
+      "forms_used": [
+        "7b33c5d7e5074808a94915939a5a0783",
+        "8aa2dd78eb1f460f8f43db7935955846",
+        "86cf66efdd3749dd8a121314bab3675a"
+      ],
+      "sdws3_responses": 732,
+      "counts": {
+        "total_in_group": 908,
+        "sdws3_pass_count": 728,
+        "excluded_no_pass": 180,
+        "excluded_abandoned": 1,
+        "excluded_marolinta": 0,
+        "unassigned": 0,
+        "eligible": 727,
+        "eligible_by_stratum": {
+          "HP-FD": 126,
+          "HP-MA": 601
+        },
+        "fetched": 176,
+        "active": 126
+      },
+      "frame_rule": "A source is eligible when it belongs to the MadAvance water point register (mWater group group:aaaf0a14e4ce44eaa7a2bcfd1c74aa56), has at least one final water quality result in the form \"Clean Water || Water Quality Testing_SDWS 3_Result\" that meets the health-based rule (E. coli = 0 CFU/100 mL, arsenic <= 10 µg/L, fluoride <= 1.5 mg/L, and, where measured, nitrate <= 50 mg/L and manganese <= 0.08 mg/L; pH, conductivity, turbidity and iron are recorded but do not exclude), is not abandoned, identified-only, proposed, reported not functional in its latest maintenance record or of a non-hand-pump type, and lies in a district mapped to a stratum (Taolagnaro -> HP-FD, Maroantsetra -> HP-MA); the Marolinta area (Beloha and Amboasary districts) is excluded and any other district is unassigned."
+    },
+    "axes": null
+  },
+  "parameters": {
+    "round": "2026 R1",
+    "stratum": "HP-FD",
+    "method": "pps_households",
+    "target_samples": 58,
+    "households_per_point": 5,
+    "household_replacements": 2,
+    "cluster_mode": null,
+    "clusters_requested": null,
+    "clusters_auto": null,
+    "clusters_selected": null,
+    "replacement_fraction": 0.2,
+    "icc": 0.1,
+    "expected_pass_rate": 0.95,
+    "confidence": "0.90",
+    "precision": 0.1,
+    "precision_type": "relative"
+  },
+  "frame": {
+    "eligible_points": 126,
+    "clusters": [
+      {
+        "name": "Ampasy Nahampoana",
+        "size": 4,
+        "households": 1235,
+        "selected": 1
+      },
+      {
+        "name": "Analapatsy",
+        "size": 5,
+        "households": 2282,
+        "selected": 1
+      },
+      {
+        "name": "Ankaramena",
+        "size": 6,
+        "households": 1619,
+        "selected": 1
+      },
+      {
+        "name": "Fort-Dauphin",
+        "size": 1,
+        "households": 447,
+        "selected": 1
+      },
+      {
+        "name": "Iaboakoho",
+        "size": 2,
+        "households": 109,
+        "selected": 0
+      },
+      {
+        "name": "Ifarantsa",
+        "size": 23,
+        "households": 1536,
+        "selected": 1
+      },
+      {
+        "name": "Isaka-Ivondro",
+        "size": 7,
+        "households": 979,
+        "selected": 0
+      },
+      {
+        "name": "Mahatalaky",
+        "size": 16,
+        "households": 1653,
+        "selected": 1
+      },
+      {
+        "name": "Manambaro",
+        "size": 13,
+        "households": 2251,
+        "selected": 2
+      },
+      {
+        "name": "Manantenina",
+        "size": 11,
+        "households": 1210,
+        "selected": 1
+      },
+      {
+        "name": "Mandiso",
+        "size": 8,
+        "households": 941,
+        "selected": 0
+      },
+      {
+        "name": "Ranopiso",
+        "size": 11,
+        "households": 1905,
+        "selected": 2
+      },
+      {
+        "name": "Soanierana",
+        "size": 19,
+        "households": 2070,
+        "selected": 1
+      }
+    ],
+    "unassigned": []
+  },
+  "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 126,
+    "total_households": 18237,
+    "imputed_weight": 95,
+    "imputed_count": 2,
+    "interval": 1519.75,
+    "random_start": 934.424,
+    "certainty_selections": 0,
+    "communes_covered": 10,
+    "communes_in_frame": 13
+  },
+  "statistics": {
+    "m": 5,
+    "icc": 0.1,
+    "deff": 1.4,
+    "nWp": 12,
+    "nActual": 60,
+    "nEff": 42.9,
+    "z": 1.6449,
+    "expectedPass": 0.95,
+    "precision": 0.1,
+    "precisionType": "relative",
+    "d": 0.095,
+    "nReq": 15,
+    "pass": true,
+    "suggestions": []
+  },
+  "selected_clusters": [
+    {
+      "name": "Ampasy Nahampoana",
+      "size": 4,
+      "households": 1235,
+      "selected": 1,
+      "order": 1
+    },
+    {
+      "name": "Analapatsy",
+      "size": 5,
+      "households": 2282,
+      "selected": 1,
+      "order": 2
+    },
+    {
+      "name": "Ankaramena",
+      "size": 6,
+      "households": 1619,
+      "selected": 1,
+      "order": 3
+    },
+    {
+      "name": "Fort-Dauphin",
+      "size": 1,
+      "households": 447,
+      "selected": 1,
+      "order": 4
+    },
+    {
+      "name": "Ifarantsa",
+      "size": 23,
+      "households": 1536,
+      "selected": 1,
+      "order": 5
+    },
+    {
+      "name": "Mahatalaky",
+      "size": 16,
+      "households": 1653,
+      "selected": 1,
+      "order": 6
+    },
+    {
+      "name": "Manambaro",
+      "size": 13,
+      "households": 2251,
+      "selected": 2,
+      "order": 7
+    },
+    {
+      "name": "Manantenina",
+      "size": 11,
+      "households": 1210,
+      "selected": 1,
+      "order": 8
+    },
+    {
+      "name": "Ranopiso",
+      "size": 11,
+      "households": 1905,
+      "selected": 2,
+      "order": 9
+    },
+    {
+      "name": "Soanierana",
+      "size": 19,
+      "households": 2070,
+      "selected": 1,
+      "order": 10
+    }
+  ],
+  "water_points": [
+    {
+      "order": 1,
+      "water_point_id": "742895168",
+      "name": "IndiaMark 131",
+      "cluster": "Ampasy Nahampoana",
+      "commune": "Ampasy Nahampoana",
+      "households_served": 386,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 386,
+      "hit": 934.424,
+      "cum_from": 849,
+      "cum_to": 1235
+    },
+    {
+      "order": 2,
+      "water_point_id": "742895120",
+      "name": "Canzee 127",
+      "cluster": "Analapatsy",
+      "commune": "Analapatsy",
+      "households_served": 805,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 805,
+      "hit": 2454.174,
+      "cum_from": 2317,
+      "cum_to": 3122
+    },
+    {
+      "order": 3,
+      "water_point_id": "742894772",
+      "name": "IndiaMark 94",
+      "cluster": "Ankaramena",
+      "commune": "Ankaramena",
+      "households_served": 832,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 832,
+      "hit": 3973.924,
+      "cum_from": 3923,
+      "cum_to": 4755
+    },
+    {
+      "order": 4,
+      "water_point_id": "742893805",
+      "name": "Canzee 1",
+      "cluster": "Fort-Dauphin",
+      "commune": "Fort-Dauphin",
+      "households_served": 447,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 447,
+      "hit": 5493.674,
+      "cum_from": 5136,
+      "cum_to": 5583
+    },
+    {
+      "order": 5,
+      "water_point_id": "742894442",
+      "name": "IndiaMark 61",
+      "cluster": "Ifarantsa",
+      "commune": "Ifarantsa",
+      "households_served": 33,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 33,
+      "hit": 7013.424,
+      "cum_from": 7000,
+      "cum_to": 7033
+    },
+    {
+      "order": 6,
+      "water_point_id": "742895182",
+      "name": "IndiaMark 133",
+      "cluster": "Mahatalaky",
+      "commune": "Mahatalaky",
+      "households_served": 82,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 82,
+      "hit": 8533.174,
+      "cum_from": 8471,
+      "cum_to": 8553
+    },
+    {
+      "order": 7,
+      "water_point_id": "742894552",
+      "name": "IndiaMark 72",
+      "cluster": "Manambaro",
+      "commune": "Manambaro",
+      "households_served": 67,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 67,
+      "hit": 10052.924,
+      "cum_from": 10032,
+      "cum_to": 10099
+    },
+    {
+      "order": 8,
+      "water_point_id": "742894662",
+      "name": "Canzee",
+      "cluster": "Manambaro",
+      "commune": "Manambaro",
+      "households_served": 765,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 765,
+      "hit": 11572.674,
+      "cum_from": 11047,
+      "cum_to": 11812
+    },
+    {
+      "order": 9,
+      "water_point_id": "742895814",
+      "name": "Canzee 158",
+      "cluster": "Manantenina",
+      "commune": "Manantenina",
+      "households_served": 228,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 228,
+      "hit": 13092.424,
+      "cum_from": 13032,
+      "cum_to": 13260
+    },
+    {
+      "order": 10,
+      "water_point_id": "742894820",
+      "name": "IndiaMark",
+      "cluster": "Ranopiso",
+      "commune": "Ranopiso",
+      "households_served": 238,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 238,
+      "hit": 14612.174,
+      "cum_from": 14522,
+      "cum_to": 14760
+    },
+    {
+      "order": 11,
+      "water_point_id": "742894930",
+      "name": "IndiaMark 110",
+      "cluster": "Ranopiso",
+      "commune": "Ranopiso",
+      "households_served": 273,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 273,
+      "hit": 16131.924,
+      "cum_from": 15894,
+      "cum_to": 16167
+    },
+    {
+      "order": 12,
+      "water_point_id": "742894150",
+      "name": "Canzee 31",
+      "cluster": "Soanierana",
+      "commune": "Soanierana",
+      "households_served": 502,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 502,
+      "hit": 17651.674,
+      "cum_from": 17509,
+      "cum_to": 18011
+    }
+  ],
+  "replacements": [
+    {
+      "order": 1,
+      "water_point_id": "742895742",
+      "name": "Canzee 156",
+      "cluster": "Manantenina",
+      "commune": "Manantenina",
+      "households_served": 232,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 232
+    },
+    {
+      "order": 2,
+      "water_point_id": "742894693",
+      "name": "IndiaMark 86",
+      "cluster": "Soanierana",
+      "commune": "Soanierana",
+      "households_served": 120,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 120
+    },
+    {
+      "order": 3,
+      "water_point_id": "670401763",
+      "name": "Canzee",
+      "cluster": "Mahatalaky",
+      "commune": "Mahatalaky",
+      "households_served": 168,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 168
+    }
+  ],
+  "field_rule": "Count the households served (K), number them clockwise from the source starting at the nearest; draw N=5 numbers (+2 replacements) from 1..K with mulberry32 seeded by seed|water_point_id|K=K",
+  "warnings": [
+    {
+      "code": "imputed_weights",
+      "n": 2,
+      "value": 95
+    }
+  ]
+}
