@@ -19,7 +19,7 @@ docs/protocol-annex.md         one-page annex for the SaniTap Water Quality Test
 ## Quick start
 
 1. Open the app (GitHub Pages URL below, or just open `index.html` locally / serve the folder with `python3 -m http.server`).
-2. **1 Data** — load the mWater water point CSV (and optionally the household CSV), or press *Load sample data*.
+2. **1 Data** — default source is **mWater (live)**: open *mWater connection*, sign in (or paste a token), choose the stratum and press *Fetch from mWater*. Fallback: switch to **CSV file (offline)** and load the water point CSV (and optionally a household CSV), or press *Load sample data*.
 3. **2 Parameters** — pick the stratum, check the defaults, note the seed, press *Draw the sample*.
 4. **3 Draw** — read the statistical check, the selected points and the audit record; export CSV and JSON.
 5. **4 Map** — set a start point to get the visiting order; optionally draw custom axis clusters.
@@ -28,6 +28,26 @@ docs/protocol-annex.md         one-page annex for the SaniTap Water Quality Test
 Language toggle (EN/FR) is in the header; every label lives in the `I18N` object in `app.js`.
 
 ## Inputs
+
+### Source A — mWater (default)
+
+The frame is fetched in the browser from the mWater API (`https://api.mwater.co/v3`, CORS is open) and mapped to the sampler columns by `Core.mapMwaterEntities()`:
+
+| Sampler column | mWater origin |
+|---|---|
+| `water_point_id` | entity `code` (the id used in every mWater form and the site list) |
+| `name` | `name` (pump model: Canzee, IndiaMark, …) + `alt_id` (pump number) |
+| `stratum` | district: `admin_div2`, or the admin-region hierarchy when the entity has no `admin_div` fields → `FD` Taolagnaro/Fort-Dauphin, `MA` Maroantsetra, `BE` Beloha, `AM` Amboasary-Atsimo (table `MWATER.strata` in `app.js`) |
+| `commune`, `fokontany`, `village` | `admin_div3`, `admin_div4`, `admin_div5` (or the admin-region hierarchy) |
+| `lat`, `lon` | `location.coordinates` |
+| `households_served` | latest "Nombre de toits" in the *Nombre de bénéficiaires* form |
+| `status` | `active` unless the name marks an abandoned/identified/proposal point, the latest final *Première réhabilitation / Entretien / Réparation* record says *Non fonctionnel*, or the type is kiosk/dug well. The reason is kept in `status_reason`. |
+
+Water points belong to the MadAvance operator group and are **private**, so a token is required. Registered households are taken from the survey responses that link a household code to a water point code (*Baseline Cbn&Gender*, *Project Cbn&Gender*, *Hygiene&San*); points without such links use the field rule. The fetched frame is serialised to CSV, hashed with SHA-256 and stored exactly like an uploaded CSV, so the audit record and the reproducibility guarantee are identical for both sources (`input.source` is `mwater` or `csv`). *Download loaded frame* gives the VVB the exact CSV that was hashed.
+
+**Token handling.** Sign-in posts username/password once to `/v3/clients` and keeps only the returned client id; the password is never stored. The token lives in this browser's `localStorage`, is shown masked, travels only as the `?client=` query parameter, is never logged and never written to any export or audit record. The service worker never caches `api.mwater.co`. Nothing in this repository contains a credential: `MWATER` in `app.js` holds only identifiers (group id, form ids, question ids).
+
+### Source B — CSV (offline fallback)
 
 **Water points CSV** (mWater export), one row per point, columns:
 `water_point_id, name, stratum, commune, fokontany, village, lat, lon, households_served, status`
@@ -63,6 +83,7 @@ Implemented in `Core.draw()` in `app.js`; also shown in the app under *How it wo
 - **Field sheet** (print stylesheet): one page per water point with the household list or the field rule (K box, generated numbers), PoC sample and boundary-condition checklist (spout disinfection, PoC sample, container disinfection), spaces for times, sample IDs and signature. Replacement points are marked.
 - **CSV for mWater**: `round, stratum, cluster, water_point_id, order, household_id_or_rule, replacement_flag` — one row per household (or per point when only the rule applies). `replacement_flag` ∈ `none`, `household`, `water_point`, `water_point+household`.
 - **Audit JSON** as described above.
+- **mWater site list (CSV)**: `code, name, round, stratum, role, order, seed, drawn_at` — one row per selected and replacement point, keyed by the mWater entity code. mWater has no entity property for a monitoring round, so this file is not imported into the site register directly: import it into mWater as a *custom table* (Data → Tables → Import CSV) or attach it to the round's dashboard, and reference it from the monitoring report. Writing a round mark onto the entity itself would need a new custom property on `water_point`; the API route for that is `PATCH /v3/entities/water_point?client=…` with `{doc, base}` (same protocol as forms), which the tool does not use.
 
 ## Offline and storage
 
@@ -70,9 +91,15 @@ After the first load `sw.js` caches the app shell and the Leaflet files from cdn
 
 ## Real data
 
-SaniTap water points come from mWater (entity type `water_point`, managed by the SaniTap group). Exports of real coordinates go in `data/real/`, which is git-ignored and never published. The entities carry no status field in mWater, so the export marks typed boreholes as `active` and untyped points as `unknown` (excluded by the stratum filter); stratum `FD` is the Taolagnaro district (mWater admin region 170887), commune and fokontany come from the admin region hierarchy.
+The programme frame is the MadAvance group in mWater (about 900 private `water_point` entities and the household entities created by the surveys). A second group named SaniTap holds 286 `LR-…` points that no form references; they are not the monitoring frame. Exports of real coordinates go in `data/real/`, which is git-ignored and never published.
 
 ## Testing
+
+Mapper and audit tests (Node 18+, no dependencies):
+
+```bash
+node --test test/mapper.test.js
+```
 
 Core logic runs in Node without a browser:
 

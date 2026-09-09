@@ -57,6 +57,8 @@ pre.audit{background:#0f172a;color:#d7e3f4;padding:.7rem;border-radius:8px;font-
 .pill{display:inline-block;padding:.1rem .5rem;border-radius:999px;background:#eef2f5;font-size:.8rem;margin-right:.3rem}
 footer{text-align:center;color:var(--grey);font-size:.8rem;padding:1rem}
 .hidden{display:none!important}
+details summary{list-style:none;display:inline-flex;cursor:pointer}details summary::-webkit-details-marker{display:none}
+#src-toggle label{cursor:pointer}#src-toggle input{margin:0 .3rem 0 0}#src-toggle label:has(input:checked){background:var(--blue);color:#fff}
 /* ---------- field sheet ---------- */
 .sheet{background:#fff;color:#000;font-size:11pt;padding:1rem;border:1px solid var(--line);border-radius:10px;margin-bottom:1rem;page-break-after:always;break-after:page}
 .sheet:last-child{page-break-after:auto;break-after:auto}
@@ -101,18 +103,46 @@ footer{text-align:center;color:var(--grey);font-size:.8rem;padding:1rem}
   <div class="card">
     <h2 data-i18n="data_title">Load water points</h2>
     <p class="muted" data-i18n="data_privacy">Everything runs in your browser. No file leaves this device.</p>
+    <div class="btnrow" id="src-toggle">
+      <label class="btn small secondary" style="margin:0"><input type="radio" name="src" value="mwater" checked> <span data-i18n="src_mwater">mWater (live)</span></label>
+      <label class="btn small secondary" style="margin:0"><input type="radio" name="src" value="csv"> <span data-i18n="src_csv">CSV file (offline)</span></label>
+    </div>
+    <div id="src-mwater">
+      <div id="mw-conn" class="muted" style="margin:.5rem 0"></div>
+      <details id="mw-settings">
+        <summary class="btn small secondary" data-i18n="mw_settings">mWater connection</summary>
+        <div class="grid">
+          <div><label data-i18n="mw_user">mWater username or email</label><input type="text" id="mw-user" autocomplete="username"></div>
+          <div><label><span data-i18n="mw_pass">Password</span> <small data-i18n="mw_pass_hint">(used once to obtain a token; never stored)</small></label><input type="password" id="mw-pass" autocomplete="current-password"></div>
+        </div>
+        <button class="btn small" id="btn-mw-login" type="button" data-i18n="mw_login">Sign in</button>
+        <label data-i18n="mw_token">…or paste an API token (client id)</label>
+        <input type="password" id="mw-token" autocomplete="off" inputmode="text">
+        <div class="btnrow"><button class="btn small secondary" id="btn-mw-save" type="button" data-i18n="mw_save">Save token</button><button class="btn small danger" id="btn-mw-forget" type="button" data-i18n="mw_forget">Forget token</button></div>
+        <p class="muted" data-i18n="mw_token_hint">The token stays in this browser's local storage only, is shown masked, never logged and never included in exports.</p>
+      </details>
+      <div class="grid">
+        <div><label data-i18n="mw_stratum">Stratum to load</label><select id="mw-stratum"></select></div>
+        <div><label>&nbsp;</label><label style="font-weight:400"><input type="checkbox" id="mw-hh" checked> <span data-i18n="mw_hh">Also fetch registered households (survey links)</span></label></div>
+      </div>
+      <button class="btn" id="btn-mw-fetch" type="button" data-i18n="mw_fetch">Fetch from mWater</button>
+      <div id="mw-progress" class="muted"></div>
+    </div>
+    <div id="src-csv" class="hidden">
     <label data-i18n="data_wp_label">Water points CSV (mWater export)</label>
     <input type="file" id="file-wp" accept=".csv,text/csv">
     <p class="muted" data-i18n="data_wp_cols">Required columns: water_point_id, name, stratum, commune, fokontany, village, lat, lon, households_served, status</p>
     <label data-i18n="data_hh_label">Households CSV (optional)</label>
     <input type="file" id="file-hh" accept=".csv,text/csv">
     <p class="muted" data-i18n="data_hh_cols">Columns: household_id, water_point_id, name_or_code, lat, lon</p>
+    </div>
     <div class="btnrow">
       <button class="btn secondary" id="btn-sample" type="button" data-i18n="data_sample">Load sample data</button>
       <button class="btn secondary danger" id="btn-clear" type="button" data-i18n="data_clear">Clear stored data</button>
     </div>
     <div id="data-status"></div>
     <div id="data-summary" class="tablewrap"></div>
+    <div class="btnrow"><button class="btn small secondary hidden" id="btn-frame-dl" type="button" data-i18n="data_frame_dl">Download loaded frame (CSV)</button><button class="btn small secondary hidden" id="btn-hh-dl" type="button" data-i18n="data_hh_dl">Download household list (CSV)</button></div>
   </div>
 </section>
 
@@ -159,6 +189,7 @@ footer{text-align:center;color:var(--grey);font-size:.8rem;padding:1rem}
       <div class="btnrow" style="margin-top:.6rem">
         <button class="btn" id="btn-csv" type="button" data-i18n="btn_csv">Export CSV (mWater)</button>
         <button class="btn" id="btn-json" type="button" data-i18n="btn_json">Export audit JSON</button>
+        <button class="btn secondary" id="btn-mwcsv" type="button" data-i18n="btn_mwcsv">Export mWater site list (CSV)</button>
         <button class="btn secondary" id="btn-print" type="button" data-i18n="btn_print">Print field sheet</button>
       </div>
     </div>

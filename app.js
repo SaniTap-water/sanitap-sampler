@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const ALGORITHM = 'seed string -> xmur3 32-bit hash -> mulberry32 PRNG; stage 1 sequential PPS without replacement; stage 2 & 3 simple random sampling without replacement (sequential uniform index draws)';
 
 /* =====================================================================
@@ -290,7 +290,7 @@ const Core = (function () {
       tool: 'SaniTap Sampler', version: APP_VERSION, methodology: 'Gold Standard SDWS v2.0',
       timestamp: p.timestamp || new Date().toISOString(),
       seed: p.seed, seed_word_uint32: rng.seedWord, algorithm: ALGORITHM,
-      input: { water_points_file: p.wpFileName || null, water_points_sha256: p.wpFileHash || null, households_file: p.hhFileName || null, households_sha256: p.hhFileHash || null, axes: p.clusterMode === 'axis' ? (axes || []) : null },
+      input: { source: p.source || 'csv', water_points_file: p.wpFileName || null, water_points_sha256: p.wpFileHash || null, households_file: p.hhFileName || null, households_sha256: p.hhFileHash || null, mwater: p.source === 'mwater' ? (p.mwater || null) : null, axes: p.clusterMode === 'axis' ? (axes || []) : null },
       parameters: { round: p.roundName, stratum: p.stratum, target_samples: p.target, households_per_point: hhN, household_replacements: hhR, cluster_mode: p.clusterMode, clusters_requested: p.nClusters || null, clusters_auto: autoK, clusters_selected: k, replacement_fraction: p.replacementFraction, icc: p.icc, expected_pass_rate: p.expectedPass, confidence: p.confidence, precision: p.precision, precision_type: p.precisionType },
       frame: { eligible_points: eligible.length, clusters: clusters.map(c => ({ name: c.name, size: c.size })), unassigned: unassigned.map(u => u.water_point_id) },
       statistics: st,
@@ -347,7 +347,135 @@ const Core = (function () {
     return JSON.stringify(Object.assign({}, result.audit, extra || {}), null, 2);
   }
 
-  return { xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, pointInPolygon, convexHull, nearestNeighbourRoute, sha256, sha256Sync, stats, assignClusters, defaultClusterCount, draw, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, ALGORITHM };
+
+  /* ---------- mWater (identifiers only; no credentials live in this file) ---------- */
+  const MWATER = {
+    api: 'https://api.mwater.co/v3',
+    group: 'group:aaaf0a14e4ce44eaa7a2bcfd1c74aa56', // MadAvance operator group: owner of the programme water points and households
+    entityType: 'water_point',
+    strata: {
+      FD: { label: 'Fort-Dauphin (Taolagnaro)', districts: ['Taolagnaro', 'Fort-Dauphin'] },
+      MA: { label: 'Maroantsetra', districts: ['Maroantsetra'] },
+      BE: { label: 'Beloha', districts: ['Beloha'] },
+      AM: { label: 'Amboasary-Atsimo', districts: ['Amboasary-Atsimo', 'Amboasary Sud', 'Amboasary'] }
+    },
+    forms: {
+      beneficiaries: { name: 'Clean Water || Nombre de bénéficiaires', id: '8aa2dd78eb1f460f8f43db7935955846', wpQ: 'e796e451be1243d58b547bc0f6c1d5b4', roofsQ: '00ae079e071a40349e0706c659430f9b' },
+      maintenance: { name: 'Clean Water || Première réhabilitation/Entretien préventif/Réparation', id: '86cf66efdd3749dd8a121314bab3675a', wpQ: '6b454d5e31ce4f6bb4918aca5f824d75', statusQ: 'c843c54776864de7b5b8b90825bc4c06', status2Q: '701d5b8d583145e3baab2e75a5f17ce4', pumpQ: '2ba451c8124f4d02aa76c44e6f5a88a3',
+        status: { asVbMu3: 'functional', LATrLet: 'not_functional', NScsLF7: 'functional_substandard' }, pump: { '6Txb2rB': 'Canzee', mQmlpWT: 'IndiaMark', '72yyu9B': 'other' } },
+      registration: [
+        { name: 'Baseline Cbn&Gender', id: '7312b69c4c33466a9611791197cd21bf', wpQ: '229291742afe47c9af1a25034c81dbd1', hhQ: '3794238133a142418711164fc0cad4e6' },
+        { name: 'Project Cbn&Gender', id: '2eeb86824b4545eca33db9e7cf7dcbd4', wpQ: '229291742afe47c9af1a25034c81dbd1', hhQ: '3794238133a142418711164fc0cad4e6' },
+        { name: 'Hygiene&San', id: '209cc5fc24e24463aff702c11b6bd18f', wpQ: '07e2aa4fa29b4a45b9357d67f049d2c2', hhQ: '9954412d58164a25bc9efe27cab1bae1' }
+      ]
+    },
+    inactiveNames: /ab[ao]ndonn|identifi|drilling|proposal|puits? ouvert/i,
+    entityFields: { name: 1, desc: 1, type: 1, code: 1, alt_id: 1, alt_id_org: 1, location: 1, admin_region: 1, admin_div1: 1, admin_div2: 1, admin_div3: 1, admin_div4: 1, admin_div5: 1, _private: 1, _rev: 1, _modified_on: 1 }
+  };
+  const FRAME_COLUMNS = ['water_point_id', 'name', 'stratum', 'commune', 'fokontany', 'village', 'lat', 'lon', 'households_served', 'status', 'mwater_id', 'pump', 'district', 'status_reason'];
+  // district name from an admin_regions document: full_name is "Fokontany, Commune, District, Region, Country"
+  function regionParts(reg) { const p = String((reg && reg.full_name) || '').split(',').map(x => x.trim()); const n = p.length; return { fokontany: n >= 5 ? p[n - 5] : '', commune: n >= 4 ? p[n - 4] : '', district: n >= 3 ? p[n - 3] : '' }; }
+  function mwaterStratum(district, strata) {
+    const d = String(district || '').trim().toLowerCase(); if (!d) return '';
+    for (const code in strata) if (strata[code].districts.some(x => x.toLowerCase() === d)) return code;
+    return d.replace(/\s+/g, '-').toUpperCase().slice(0, 12);
+  }
+  function mwaterLatestStatus(responses, cfg) {
+    const out = {};
+    responses.filter(r => r.status === 'final' || !r.status).slice().sort((a, b) => String(a.submittedOn || '').localeCompare(String(b.submittedOn || ''))).forEach(r => {
+      const d = r.data || {}; const code = d[cfg.wpQ] && d[cfg.wpQ].value && d[cfg.wpQ].value.code; if (!code) return;
+      const sv = (d[cfg.statusQ] && d[cfg.statusQ].value) || (d[cfg.status2Q] && d[cfg.status2Q].value); const pv = d[cfg.pumpQ] && d[cfg.pumpQ].value;
+      const cur = out[code] = out[code] || {};
+      if (sv) { cur.status = cfg.status[sv] || 'unknown'; cur.status_on = r.submittedOn; }
+      if (pv) cur.pump = cfg.pump[pv] || pv;
+      cur.last_visit = r.submittedOn;
+    });
+    return out;
+  }
+  function mwaterRoofs(responses, cfg) {
+    const out = {};
+    responses.slice().sort((a, b) => String(a.submittedOn || '').localeCompare(String(b.submittedOn || ''))).forEach(r => { const d = r.data || {}; const code = d[cfg.wpQ] && d[cfg.wpQ].value && d[cfg.wpQ].value.code; const n = d[cfg.roofsQ] && d[cfg.roofsQ].value; if (code && n !== null && n !== undefined && !isNaN(n)) out[code] = Number(n); });
+    return out;
+  }
+  // responsesByForm: [{cfg, responses}] -> { wpCode: [{household_id, source}] } (deduplicated, sorted)
+  function mwaterHouseholdLinks(responsesByForm) {
+    const map = {};
+    responsesByForm.forEach(({ cfg, responses }) => responses.forEach(r => {
+      if (r.status && r.status !== 'final') return; const d = r.data || {};
+      const w = d[cfg.wpQ] && d[cfg.wpQ].value && d[cfg.wpQ].value.code, h = d[cfg.hhQ] && d[cfg.hhQ].value && d[cfg.hhQ].value.code;
+      if (!w || !h) return; const l = map[w] = map[w] || {}; if (!l[h]) l[h] = cfg.name;
+    }));
+    const out = {}; Object.keys(map).sort().forEach(w => { out[w] = Object.keys(map[w]).sort().map(h => ({ household_id: h, source: map[w][h] })); });
+    return out;
+  }
+  // entities (mWater water_point docs) -> sampler frame rows
+  function mapMwaterEntities(entities, extras) {
+    const ex = extras || {}; const strata = ex.strata || MWATER.strata; const regions = ex.regionsById || {}; const roofs = ex.roofs || {}; const latest = ex.latest || {};
+    const points = entities.map(e => {
+      const rp = regionParts(regions[e.admin_region]);
+      const district = e.admin_div2 || rp.district || '';
+      const st = latest[e.code] || {};
+      let reason = '';
+      if (MWATER.inactiveNames.test(e.name || '')) reason = 'name:' + e.name;
+      else if (st.status === 'not_functional') reason = 'maintenance:not_functional@' + String(st.status_on || '').slice(0, 10);
+      else if (['kiosk', 'Unprotected dug well', 'Protected dug well'].includes(e.type)) reason = 'type:' + e.type;
+      const coords = (e.location && e.location.coordinates) || [];
+      return { water_point_id: String(e.code), name: [e.name, e.alt_id].filter(Boolean).join(' '), stratum: mwaterStratum(district, strata), commune: e.admin_div3 || rp.commune || '', fokontany: e.admin_div4 || rp.fokontany || '', village: e.admin_div5 || '',
+        lat: coords.length ? coords[1] : '', lon: coords.length ? coords[0] : '', households_served: roofs[e.code] !== undefined ? Math.round(roofs[e.code]) : '', status: reason ? 'inactive' : 'active', mwater_id: e._id, pump: st.pump || e.name || '', district, status_reason: reason };
+    }).sort((a, b) => a.water_point_id.localeCompare(b.water_point_id));
+    const byStratum = {}; points.forEach(p => { const b = byStratum[p.stratum || '(none)'] = byStratum[p.stratum || '(none)'] || { total: 0, active: 0 }; b.total++; if (p.status === 'active') b.active++; });
+    return { points, counts: { fetched: points.length, active: points.filter(p => p.status === 'active').length, noStratum: points.filter(p => !p.stratum).length, byStratum } };
+  }
+  function frameToCsv(points) { return [FRAME_COLUMNS].concat(points.map(p => FRAME_COLUMNS.map(c => p[c]))).map(r => r.map(csvEscape).join(',')).join('\r\n') + '\r\n'; }
+  function householdsToCsv(links, names) {
+    const rows = [['household_id', 'water_point_id', 'name_or_code', 'lat', 'lon', 'source']];
+    Object.keys(links).sort().forEach(w => links[w].forEach(h => { const e = (names || {})[h.household_id] || {}; const c = (e.location && e.location.coordinates) || []; rows.push([h.household_id, w, e.name || '', c.length ? c[1] : '', c.length ? c[0] : '', h.source]); }));
+    return rows.map(r => r.map(csvEscape).join(',')).join('\r\n') + '\r\n';
+  }
+  // --- HTTP helpers: the token only ever travels as the ?client= query parameter; errors never echo the URL ---
+  async function mwaterGet(path, params, token, fetchImpl) {
+    const u = new URL(MWATER.api + '/' + path); Object.keys(params || {}).forEach(k => u.searchParams.set(k, params[k])); if (token) u.searchParams.set('client', token);
+    const r = await (fetchImpl || fetch)(u.toString(), { headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error('mWater HTTP ' + r.status + ' on /' + path);
+    return r.json();
+  }
+  async function mwaterPages(path, filter, fields, token, onProgress, fetchImpl, size) {
+    size = size || 200; const out = [];
+    for (let skip = 0; ; skip += size) {
+      const page = await mwaterGet(path, { filter: JSON.stringify(filter), fields: JSON.stringify(fields), limit: String(size), skip: String(skip) }, token, fetchImpl);
+      if (!Array.isArray(page)) throw new Error('mWater: unexpected reply on /' + path);
+      out.push.apply(out, page); if (onProgress) onProgress(path, out.length); if (page.length < size) break;
+    }
+    return out;
+  }
+  async function mwaterLogin(username, password, fetchImpl) {
+    const r = await (fetchImpl || fetch)(MWATER.api + '/clients', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+    if (!r.ok) throw new Error('mWater login failed (HTTP ' + r.status + ')');
+    const b = await r.json(); const token = typeof b === 'string' ? b : (b.client || b.id || b._id); if (!token) throw new Error('mWater login: no client id in reply');
+    return { token, username: (typeof b === 'object' && (b.username || b.email)) || username };
+  }
+  // Full frame load: entities of the programme group, admin regions for rows without admin_div fields, households served, latest functional status, registered household links
+  async function mwaterLoadFrame(token, opts) {
+    const o = opts || {}; const prog = o.onProgress || function () {}; const F = o.fetchImpl; const cfg = MWATER.forms; const used = [];
+    const entities = await mwaterPages('entities/' + MWATER.entityType, { _managed_by: MWATER.group }, MWATER.entityFields, token, prog, F, 100);
+    const missing = [...new Set(entities.filter(e => !e.admin_div2 && e.admin_region).map(e => e.admin_region))];
+    const regionsById = {};
+    if (missing.length) { const regs = await mwaterGet('admin_regions', { filter: JSON.stringify({ _id: { $in: missing } }), fields: JSON.stringify({ _id: 1, full_name: 1 }), limit: String(missing.length) }, token, F); regs.forEach(r => { regionsById[r._id] = r; }); }
+    let roofs = {}, latest = {}, links = {}, names = {};
+    try { const rr = await mwaterPages('responses', { form: cfg.beneficiaries.id, status: 'final' }, { ['data.' + cfg.beneficiaries.wpQ]: 1, ['data.' + cfg.beneficiaries.roofsQ]: 1, submittedOn: 1, status: 1 }, token, prog, F, 500); roofs = mwaterRoofs(rr, cfg.beneficiaries); used.push(cfg.beneficiaries.id); } catch (e) { prog('warn', 'beneficiaries: ' + e.message); }
+    try { const m = cfg.maintenance; const rr = await mwaterPages('responses', { form: m.id, status: 'final' }, { ['data.' + m.wpQ]: 1, ['data.' + m.statusQ]: 1, ['data.' + m.status2Q]: 1, ['data.' + m.pumpQ]: 1, submittedOn: 1, status: 1 }, token, prog, F, 500); latest = mwaterLatestStatus(rr, m); used.push(m.id); } catch (e) { prog('warn', 'maintenance: ' + e.message); }
+    if (o.households !== false) {
+      const byForm = [];
+      for (const rc of cfg.registration) { try { const rr = await mwaterPages('responses', { form: rc.id, status: 'final' }, { ['data.' + rc.wpQ]: 1, ['data.' + rc.hhQ]: 1, status: 1 }, token, prog, F, 500); byForm.push({ cfg: rc, responses: rr }); used.push(rc.id); } catch (e) { prog('warn', rc.name + ': ' + e.message); } }
+      links = mwaterHouseholdLinks(byForm);
+      const codes = [...new Set(Object.values(links).flat().map(h => h.household_id))];
+      for (let i = 0; i < codes.length; i += 150) { try { const hs = await mwaterGet('entities/household', { filter: JSON.stringify({ code: { $in: codes.slice(i, i + 150) } }), fields: JSON.stringify({ code: 1, name: 1, location: 1 }), limit: '150' }, token, F); hs.forEach(h => { names[h.code] = h; }); } catch (e) { prog('warn', 'households: ' + e.message); } }
+    }
+    const mapped = mapMwaterEntities(entities, { roofs, latest, regionsById });
+    return { fetchedAt: new Date().toISOString(), points: mapped.points, counts: mapped.counts, frameCsv: frameToCsv(mapped.points), householdsCsv: Object.keys(links).length ? householdsToCsv(links, names) : null, householdLinks: links, formsUsed: used, source: { api: MWATER.api, group: MWATER.group, entity_type: MWATER.entityType } };
+  }
+
+  return { xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, pointInPolygon, convexHull, nearestNeighbourRoute, sha256, sha256Sync, stats, assignClusters, defaultClusterCount, draw, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, ALGORITHM, MWATER, FRAME_COLUMNS, regionParts, mwaterStratum, mwaterLatestStatus, mwaterRoofs, mwaterHouseholdLinks, mapMwaterEntities, frameToCsv, householdsToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
 
@@ -356,6 +484,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;
  * ===================================================================*/
 const I18N = {
   en: {
+    src_mwater: 'mWater (live)', src_csv: 'CSV file (offline)', mw_settings: 'mWater connection', mw_user: 'mWater username or email', mw_pass: 'Password', mw_pass_hint: '(used once to obtain a token; never stored)', mw_login: 'Sign in', mw_token: '…or paste an API token (client id)', mw_save: 'Save token', mw_forget: 'Forget token',
+    mw_token_hint: "The token stays in this browser's local storage only, is shown masked, never logged and never included in exports.", mw_stratum: 'Stratum to load', mw_all: 'All strata', mw_hh: 'Also fetch registered households (survey links)', mw_fetch: 'Fetch from mWater',
+    mw_connected: 'Token saved: {mask}{user}', mw_not_connected: 'No mWater token. Open "mWater connection" to sign in or paste a token. The programme water points are private, so a token is required.', mw_no_token: 'Sign in or paste a token first.', mw_fetching: 'Fetching {what}: {n} rows…', mw_done: 'Fetched {n} water points ({a} active) at {t}.', mw_err: 'Fetch failed: {e}. Check the connection and the token, or use the CSV source offline.', mw_login_err: 'Sign-in failed: {e}', mw_warn: 'Partial: {w}',
+    data_frame_dl: 'Download loaded frame (CSV)', data_hh_dl: 'Download household list (CSV)', data_source: 'Source', data_fetched: 'fetched', btn_mwcsv: 'Export mWater site list (CSV)',
     tab_data: '1 Data', tab_params: '2 Parameters', tab_results: '3 Draw', tab_map: '4 Map', tab_sheet: '5 Field sheet', tab_how: 'How it works',
     data_title: 'Load water points', data_privacy: 'Everything runs in your browser. No file leaves this device.',
     data_wp_label: 'Water points CSV (mWater export)', data_wp_cols: 'Required columns: water_point_id, name, stratum, commune, fokontany, village, lat, lon, households_served, status',
@@ -412,6 +544,10 @@ const I18N = {
 <p>After the first load the app shell is cached by a service worker and works offline. Map tiles are not cached. Loaded data, axes and the last draw are kept in the browser's local storage on this device only.</p>`
   },
   fr: {
+    src_mwater: 'mWater (en direct)', src_csv: 'Fichier CSV (hors ligne)', mw_settings: 'Connexion mWater', mw_user: 'Identifiant ou e-mail mWater', mw_pass: 'Mot de passe', mw_pass_hint: '(utilisé une fois pour obtenir un jeton ; jamais stocké)', mw_login: 'Se connecter', mw_token: '…ou coller un jeton API (client id)', mw_save: 'Enregistrer le jeton', mw_forget: 'Oublier le jeton',
+    mw_token_hint: 'Le jeton reste uniquement dans le stockage local de ce navigateur, est affiché masqué, jamais journalisé ni inclus dans les exports.', mw_stratum: 'Strate à charger', mw_all: 'Toutes les strates', mw_hh: 'Charger aussi les ménages enregistrés (liens des enquêtes)', mw_fetch: 'Charger depuis mWater',
+    mw_connected: 'Jeton enregistré : {mask}{user}', mw_not_connected: 'Aucun jeton mWater. Ouvrez « Connexion mWater » pour vous connecter ou coller un jeton. Les points d’eau du programme sont privés : un jeton est nécessaire.', mw_no_token: 'Connectez-vous ou collez un jeton d’abord.', mw_fetching: 'Chargement {what} : {n} lignes…', mw_done: '{n} points d’eau chargés ({a} actifs) à {t}.', mw_err: 'Échec du chargement : {e}. Vérifiez la connexion et le jeton, ou utilisez la source CSV hors ligne.', mw_login_err: 'Connexion échouée : {e}', mw_warn: 'Partiel : {w}',
+    data_frame_dl: 'Télécharger la base chargée (CSV)', data_hh_dl: 'Télécharger la liste des ménages (CSV)', data_source: 'Source', data_fetched: 'chargé', btn_mwcsv: 'Exporter la liste de sites mWater (CSV)',
     tab_data: '1 Données', tab_params: '2 Paramètres', tab_results: '3 Tirage', tab_map: '4 Carte', tab_sheet: '5 Fiche terrain', tab_how: 'Fonctionnement',
     data_title: 'Charger les points d’eau', data_privacy: 'Tout se passe dans votre navigateur. Aucun fichier ne quitte cet appareil.',
     data_wp_label: 'CSV des points d’eau (export mWater)', data_wp_cols: 'Colonnes requises : water_point_id, name, stratum, commune, fokontany, village, lat, lon, households_served, status',
@@ -475,7 +611,7 @@ const I18N = {
 if (typeof window !== 'undefined' && typeof document !== 'undefined') (function () {
   const $ = id => document.getElementById(id);
   const LS = { get(k, d) { try { const v = localStorage.getItem('sanitap.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem('sanitap.' + k, JSON.stringify(v)); } catch (e) { console.warn('localStorage', e); } }, del(k) { try { localStorage.removeItem('sanitap.' + k); } catch (e) {} } };
-  const state = { lang: LS.get('lang', (navigator.language || '').startsWith('fr') ? 'fr' : 'en'), wp: LS.get('wp', null), hh: LS.get('hh', null), points: [], hhByWp: {}, axes: LS.get('axes', []), result: null, kValues: LS.get('k', {}), start: LS.get('start', null), route: null, map: null, layers: {}, drawing: null, pickStart: false };
+  const state = { mw: LS.get('mw', null), lang: LS.get('lang', (navigator.language || '').startsWith('fr') ? 'fr' : 'en'), wp: LS.get('wp', null), hh: LS.get('hh', null), points: [], hhByWp: {}, axes: LS.get('axes', []), result: null, kValues: LS.get('k', {}), start: LS.get('start', null), route: null, map: null, layers: {}, drawing: null, pickStart: false };
   const t = (k, v) => { let s = (I18N[state.lang] && I18N[state.lang][k]) || I18N.en[k] || k; if (v) for (const x in v) s = s.split('{' + x + '}').join(v[x]); return s; };
   const esc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = (n, d) => (n === undefined || n === null || isNaN(n)) ? '' : Number(n).toFixed(d === undefined ? 1 : d);
@@ -487,7 +623,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     $('lang-toggle').textContent = state.lang === 'en' ? 'FR' : 'EN';
     $('howto').innerHTML = t('howto_html');
     $('ver').textContent = 'v' + APP_VERSION;
-    renderData(); renderPreview(); renderResults(); renderSheet(); renderAxisList(); renderRoute();
+    renderData(); renderPreview(); renderResults(); renderSheet(); renderAxisList(); renderRoute(); renderMw();
   }
   $('lang-toggle').onclick = () => { state.lang = state.lang === 'en' ? 'fr' : 'en'; LS.set('lang', state.lang); applyLang(); };
 
@@ -503,11 +639,11 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   /* ---------- data ---------- */
   const REQUIRED_WP = ['water_point_id', 'name', 'stratum', 'commune', 'fokontany', 'village', 'lat', 'lon', 'households_served', 'status'];
   function readFile(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsText(file); }); }
-  async function loadWp(text, name) {
+  async function loadWp(text, name, meta) {
     const parsed = Core.parseCsv(text);
     const missing = REQUIRED_WP.filter(c => !parsed.header.includes(c) && !(c === 'lat' && parsed.header.includes('latitude')) && !(c === 'lon' && (parsed.header.includes('longitude') || parsed.header.includes('lng'))));
     const hash = await Core.sha256(text);
-    state.wp = { name, hash, text, missing };
+    state.wp = Object.assign({ name, hash, text, missing, source: 'csv' }, meta || {});
     LS.set('wp', state.wp);
     applyWp();
   }
@@ -521,26 +657,28 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     if (strata.includes(cur)) sel.value = cur;
     updateSeed();
   }
-  async function loadHh(text, name) {
+  async function loadHh(text, name, meta) {
     const parsed = Core.parseCsv(text);
     const hash = await Core.sha256(text);
-    state.hh = { name, hash, text, missing: ['household_id', 'water_point_id'].filter(c => !parsed.header.includes(c)) };
+    state.hh = Object.assign({ name, hash, text, missing: ['household_id', 'water_point_id'].filter(c => !parsed.header.includes(c)), source: 'csv' }, meta || {});
     LS.set('hh', state.hh); applyHh();
   }
   function applyHh() { state.hhByWp = state.hh ? Core.normaliseHouseholds(Core.parseCsv(state.hh.text).records) : {}; }
-  $('file-wp').onchange = async e => { const f = e.target.files[0]; if (!f) return; await loadWp(await readFile(f), f.name); renderData(); renderPreview(); };
+  $('file-wp').onchange = async e => { const f = e.target.files[0]; if (!f) return; await loadWp(await readFile(f), f.name, { source: 'csv' }); setSource('csv'); renderData(); renderPreview(); };
   $('file-hh').onchange = async e => { const f = e.target.files[0]; if (!f) return; await loadHh(await readFile(f), f.name); renderData(); renderPreview(); };
   $('btn-sample').onclick = async () => {
     try {
       const [a, b] = await Promise.all([fetch('data/sample-water-points.csv').then(r => r.text()), fetch('data/sample-households.csv').then(r => r.text())]);
-      await loadWp(a, 'sample-water-points.csv'); await loadHh(b, 'sample-households.csv'); renderData(); renderPreview();
+      await loadWp(a, 'sample-water-points.csv', { source: 'csv' }); await loadHh(b, 'sample-households.csv', { source: 'csv' }); setSource('csv'); renderData(); renderPreview();
     } catch (e) { $('data-status').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   };
   $('btn-clear').onclick = () => { ['wp', 'hh', 'last', 'k', 'start'].forEach(LS.del); state.wp = null; state.hh = null; state.points = []; state.hhByWp = {}; state.result = null; state.kValues = {}; state.route = null; state.start = null; applyWp(); renderData(); renderPreview(); renderResults(); renderSheet(); };
   function renderData() {
     const st = $('data-status'), sm = $('data-summary');
-    if (!state.wp) { st.innerHTML = `<div class="msg warn">${t('data_none')}</div>`; sm.innerHTML = ''; return; }
-    let h = `<div class="msg ok">${t('data_loaded')}: <b>${esc(state.wp.name)}</b> — ${state.points.length} ${t('data_points')}<br><small>${t('sha')}: ${state.wp.hash}</small></div>`;
+    if (!state.wp) { st.innerHTML = `<div class="msg warn">${t('data_none')}</div>`; sm.innerHTML = ''; $('btn-frame-dl').classList.add('hidden'); $('btn-hh-dl').classList.add('hidden'); return; }
+    const src = state.wp.source === 'mwater' ? `mWater · ${t('data_fetched')} ${esc(state.wp.fetchedAt || '')}` : 'CSV';
+    let h = `<div class="msg ok">${t('data_source')}: <b>${src}</b><br>${t('data_loaded')}: <b>${esc(state.wp.name)}</b> — ${state.points.length} ${t('data_points')}${state.wp.counts ? ` (${state.wp.counts.active} ${t('col_active').toLowerCase()})` : ''}<br><small>${t('sha')}: ${state.wp.hash}</small></div>`;
+    $('btn-frame-dl').classList.remove('hidden'); $('btn-hh-dl').classList.toggle('hidden', !state.hh);
     if (state.wp.missing.length) h += `<div class="msg err">${t('missing_cols')}: ${state.wp.missing.join(', ')}</div>`;
     if (state.wp.errors && state.wp.errors.length) h += `<div class="msg warn">${state.wp.errors.slice(0, 5).map(esc).join('<br>')}${state.wp.errors.length > 5 ? '…' : ''}</div>`;
     if (state.hh) { const nh = Object.values(state.hhByWp).reduce((s, l) => s + l.length, 0); h += `<div class="msg ok">${t('data_loaded')}: <b>${esc(state.hh.name)}</b> — ${nh} ${t('data_hh')} ${Object.keys(state.hhByWp).length} ${t('data_points')}<br><small>${t('sha')}: ${state.hh.hash}</small></div>`; if (state.hh.missing.length) h += `<div class="msg err">${t('missing_cols')}: ${state.hh.missing.join(', ')}</div>`; }
@@ -550,6 +688,54 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     sm.innerHTML = `<table><tr><th>${t('col_stratum')}</th><th>${t('col_active')}</th><th>${t('col_inactive')}</th><th>${t('col_communes')}</th><th>${t('col_hh_listed')}</th></tr>` +
       Object.keys(by).sort().map(s => `<tr><td>${esc(s)}</td><td>${by[s].a}</td><td>${by[s].i}</td><td>${by[s].c.size}</td><td>${by[s].l}</td></tr>`).join('') + '</table>';
   }
+
+
+  /* ---------- mWater source ---------- */
+  const mask = tok => tok ? '••••' + String(tok).slice(-4) : '';
+  function renderMw() {
+    const c = $('mw-conn');
+    c.innerHTML = state.mw && state.mw.token ? `<span class="msg ok" style="display:inline-block">${t('mw_connected', { mask: mask(state.mw.token), user: state.mw.username ? ' · ' + esc(state.mw.username) : '' })}</span>` : `<div class="msg warn">${t('mw_not_connected')}</div>`;
+    const sel = $('mw-stratum'); const cur = sel.value;
+    sel.innerHTML = `<option value="">${t('mw_all')}</option>` + Object.keys(Core.MWATER.strata).map(k => `<option value="${k}">${k} — ${esc(Core.MWATER.strata[k].label)}</option>`).join('');
+    sel.value = cur || (LS.get('mwstratum', 'FD'));
+  }
+  function setSource(src) { document.querySelectorAll('input[name=src]').forEach(r => { r.checked = r.value === src; }); $('src-mwater').classList.toggle('hidden', src !== 'mwater'); $('src-csv').classList.toggle('hidden', src !== 'csv'); LS.set('src', src); }
+  document.querySelectorAll('input[name=src]').forEach(r => r.addEventListener('change', () => setSource(r.value)));
+  function saveToken(token, username) { state.mw = { token, username: username || '' }; LS.set('mw', state.mw); $('mw-token').value = ''; $('mw-pass').value = ''; renderMw(); }
+  $('btn-mw-login').onclick = async () => {
+    const u = $('mw-user').value.trim(), p = $('mw-pass').value; if (!u || !p) return;
+    $('mw-progress').textContent = '…';
+    try { const r = await Core.mwaterLogin(u, p); saveToken(r.token, r.username); $('mw-progress').textContent = ''; $('mw-settings').open = false; }
+    catch (e) { $('mw-progress').innerHTML = `<div class="msg err">${esc(t('mw_login_err', { e: e.message }))}</div>`; }
+    $('mw-pass').value = '';
+  };
+  $('btn-mw-save').onclick = () => { const v = $('mw-token').value.trim(); if (v) { saveToken(v, ''); $('mw-settings').open = false; } };
+  $('btn-mw-forget').onclick = () => { state.mw = null; LS.del('mw'); renderMw(); };
+  $('mw-stratum').onchange = () => LS.set('mwstratum', $('mw-stratum').value);
+  $('btn-mw-fetch').onclick = async () => {
+    const out = $('mw-progress');
+    if (!state.mw || !state.mw.token) { out.innerHTML = `<div class="msg err">${t('mw_no_token')}</div>`; $('mw-settings').open = true; return; }
+    const stratum = $('mw-stratum').value; const warns = []; $('btn-mw-fetch').disabled = true;
+    try {
+      const r = await Core.mwaterLoadFrame(state.mw.token, { households: $('mw-hh').checked, onProgress: (what, n) => { if (what === 'warn') warns.push(n); else out.textContent = t('mw_fetching', { what: what.replace(/^entities\//, ''), n }); } });
+      const points = stratum ? r.points.filter(p => p.stratum === stratum) : r.points;
+      const ids = new Set(points.map(p => p.water_point_id));
+      const frameCsv = Core.frameToCsv(points);
+      const counts = { fetched: points.length, active: points.filter(p => p.status === 'active').length, fetched_total: r.counts.fetched, active_total: r.counts.active };
+      const mwMeta = Object.assign({}, r.source, { fetched_at: r.fetchedAt, stratum_filter: stratum || null, forms_used: r.formsUsed, counts, status_rule: 'inactive if name matches ' + String(Core.MWATER.inactiveNames) + ', if the latest final maintenance record says not functional, or if type is kiosk/dug well' });
+      await loadWp(frameCsv, 'mwater:' + Core.MWATER.entityType + (stratum ? ':' + stratum : '') + '@' + r.fetchedAt, { source: 'mwater', fetchedAt: r.fetchedAt, counts, mwater: mwMeta });
+      if (r.householdsCsv) {
+        const lines = r.householdsCsv.split('\r\n'); const kept = [lines[0]].concat(lines.slice(1).filter(l => l && ids.has(Core.parseCsv(lines[0] + '\r\n' + l).records[0].water_point_id)));
+        await loadHh(kept.join('\r\n') + '\r\n', 'mwater:registration-forms@' + r.fetchedAt, { source: 'mwater', fetchedAt: r.fetchedAt });
+      } else { state.hh = null; LS.del('hh'); applyHh(); }
+      if (stratum) { $('p-stratum').value = stratum; seedTouched = false; updateSeed(); }
+      out.innerHTML = `<div class="msg ok">${t('mw_done', { n: counts.fetched, a: counts.active, t: r.fetchedAt })}</div>` + (warns.length ? `<div class="msg warn">${esc(t('mw_warn', { w: warns.join('; ') }))}</div>` : '');
+      renderData(); renderPreview();
+    } catch (e) { out.innerHTML = `<div class="msg err">${esc(t('mw_err', { e: e.message }))}</div>`; }
+    $('btn-mw-fetch').disabled = false;
+  };
+  $('btn-frame-dl').onclick = () => { if (state.wp) download((state.wp.source === 'mwater' ? 'sanitap-frame-mwater' : 'sanitap-frame') + '.csv', state.wp.text, 'text/csv'); };
+  $('btn-hh-dl').onclick = () => { if (state.hh) download('sanitap-households.csv', state.hh.text, 'text/csv'); };
 
   /* ---------- parameters ---------- */
   let seedTouched = false;
@@ -564,7 +750,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
       clusterMode: $('p-cmode').value, nClusters: $('p-nclusters').value ? Math.max(1, Math.round(num('p-nclusters', 0))) : null,
       replacementFraction: Math.min(1, Math.max(0, num('p-repfrac', 20) / 100)), hhReplacements: Math.max(0, Math.round(num('p-hhrep', 2))), seed: $('p-seed').value.trim() || 'seed',
       icc: Math.min(1, Math.max(0, num('p-icc', 0.1))), expectedPass: Math.min(0.99, Math.max(0.01, num('p-pass', 0.95))), confidence: $('p-conf').value, precision: 0.10, precisionType: $('p-prectype').value,
-      wpFileName: state.wp && state.wp.name, wpFileHash: state.wp && state.wp.hash, hhFileName: state.hh && state.hh.name, hhFileHash: state.hh && state.hh.hash
+      wpFileName: state.wp && state.wp.name, wpFileHash: state.wp && state.wp.hash, hhFileName: state.hh && state.hh.name, hhFileHash: state.hh && state.hh.hash,
+      source: (state.wp && state.wp.source) || 'csv', mwater: state.wp && state.wp.source === 'mwater' ? state.wp.mwater : null
     };
   }
   function renderPreview() {
@@ -647,6 +834,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   const fname = ext => `sanitap-${(state.result.params.roundName || 'round').replace(/\s+/g, '')}-${state.result.params.stratum}-${ext}`;
   $('btn-csv').onclick = () => { if (state.result) download(fname('selection.csv'), Core.toCsv(state.result, orderMap(), state.kValues), 'text/csv'); };
   $('btn-json').onclick = () => { if (state.result) download(fname('audit.json'), Core.auditJson(state.result, auditExtra()), 'application/json'); };
+  $('btn-mwcsv').onclick = () => {
+    if (!state.result) return; const r = state.result, p = r.params, om = orderMap();
+    const rows = [['code', 'name', 'round', 'stratum', 'role', 'order', 'seed', 'drawn_at']];
+    r.selected.forEach(w => rows.push([w.water_point_id, w.name, p.roundName, p.stratum, 'selected', om[w.water_point_id] || w.order, p.seed, r.audit.timestamp]));
+    r.replacements.forEach(w => rows.push([w.water_point_id, w.name, p.roundName, p.stratum, 'replacement', 'R' + w.order, p.seed, r.audit.timestamp]));
+    download(fname('mwater-sites.csv'), rows.map(x => x.map(Core.csvEscape).join(',')).join('\r\n') + '\r\n', 'text/csv');
+  };
   $('btn-print').onclick = $('btn-print2').onclick = () => { showTab('sheet'); setTimeout(() => window.print(), 100); };
 
   /* ---------- field sheet ---------- */
@@ -748,7 +942,7 @@ ${ids.map((x, i) => `<tr><td>${x[2] ? 'R' + (i - h.n + 1) : i + 1}</td><td>${esc
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
 
   /* ---------- boot ---------- */
-  applyWp(); applyHh(); applyLang(); onlineBadge();
+  applyWp(); applyHh(); applyLang(); onlineBadge(); renderMw(); setSource(LS.get('src', (state.wp && state.wp.source === 'csv') ? 'csv' : 'mwater'));
   const last = LS.get('last', null);
   if (last && state.points.length) {
     $('p-round').value = last.roundName; $('p-stratum').value = last.stratum; $('p-target').value = last.target; $('p-hh').value = last.hhPerPoint; $('p-cmode').value = last.clusterMode;

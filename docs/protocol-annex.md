@@ -10,7 +10,7 @@ This annex describes how the water points and households tested in each monitori
 
 ## 2. Sampling frame and stratification
 
-The frame is the mWater register of project water points. Only water points with status *active* are eligible. Each stratum (project area or technology group as defined in the monitoring plan) is sampled separately with its own seed, so that each stratum meets the sample size requirement on its own.
+The frame is the mWater register of project water points (entity type *water point*, MadAvance operator group), **fetched live from mWater by the tool at the time of the draw, or loaded from a CSV export of the same register when offline**. A water point is *active* unless the register marks it abandoned, identified-only or proposed, the latest maintenance record reports it not functional, or it is not a hand pump. Households served come from the *Nombre de bénéficiaires* form. The tool records the source (mWater or CSV), the fetch time and the SHA-256 hash of the frame it used. Each stratum (project area or technology group as defined in the monitoring plan) is sampled separately with its own seed, so that each stratum meets the sample size requirement on its own.
 
 ## 3. Sampling stages
 
@@ -18,7 +18,7 @@ The frame is the mWater register of project water points. Only water points with
 |---|---|---|
 | 1 | Geographic cluster (commune, or a custom "axis" polygon defined for logistics) | Selection **with probability proportional to size** (number of eligible water points), sequentially and without replacement. The number of clusters defaults to the smallest number whose smallest members can hold the required water points; the sampler may increase it. |
 | 2 | Water point | **Simple random sampling without replacement** among the eligible water points of the selected clusters, until ⌈target samples ÷ households per point⌉ points are selected. A replacement list (default 20 % of that number) is then drawn in random order. |
-| 3 | Household | If a register of households served exists: simple random sample of N households (default 5) plus 2 replacements. Otherwise the **field rule**: the sampler counts the households served by the pump (K), numbers them clockwise from the pump starting at the nearest, and the tool draws N random numbers between 1 and K (plus 2 replacements) from the round seed. |
+| 3 | Household | If registered households are linked to the water point in mWater (survey responses linking a household code to the water point code): simple random sample of N households (default 5) plus 2 replacements. Otherwise the **field rule**: the sampler counts the households served by the pump (K), numbers them clockwise from the pump starting at the nearest, and the tool draws N random numbers between 1 and K (plus 2 replacements) from the round seed. |
 
 Replacement water points and households are used strictly in the listed order and only when a primary unit cannot be sampled (pump broken, household absent after two visits, refusal). The reason is written on the field sheet and in mWater.
 

@@ -1,5 +1,5 @@
 /* SaniTap Sampler service worker: caches the app shell for offline use. Map tiles are never cached. */
-const CACHE = 'sanitap-sampler-v1.0.0';
+const CACHE = 'sanitap-sampler-v1.1.0';
 const SHELL = [
   './', './index.html', './app.js',
   './data/sample-water-points.csv', './data/sample-households.csv',
@@ -18,6 +18,7 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
   if (url.hostname.endsWith('openstreetmap.org')) return; // tiles: network only, never cached
+  if (url.hostname === 'api.mwater.co') return; // mWater API: network only, never cached (URLs carry the client token)
   // Leaflet marker images etc. from cdnjs, and the app shell: cache first, then network (and store)
   e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(hit => hit || fetch(e.request).then(resp => {
     if (resp && resp.ok && (url.origin === location.origin || url.hostname === 'cdnjs.cloudflare.com')) {
