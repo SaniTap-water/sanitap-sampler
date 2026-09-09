@@ -118,11 +118,12 @@ Every drawn round is filed in `records/<round>/<stratum>/` and served by Pages a
 ```bash
 # after "Export sampling record" put the three files in ~/Downloads (or pass paths)
 node bin/file-round.js                       # newest sanitap-*-record.pdf / -audit.json / -selection.csv in ~/Downloads
-node bin/file-round.js --pdf x.pdf --json x.json --csv x.csv --frame frame.csv   # explicit paths; --frame also files and verifies the frame CSV
+node bin/file-round.js --pdf x.pdf --json x.json --csv x.csv --frame frame.csv   # explicit paths; --frame verifies the frame CSV against the audit hash
+node bin/file-round.js ... --frame frame.csv --store-frame                        # also publish the frame CSV (it contains real coordinates: default is not to)
 node bin/file-round.js --dry-run             # verify only
 ```
 
-The script verifies that the SHA-256 of the audit JSON equals the hash in the PDF footer (`/AuditSHA256`) and that the record ids match, copies the files as `sampling-record.pdf`, `audit.json`, `selection.csv` (and `frame.csv`), appends a line to `records/index.md`, commits and pushes. The record folder is **append-only**: an existing `records/<round>/<stratum>/` is never overwritten; a re-draw gets a new seed and a new round name. The only exception is the folder `records/test/`, used for rehearsals.
+The script verifies that the SHA-256 of the audit JSON equals the hash in the PDF footer (`/AuditSHA256`) and that the record ids match, copies the files as `sampling-record.pdf`, `audit.json`, `selection.csv` (and `frame.csv` only with `--store-frame`; keep the frame in the private archive otherwise), appends a line to `records/index.md`, commits and pushes. The record folder is **append-only**: an existing `records/<round>/<stratum>/` is never overwritten; a re-draw gets a new seed and a new round name. The only exception is the folder `records/test/`, used for rehearsals.
 
 ## Round marking in mWater
 
