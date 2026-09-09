@@ -1,0 +1,434 @@
+{
+ "note": "Real mWater document shapes (entity, SDWS 3 result, maintenance, beneficiaries), coordinates zeroed, codes pseudonymised. Captured 2026-09-09",
+ "entities": [
+  {
+   "_id": "fixture-900001",
+   "_rev": 3,
+   "_modified_on": "2025-12-08T17:00:42.978Z",
+   "_private": true,
+   "name": "Canzee",
+   "desc": "Pompe à main",
+   "type": "other",
+   "location": {
+    "type": "Point",
+    "coordinates": [
+     0,
+     0,
+     0
+    ]
+   },
+   "admin_region": 418283,
+   "code": "900001",
+   "admin_div1": "Anosy",
+   "admin_div2": "Taolagnaro",
+   "admin_div3": "Mahatalaky",
+   "admin_div4": "Sainte Luce",
+   "admin_div5": "Magnafiafy CSB I Ambandrika"
+  },
+  {
+   "_id": "fixture-900002",
+   "_rev": 10,
+   "_modified_on": "2025-10-27T12:02:10.517Z",
+   "_private": true,
+   "name": "Canzee",
+   "desc": "Pompe à main",
+   "type": "other",
+   "location": {
+    "type": "Point",
+    "coordinates": [
+     0,
+     0,
+     0
+    ]
+   },
+   "admin_region": 303138,
+   "code": "900002",
+   "alt_id": "07",
+   "alt_id_org": "MadAvance",
+   "admin_div1": "Ambatosoa",
+   "admin_div2": "Maroantsetra",
+   "admin_div3": "Ankofa",
+   "admin_div4": "Ambodiadabo",
+   "admin_div5": "Ambodiadabo "
+  },
+  {
+   "_id": "fixture-900003",
+   "_rev": 4,
+   "_modified_on": "2025-09-30T10:59:21.748Z",
+   "_private": true,
+   "name": "Point d'eau abondonné",
+   "desc": "Pompe à main",
+   "type": "other",
+   "location": {
+    "type": "Point",
+    "coordinates": [
+     0,
+     0,
+     0
+    ]
+   },
+   "admin_region": 308808,
+   "code": "900003",
+   "admin_div1": "Anosy",
+   "admin_div2": "Taolagnaro",
+   "admin_div3": "Isaka-Ivondro",
+   "admin_div4": "Montifeno",
+   "admin_div5": "Motifeno"
+  },
+  {
+   "_id": "fixture-900004",
+   "_rev": 4,
+   "_modified_on": "2026-01-31T09:20:25.685Z",
+   "_private": true,
+   "name": "Point d'eau identifié",
+   "type": "other",
+   "location": {
+    "type": "Point",
+    "coordinates": [
+     0,
+     0,
+     0
+    ]
+   },
+   "admin_region": 305797,
+   "code": "900004",
+   "admin_div1": "Anosy",
+   "admin_div2": "Taolagnaro"
+  },
+  {
+   "_id": "fixture-900005",
+   "_rev": 6,
+   "_modified_on": "2026-01-31T09:33:41.423Z",
+   "_private": true,
+   "name": "Pompe à cordes",
+   "desc": "Pompe à main",
+   "type": "other",
+   "location": {
+    "type": "Point",
+    "coordinates": [
+     0,
+     0,
+     0
+    ]
+   },
+   "admin_region": 418299,
+   "code": "900005",
+   "admin_div1": "Androy",
+   "admin_div2": "Beloha",
+   "admin_div3": "Marolinta",
+   "admin_div4": "Mahafaly Centre",
+   "admin_div5": "Marolinta"
+  },
+  {
+   "_id": "fixture-900006",
+   "_rev": 1,
+   "_private": true,
+   "location": {
+    "type": "Point",
+    "coordinates": [
+     0,
+     0,
+     0
+    ]
+   },
+   "admin_region": 303138,
+   "code": "900006",
+   "alt_id": "699597809"
+  }
+ ],
+ "sdws3": [
+  {
+   "data": {
+    "a3390d2e97494b3da193e5c015a879d1": {
+     "value": {
+      "code": "900002"
+     }
+    },
+    "630ccd46f76f420692572e0db2d86ad8": {
+     "value": "2025-06-07T07:05:21Z",
+     "alternate": null
+    },
+    "892f1d81bf1a4c4483e53271dda474a5": {
+     "value": 0,
+     "alternate": null
+    },
+    "4b86e349e9bc418ea5a4868e7b383604": {
+     "value": 0,
+     "alternate": null
+    },
+    "b4e94c2a5ca4497199bcde2856f2cd0c": {
+     "value": 0.03,
+     "alternate": null
+    },
+    "c0a900a9659e45c29acce3349e32f1fd": {
+     "value": 0.081,
+     "alternate": null
+    }
+   },
+   "submittedOn": "2025-06-07T07:08:38.542Z",
+   "status": "final",
+   "_id": "fixture-resp-vcl8cs"
+  },
+  {
+   "data": {
+    "a3390d2e97494b3da193e5c015a879d1": {
+     "value": {
+      "code": "900001"
+     }
+    },
+    "630ccd46f76f420692572e0db2d86ad8": {
+     "value": "2025-05-06T13:48:00Z",
+     "alternate": null
+    },
+    "892f1d81bf1a4c4483e53271dda474a5": {
+     "value": 0,
+     "alternate": null
+    },
+    "4b86e349e9bc418ea5a4868e7b383604": {
+     "value": 0,
+     "alternate": null
+    },
+    "b4e94c2a5ca4497199bcde2856f2cd0c": {
+     "value": 0.03,
+     "alternate": null
+    }
+   },
+   "submittedOn": "2025-05-06T13:51:00.042Z",
+   "status": "final",
+   "_id": "fixture-resp-vrzued"
+  }
+ ],
+ "maintenance": [
+  {
+   "data": {
+    "6b454d5e31ce4f6bb4918aca5f824d75": {
+     "value": {
+      "code": "900002"
+     },
+     "alternate": null
+    },
+    "2ba451c8124f4d02aa76c44e6f5a88a3": {
+     "value": "6Txb2rB",
+     "specify": null
+    },
+    "7f78d719b9f242d8886df7bb88640a80": {
+     "value": "7abnNjk",
+     "specify": null
+    },
+    "29280fbb5f2b4da6a4feecadc1d6d4d4": {
+     "value": "2025-05-02T10:44Z",
+     "alternate": null
+    }
+   },
+   "submittedOn": "2025-06-24T11:14:13.708Z",
+   "status": "final",
+   "_id": "fixture-resp-lvec39"
+  },
+  {
+   "data": {
+    "6b454d5e31ce4f6bb4918aca5f824d75": {
+     "value": {
+      "code": "900004"
+     },
+     "alternate": null
+    },
+    "c843c54776864de7b5b8b90825bc4c06": {
+     "value": "LATrLet",
+     "specify": null
+    },
+    "701d5b8d583145e3baab2e75a5f17ce4": {
+     "value": "LATrLet",
+     "specify": null
+    },
+    "2ba451c8124f4d02aa76c44e6f5a88a3": {
+     "value": "72yyu9B",
+     "specify": {
+      "72yyu9B": "Vergnet"
+     }
+    },
+    "7f78d719b9f242d8886df7bb88640a80": {
+     "value": "3HwlgLk",
+     "specify": null
+    },
+    "29280fbb5f2b4da6a4feecadc1d6d4d4": {
+     "value": "2024-09-04",
+     "alternate": null
+    }
+   },
+   "submittedOn": "2024-09-05T05:15:41.088Z",
+   "status": "final",
+   "_id": "fixture-resp-pvgfhv"
+  },
+  {
+   "data": {
+    "6b454d5e31ce4f6bb4918aca5f824d75": {
+     "value": {
+      "code": "900001"
+     },
+     "alternate": null
+    },
+    "2ba451c8124f4d02aa76c44e6f5a88a3": {
+     "value": "6Txb2rB",
+     "specify": null
+    },
+    "7f78d719b9f242d8886df7bb88640a80": {
+     "value": "7abnNjk",
+     "specify": null
+    },
+    "29280fbb5f2b4da6a4feecadc1d6d4d4": {
+     "value": "2025-05-13T10:45Z",
+     "alternate": null
+    }
+   },
+   "submittedOn": "2025-05-13T11:35:33.033Z",
+   "status": "final",
+   "_id": "fixture-resp-jgrxo9"
+  },
+  {
+   "data": {
+    "6b454d5e31ce4f6bb4918aca5f824d75": {
+     "value": {
+      "code": "900001"
+     },
+     "alternate": null
+    },
+    "2ba451c8124f4d02aa76c44e6f5a88a3": {
+     "value": "6Txb2rB",
+     "specify": null
+    },
+    "7f78d719b9f242d8886df7bb88640a80": {
+     "value": "DQcV1NT",
+     "specify": null
+    },
+    "29280fbb5f2b4da6a4feecadc1d6d4d4": {
+     "value": "2024-08-23",
+     "alternate": null
+    }
+   },
+   "submittedOn": "2025-09-08T09:34:38.573Z",
+   "status": "final",
+   "_id": "fixture-resp-0fqena"
+  },
+  {
+   "data": {
+    "6b454d5e31ce4f6bb4918aca5f824d75": {
+     "value": {
+      "code": "900005"
+     },
+     "alternate": null
+    },
+    "c843c54776864de7b5b8b90825bc4c06": {
+     "value": "NScsLF7",
+     "specify": null
+    },
+    "2ba451c8124f4d02aa76c44e6f5a88a3": {
+     "value": "72yyu9B",
+     "specify": {
+      "72yyu9B": "Pompe à main "
+     }
+    },
+    "7f78d719b9f242d8886df7bb88640a80": {
+     "value": "3HwlgLk",
+     "specify": null
+    },
+    "29280fbb5f2b4da6a4feecadc1d6d4d4": {
+     "value": "2025-08-22T08:46Z",
+     "alternate": null
+    }
+   },
+   "submittedOn": "2025-08-22T08:46:49.129Z",
+   "status": "final",
+   "_id": "fixture-resp-4wn0xl"
+  },
+  {
+   "data": {
+    "6b454d5e31ce4f6bb4918aca5f824d75": {
+     "value": {
+      "code": "900003"
+     },
+     "alternate": null
+    },
+    "2ba451c8124f4d02aa76c44e6f5a88a3": {
+     "value": "72yyu9B",
+     "specify": {
+      "72yyu9B": "abandon"
+     }
+    },
+    "7f78d719b9f242d8886df7bb88640a80": {
+     "value": "DQcV1NT",
+     "specify": null
+    },
+    "29280fbb5f2b4da6a4feecadc1d6d4d4": {
+     "value": "2024-04-17",
+     "alternate": null
+    }
+   },
+   "submittedOn": "2024-04-17T10:28:20.652Z",
+   "status": "final",
+   "_id": "fixture-resp-llskgt"
+  },
+  {
+   "data": {
+    "6b454d5e31ce4f6bb4918aca5f824d75": {
+     "value": {
+      "code": "900002"
+     },
+     "alternate": null
+    },
+    "2ba451c8124f4d02aa76c44e6f5a88a3": {
+     "value": "6Txb2rB",
+     "specify": null
+    },
+    "7f78d719b9f242d8886df7bb88640a80": {
+     "value": "DQcV1NT",
+     "specify": null
+    },
+    "29280fbb5f2b4da6a4feecadc1d6d4d4": {
+     "value": "2024-11-27T18:23Z",
+     "alternate": null
+    }
+   },
+   "submittedOn": "2025-04-24T01:15:26.015Z",
+   "status": "final",
+   "_id": "fixture-resp-69stks"
+  }
+ ],
+ "beneficiaries": [
+  {
+   "data": {
+    "e796e451be1243d58b547bc0f6c1d5b4": {
+     "value": {
+      "code": "900002"
+     }
+    },
+    "00ae079e071a40349e0706c659430f9b": {
+     "value": 141.010714285714
+    }
+   },
+   "submittedOn": "2025-08-21T14:20:00.021Z",
+   "status": "final",
+   "_id": "fixture-resp-vkoc6f"
+  },
+  {
+   "data": {
+    "e796e451be1243d58b547bc0f6c1d5b4": {
+     "value": {
+      "code": "900001"
+     }
+    },
+    "00ae079e071a40349e0706c659430f9b": {
+     "value": 47.9000000000001
+    }
+   },
+   "submittedOn": "2025-08-21T14:23:41.974Z",
+   "status": "final",
+   "_id": "fixture-resp-0fepon"
+  }
+ ],
+ "regions": [
+  {
+   "_id": 303138,
+   "full_name": "Ambodiadabo, Ankofa, Maroantsetra, Ambatosolo, Madagascar"
+  }
+ ]
+}

@@ -22,10 +22,11 @@ docs/protocol-annex.md         one-page annex for the SaniTap Water Quality Test
 
 1. Open the app (GitHub Pages URL below, or just open `index.html` locally / serve the folder with `python3 -m http.server`).
 2. **1 Data** — default source is **mWater (live)**: open *mWater connection*, sign in (or paste a token), choose the stratum and press *Fetch from mWater*. Fallback: switch to **CSV file (offline)** and load a frame CSV, or press *Load sample data*.
-3. **2 Parameters** — enter *Drawn by*, pick the stratum, check the defaults, note the seed, press *Draw the sample*.
-4. **3 Draw** — read the design check, the selected sources and the audit record; press *Export sampling record* to get the VVB-facing PDF together with the audit JSON and the selection CSV it hashes.
-5. **4 Map** — set a start point to get the visiting order; optionally draw custom axis clusters.
-6. **5 Field sheet** — print (or *Save as PDF* on the phone).
+3. **1b Test A backlog** — the sources of the loaded stratum that still need an SDWS 3 test (see below); optional.
+4. **2 Parameters** — enter *Drawn by*, pick the stratum, check the defaults, note the seed, press *Draw the sample*. Tabs show ✓ when a step is done.
+5. **3 Draw** — read the design check, the selected sources and the audit record; press *Export sampling record* to get the VVB-facing PDF together with the audit JSON and the selection CSV it hashes.
+6. **4 Map** — set a start point to get the visiting order; optionally draw custom axis clusters.
+7. **5 Field sheet** — print (or *Save as PDF* on the phone).
 
 Language toggle (EN/FR) is in the header; every label lives in the `I18N` object in `app.js`.
 
@@ -94,9 +95,13 @@ The v1 design (commune or axis clusters drawn PPS by number of sources, then sim
 - **Sampling record (PDF)**: *Export sampling record* builds, entirely in the browser with pdf-lib 1.17.1 (cdnjs, cached for offline use), a narrative record for the validator in the UI language: identification (programme, stratum, round, draw time, drawn by), method (Protocol v2.1 §6.4), frame (rule in words, mWater source and counts, frame SHA-256), randomness (seed, PRNG, exact reproduction steps), design check (n, sources, m, p, required n for 90/10, ICC, DEFF, effective n, pass/fail), tables of selected and replacement sources with K values, and a footer on every page with the record id, the audit JSON SHA-256, the tool version and commit, and page x of y. The action downloads the PDF together with the audit JSON and selection CSV it hashed. The PDF is byte-identical for the same audit record (its dates are set to the draw timestamp) and contains nothing from the API token.
 - **mWater site list (CSV)**: `code, name, round, stratum, role, order, seed, drawn_at` — one row per selected and replacement point, keyed by the mWater entity code. mWater has no entity property for a monitoring round, so this file is not imported into the site register directly: import it into mWater as a *custom table* (Data → Tables → Import CSV) or attach it to the round's dashboard, and reference it from the monitoring report. Writing a round mark onto the entity itself would need a new custom property on `water_point`; the API route for that is `PATCH /v3/entities/water_point?client=…` with `{doc, base}` (same protocol as forms), which the tool does not use.
 
-## Offline and storage
+## Test A backlog
 
-After the first load `sw.js` caches the app shell and the Leaflet files from cdnjs; the app then opens without a connection (map tiles are not cached). Loaded CSV text, axes, the last draw parameters, K values and the start point are kept in `localStorage` on the device; *Clear stored data* removes them. The last draw is recomputed from its stored parameters on reload (it is deterministic).
+Tab **1b** lists, for the loaded stratum, the sources that are in the register and not abandoned but have no passing SDWS 3 result, in three groups: **operating, untested** (a rehabilitation record, maintenance visit or beneficiaries count exists but no SDWS 3 result), **last result failed** (tested, the latest result failed a health-based parameter; the parameter is shown), and **not yet built** ("identifié"/"drilling" names without records). Columns: id, alt_id, pump name, commune/fokontany, households served, last maintenance visit (with a *rehab* mark), last test date and result. The counts appear as tiles on the Data tab next to the eligibility counts. The Map tab can show the backlog instead of the draw, with a nearest-neighbour route from the district town (Fort-Dauphin or Maroantsetra). Two exports exist for the field team only and are never filed: a printable visit sheet per commune and a CSV, both with coordinates.
+
+## Offline, updates and storage
+
+After the first load `sw.js` caches the app shell and the Leaflet and pdf-lib files from cdnjs; the app then opens without a connection (map tiles and the mWater API are never cached). The cache is named after the build commit (baked into `sw.js` and `app.js` by the Pages workflow, shown in the header). `index.html` and `app.js` are fetched network-first with revalidation, so a reload after a deploy gets the new build, and a page that stays open checks for a new worker when its tab regains focus and every 30 minutes; when a newer build activates, a banner *New version available — Reload* appears. Pages still running a build older than 1.4.0 have no banner: their first reload installs the new worker and their second reload shows the new build. Loaded CSV text, axes, the last draw parameters, K values and the start point are kept in `localStorage` on the device; *Clear stored data* removes them. The last draw is recomputed from its stored parameters on reload (it is deterministic).
 
 ## Real data
 
@@ -131,7 +136,7 @@ There is no write-back from the tool to mWater. The link from mWater to a sampli
 
 **Published record files carry no coordinates.** The sampling record PDF, the audit JSON and the selection CSV contain identifiers, pump names, communes, households served and k-values only. The field sheet (with GPS positions) and the map are downloads for the field team and are never filed; the frame CSV is kept in the private archive (`bin/file-round.js --frame` verifies its hash without publishing it). The test suite fails if any file under `records/` contains a latitude/longitude field.
 
-## Reconciliation
+## Reconciliation (SDWS 3 and crediting)
 
 ```bash
 node bin/reconcile.js --env ~/mwater-mcp/.env        # or MWATER_TOKEN / MWATER_USERNAME+MWATER_PASSWORD in the environment

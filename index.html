@@ -24,6 +24,10 @@ section.tab{display:none}section.tab.active{display:block}
 label{display:block;font-weight:600;font-size:.9rem;margin:.55rem 0 .2rem}
 label small{font-weight:400;color:var(--grey)}
 input[type=text],input[type=number],input[type=file],select,textarea{width:100%;font-size:1rem;padding:.6rem;border:1px solid var(--line);border-radius:8px;background:#fff;min-height:44px}
+select{-webkit-appearance:none;appearance:none;border:2px solid var(--blue);padding-right:2.4rem;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M2 2l6 6 6-6' fill='none' stroke='%230b5e8a' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right .8rem center;cursor:pointer}
+nav button.done::before{content:'\2713 ';color:#8fd19e}nav button.pending{opacity:.6}
+#update-banner{background:#ffd166;color:#111;padding:.5rem .8rem;text-align:center;font-weight:600}
+.printonly{display:none}
 textarea{font-family:ui-monospace,monospace;font-size:.8rem}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.4rem 1rem}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;background:var(--blue);color:#fff;border:0;border-radius:10px;padding:.8rem 1.2rem;font-size:1.05rem;font-weight:600;cursor:pointer;min-height:48px;margin:.3rem .3rem .3rem 0;text-decoration:none}
@@ -74,15 +78,17 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
 .sheet .rule{border:2px solid #000;padding:.4rem .6rem;margin:.3rem 0;font-size:10.5pt}
 .sheet .big{font-size:13pt;font-weight:700;letter-spacing:.05em}
 @media print{
-  header,nav,footer,.noprint,section.tab:not(#tab-sheet){display:none!important}
+  header,nav,footer,.noprint,#update-banner,section.tab:not(#tab-sheet){display:none!important}
   body,main{background:#fff;margin:0;padding:0;max-width:none}
   section#tab-sheet{display:block!important}
+  body.print-backlog section#tab-sheet{display:none!important}body.print-backlog section#tab-backlog{display:block!important}body.print-backlog #tab-backlog .card{display:none}body.print-backlog #backlog-print{display:block}
   .sheet{border:0;border-radius:0;padding:0;margin:0}
   @page{margin:12mm}
 }
 </style>
 </head>
 <body>
+<div id="update-banner" class="hidden"><span data-i18n="update_banner">New version available</span> <button class="btn small" id="btn-update-reload" type="button" data-i18n="update_reload">Reload</button></div>
 <header>
   <h1>SaniTap Sampler <span class="ver" id="ver"></span></h1>
   <span class="muted" style="color:#cfe3f0" id="offline-badge"></span>
@@ -90,6 +96,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
 </header>
 <nav id="tabs">
   <button data-tab="data" class="active" data-i18n="tab_data">1 Data</button>
+  <button data-tab="backlog" data-i18n="tab_backlog">1b Test A backlog</button>
   <button data-tab="params" data-i18n="tab_params">2 Parameters</button>
   <button data-tab="results" data-i18n="tab_results">3 Draw</button>
   <button data-tab="map" data-i18n="tab_map">4 Map</button>
@@ -139,7 +146,21 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
     <div id="data-status"></div>
     <div id="data-summary" class="tablewrap"></div>
     <div class="btnrow"><button class="btn small secondary hidden" id="btn-frame-dl" type="button" data-i18n="data_frame_dl">Download loaded frame (CSV)</button></div>
+    <div class="btnrow"><button class="btn hidden" id="btn-next-params" type="button" data-i18n="next_params">Next: set parameters and draw</button></div>
   </div>
+</section>
+
+<!-- ============ TEST A BACKLOG ============ -->
+<section class="tab" id="tab-backlog">
+  <div class="card">
+    <h2 data-i18n="bl_title">Test A backlog — SDWS 3</h2>
+    <p class="muted" data-i18n="bl_intro">Sources of the loaded stratum that are in the register and not abandoned but have no passing SDWS 3 result yet.</p>
+    <div id="backlog-counts"></div>
+    <div class="btnrow"><button class="btn small secondary" id="btn-backlog-csv" type="button" data-i18n="bl_csv">Export backlog CSV</button><button class="btn small secondary" id="btn-backlog-print" type="button" data-i18n="bl_print">Print visit sheets per commune</button></div>
+    <p class="muted" data-i18n="bl_print_hint">Visit sheets and the CSV carry coordinates: for the field team only, never filed.</p>
+  </div>
+  <div class="card" id="backlog-tables"></div>
+  <div id="backlog-print" class="printonly"></div>
 </section>
 
 <!-- ============ PARAMETERS ============ -->
@@ -211,6 +232,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
       <button class="btn small" id="btn-start-gps" type="button" data-i18n="map_start_gps">Set start: my GPS</button>
       <select id="sel-start-wp" style="width:auto;display:inline-block"><option value="" data-i18n="map_start_wp">Start from a water point…</option></select>
       <button class="btn small secondary" id="btn-fit" type="button" data-i18n="map_fit">Fit</button>
+      <label style="display:inline-flex;align-items:center;gap:.3rem;margin:0"><span data-i18n="map_show">Show on map</span> <select id="map-mode" style="width:auto"><option value="draw" data-i18n="map_show_draw">the draw</option><option value="backlog" data-i18n="tab_backlog">Test A backlog</option></select></label>
     </div>
     <div class="btnrow">
       <button class="btn small secondary" id="btn-axis-draw" type="button" data-i18n="axis_draw">Draw axis polygon</button>

@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Bake the commit hash into app.js
-        run: sed -i "s/__GIT_COMMIT__/$(git rev-parse --short HEAD)/" app.js && grep -c "APP_COMMIT = '$(git rev-parse --short HEAD)'" app.js
+        run: sed -i "s/__GIT_COMMIT__/$(git rev-parse --short HEAD)/" app.js sw.js && grep -c "APP_COMMIT = '$(git rev-parse --short HEAD)'" app.js && grep -c "BUILD = '$(git rev-parse --short HEAD)'" sw.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

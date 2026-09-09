@@ -17,7 +17,7 @@ test('SDWS 3 health-based pass rule: E. coli, arsenic, fluoride required; nitrat
   assert.equal(C.sdws3Pass(good('1', { '5eaf270dfe27443ebd33da195b9b89c9': { value: 5 }, 'c70eb0f3cf764b04a26a2bc463a8ca2e': { value: 40 }, '3ba8917797a7429aa31b69023c7f3c1f': { value: 2 } }), SD).pass, true, 'pH, turbidity, iron must not exclude');
   assert.equal(SD.params.find(p => p.key === 'nitrate').q, null, 'nitrate has no question yet and is skipped');
   const pp = C.sdws3PassingPoints([good('1'), good('1', { [q('ecoli')]: { value: 9 }, [SD.dateQ]: { value: '2025-05-01T10:00Z' } }), good('2', {}, 'draft'), resp({ [SD.wpQ]: site('3'), [q('ecoli')]: { value: 0 } })], SD);
-  assert.deepEqual(pp['1'], { results: 2, passes: 1, last_pass: '2025-03-01T10:00Z', last_test: '2025-05-01T10:00Z', failing: ['ecoli'] }); assert.equal(pp['2'], undefined); assert.deepEqual(pp['3'].failing, ['arsenic:missing', 'fluoride:missing']);
+  assert.deepEqual(pp['1'], { results: 2, passes: 1, last_pass: '2025-03-01T10:00Z', last_test: '2025-05-01T10:00Z', failing: ['ecoli'], last_result: 'fail:ecoli' }); assert.equal(pp['2'], undefined); assert.deepEqual(pp['3'].failing, ['arsenic:missing', 'fluoride:missing']);
 });
 
 test('frame rule: pass, abandoned, Marolinta, unassigned, per-stratum counts, in that order', () => {
@@ -83,6 +83,24 @@ test('published record files never carry coordinates: audit JSON, selection CSV,
   const scanText = (txt, f) => { if (/(^|[,;])\s*(lat|lon|lng|latitude|longitude)\s*([,;]|$)/im.test(txt) || /-2[0-9]\.\d{4,}/.test(txt)) bad.push(f); };
   (function walk(d) { if (!fs.existsSync(d)) return; fs.readdirSync(d).forEach(n => { const f = path.join(d, n); if (fs.statSync(f).isDirectory()) return walk(f); if (n.endsWith('.json')) { if (C.hasCoordinateKeys(JSON.parse(fs.readFileSync(f, 'utf8')))) bad.push(f); } else if (n.endsWith('.csv') || n.endsWith('.md')) scanText(fs.readFileSync(f, 'utf8'), f); else if (n.endsWith('.pdf')) { const raw = fs.readFileSync(f); const b = raw.toString('latin1'); const zlib = require('zlib'); let runs = []; const re = /stream\r?\n/g; let m; while ((m = re.exec(b))) { const end = b.indexOf('endstream', m.index); let chunk = raw.subarray(m.index + m[0].length, end); try { chunk = zlib.inflateSync(chunk); } catch (e) { } const txt = chunk.toString('latin1'); (txt.match(/<([0-9A-Fa-f]+)> Tj/g) || []).forEach(h => runs.push(Buffer.from(h.slice(1, -4), 'hex').toString('latin1'))); } assert.ok(runs.length > 50, 'PDF text could not be extracted from ' + f); scanText(runs.join('\n'), f); if (/\/(Lat|Lon|GPS)/.test(b)) bad.push(f); } }); })(dir);
   assert.deepEqual(bad, [], 'files under records/ with coordinate fields: ' + bad.join(', '));
+});
+
+test('mapper on real mWater document shapes (scrubbed fixture): counts, flags and backlog groups', () => {
+  const fx = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'mwater-shape.json'), 'utf8'));
+  assert.ok(fx.entities.every(e => !e.location || e.location.coordinates.every(c => c === 0)), 'fixture must carry no real coordinates');
+  const passing = C.sdws3PassingPoints(fx.sdws3, SD), latest = C.mwaterLatestStatus(fx.maintenance, M.forms.maintenance), roofs = C.mwaterRoofs(fx.beneficiaries, M.forms.beneficiaries);
+  const m = C.mapMwaterEntities(fx.entities, { passing, latest, roofs, regionsById: Object.fromEntries(fx.regions.map(r => [r._id, r])) });
+  assert.equal(m.counts.total_in_group, fx.entities.length); assert.equal(m.counts.sdws3_pass_count, m.points.filter(p => p.sdws3_passes > 0).length); assert.equal(m.counts.eligible, m.points.filter(p => p.status === 'active').length);
+  const by = Object.fromEntries(m.points.map(p => [p.name_pattern + '/' + p.district, p]));
+  const canzeeFD = m.points.find(p => p.stratum === 'HP-FD' && p.status === 'active'); assert.ok(canzeeFD, 'a passing Taolagnaro Canzee is eligible'); assert.equal(canzeeFD.has_rehab_record, 'Y'); assert.ok(canzeeFD.households_served > 0); assert.equal(canzeeFD.sdws3_last_result, 'pass');
+  const failing = m.points.find(p => p.sdws3_results > 0 && p.sdws3_passes === 0); assert.ok(failing); assert.match(failing.sdws3_last_result, /^fail:/); assert.equal(failing.status_reason, 'no_passing_sdws3_result');
+  assert.equal(by['abandonné/Taolagnaro'].abandoned, 'Y'); const identCode = by['identifié/Taolagnaro'].water_point_id; const identLatest = latest[identCode] || {}; assert.equal(by['identifié/Taolagnaro'].abandoned, identLatest.status === 'not_functional' ? 'Y' : 'N', 'identified-only points are abandoned only when maintenance says not functional'); assert.equal(by['identifié/Taolagnaro'].status, 'inactive');
+  const beloha = m.points.find(p => p.district === 'Beloha'); assert.equal(beloha.stratum, 'unassigned');
+  const noDiv = m.points.find(p => p.district && !fx.entities.find(e => e.code === p.water_point_id).admin_div2); assert.ok(noDiv, 'district resolved from admin_region hierarchy');
+  // frame CSV round trip keeps the backlog fields, and the backlog groups are consistent with the flags
+  const pts = C.normaliseWaterPoints(C.parseCsv(C.frameToCsv(m.points)).records).points;
+  ['HP-FD', 'HP-MA'].forEach(s => { const g = C.backlog(pts, s); const all = g.operating.concat(g.failing, g.notBuilt, g.other); assert.ok(all.every(p => p.stratum === s && !(p.sdws3_passes > 0) && p.abandoned !== 'Y')); assert.ok(g.failing.every(p => p.sdws3_results > 0)); assert.ok(g.operating.every(p => p.has_records === 'Y' && !(p.sdws3_results > 0))); assert.ok(g.notBuilt.every(p => /identifié|drilling/.test(p.name_pattern) && p.has_records !== 'Y')); });
+  const fd = C.backlog(pts, 'HP-FD'); assert.equal(fd.failing.length + fd.operating.length + fd.notBuilt.length + fd.other.length, pts.filter(p => p.stratum === 'HP-FD' && p.abandoned !== 'Y' && !(p.sdws3_passes > 0)).length);
 });
 
 test('mwaterGet puts the token in the query only and never echoes it in errors', async () => {
