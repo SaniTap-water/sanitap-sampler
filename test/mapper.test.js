@@ -46,14 +46,15 @@ test('draw (pps_households): field rule only, communes covered, audit carries st
   const roofs = {}; ents.forEach((e, i) => { roofs[e.code] = 10 + (i % 7) * 5; }); delete roofs['100'];
   const pts = C.normaliseWaterPoints(C.parseCsv(C.frameToCsv(C.mapMwaterEntities(ents, { roofs, passing: C.sdws3PassingPoints(ents.map(e => good(e.code)), SD) }).points)).records).points;
   const base = { roundName: '2026 R1', stratum: 'HP-FD', target: 58, hhPerPoint: 5, replacementFraction: 0.2, seed: '2026R1-HP-FD', icc: 0.1, expectedPass: 0.95, confidence: '0.90', precision: 0.1, precisionType: 'relative', hhReplacements: 2, timestamp: 't', drawnBy: 'Tester', token: 'SECRET-TOKEN' };
-  const a = C.draw(base, pts, []), b = C.draw(base, pts, []);
+  const a = C.draw(base, pts), b = C.draw(base, pts);
   assert.equal(a.selected.length, 12); assert.equal(a.replacements.length, 3); assert.equal(a.stats.deff, 1.4);
   assert.ok(a.selected.every(w => w.households.mode === 'rule')); assert.equal(new Set(a.selected.concat(a.replacements).map(w => w.water_point_id)).size, 15);
   assert.equal(a.audit.stage1.method, 'pps_households'); assert.equal(a.audit.stage1.imputed_count, 1); assert.ok(a.audit.stage1.interval > 0); assert.ok(a.audit.selected_clusters.length >= 3);
   assert.equal(a.audit.record_id, '2026R1-HP-FD-2026R1-HP-FD'); assert.equal(a.audit.drawn_by, 'Tester'); assert.equal(a.audit.protocol_version, C.PROTOCOL_VERSION); assert.match(a.audit.methodology, /Protocol v2\.2 section 6\.4/); assert.equal(a.audit.parameters.method, 'pps_households');
   assert.equal(JSON.stringify(a.audit), JSON.stringify(b.audit)); assert.ok(!C.auditJson(a).includes('SECRET-TOKEN')); assert.ok(!C.toCsv(a).includes('SECRET-TOKEN'));
   assert.equal(a.selected.every(w => w.commune === w.cluster), true);
-  const c = C.draw(Object.assign({}, base, { method: 'commune_clusters', clusterMode: 'commune', nClusters: null }), pts, []); assert.equal(c.audit.stage1.method, 'commune_clusters'); assert.equal(c.selected.length, 12);
+  assert.equal(C.draw(Object.assign({}, base, { method: 'commune_clusters' }), pts).audit.parameters.method, 'pps_households', 'only one method exists');
+  assert.ok(a.audit.reach_check && a.audit.reach_check.threshold_km === C.REACH_KM && a.audit.reach_check.sources.length === 12); assert.ok(!('axes' in a.audit.input)); assert.ok(!('cluster_mode' in a.audit.parameters));
 });
 
 test('sampling record PDF is byte-reproducible, carries the audit hash and record id, and no token', async () => {
@@ -63,7 +64,7 @@ test('sampling record PDF is byte-reproducible, carries the audit hash and recor
   const roofs = {}; ents.forEach((e, i) => { roofs[e.code] = 12 + i; });
   const pts = C.normaliseWaterPoints(C.parseCsv(C.frameToCsv(C.mapMwaterEntities(ents, { roofs, passing: C.sdws3PassingPoints(ents.map(e => good(e.code)), SD) }).points)).records).points;
   const p = { roundName: '2026 R1', stratum: 'HP-FD', target: 58, hhPerPoint: 5, replacementFraction: 0.2, seed: '2026R1-HP-FD', icc: 0.1, expectedPass: 0.95, confidence: '0.90', precision: 0.1, precisionType: 'relative', hhReplacements: 2, timestamp: '2026-09-09T10:00:00.000Z', drawnBy: 'A. Tester, sampler', source: 'mwater', wpFileHash: 'ab'.repeat(32), mwater: { group: M.group, forms_used: [SD.id], fetched_at: '2026-09-09T09:59:00.000Z', counts: { total_in_group: 30, sdws3_pass_count: 30, excluded_no_pass: 0, excluded_abandoned: 0, excluded_marolinta: 0, unassigned: 0, eligible: 30, eligible_by_stratum: { 'HP-FD': 30, 'HP-MA': 0 } } }, token: 'SECRET-TOKEN' };
-  const r = C.draw(p, pts, []); const auditText = C.auditJson(r); const auditSha = C.sha256Sync(auditText);
+  const r = C.draw(p, pts); const auditText = C.auditJson(r); const auditSha = C.sha256Sync(auditText);
   const mk = lang => C.buildSamplingRecordPdf({ PDFLib, audit: JSON.parse(auditText), auditSha, lang, url: C.APP_URL, kValues: { [r.selected[0].water_point_id]: 23 } });
   const a = Buffer.from(await mk('en')), b = Buffer.from(await mk('en')), f = Buffer.from(await mk('fr'));
   assert.ok(a.equals(b), 'two builds differ'); assert.ok(!a.equals(f));
@@ -75,9 +76,9 @@ test('sampling record PDF is byte-reproducible, carries the audit hash and recor
 test('published record files never carry coordinates: audit JSON, selection CSV, PDF text, and every file under records/', async () => {
   const ents = []; for (let i = 0; i < 20; i++) ents.push(ent({ code: String(300 + i) }));
   const pts = C.normaliseWaterPoints(C.parseCsv(C.frameToCsv(C.mapMwaterEntities(ents, { passing: C.sdws3PassingPoints(ents.map(e => good(e.code)), SD) }).points)).records).points;
-  const r = C.draw({ roundName: 'R', stratum: 'HP-FD', target: 20, hhPerPoint: 5, replacementFraction: 0.2, seed: 's', icc: 0.1, expectedPass: 0.95, confidence: '0.90', precision: 0.1, precisionType: 'relative', hhReplacements: 2, timestamp: 't', method: 'commune_clusters', clusterMode: 'axis' }, pts, [{ name: 'Axe 1', coords: [[-25, 46], [-25, 47], [-24, 47]] }]);
+  const r = C.draw({ roundName: 'R', stratum: 'HP-FD', target: 20, hhPerPoint: 5, replacementFraction: 0.2, seed: 's', icc: 0.1, expectedPass: 0.95, confidence: '0.90', precision: 0.1, precisionType: 'relative', hhReplacements: 2, timestamp: 't' }, pts);
   assert.ok(pts[0].lat === -25, 'frame itself keeps coordinates for the map');
-  assert.equal(C.hasCoordinateKeys(JSON.parse(C.auditJson(r, { visiting_order: { start: 'start', stops: [] } }))), false);
+  assert.equal(C.hasCoordinateKeys(JSON.parse(C.auditJson(r))), false, 'reach check keeps distances only');
   assert.ok(!/lat|lon/i.test(C.toCsv(r).split('\r\n')[0]));
   const dir = path.join(__dirname, '..', 'records'); const bad = [];
   const scanText = (txt, f) => { if (/(^|[,;])\s*(lat|lon|lng|latitude|longitude)\s*([,;]|$)/im.test(txt) || /-2[0-9]\.\d{4,}/.test(txt)) bad.push(f); };
@@ -101,6 +102,14 @@ test('mapper on real mWater document shapes (scrubbed fixture): counts, flags an
   const pts = C.normaliseWaterPoints(C.parseCsv(C.frameToCsv(m.points)).records).points;
   ['HP-FD', 'HP-MA'].forEach(s => { const g = C.backlog(pts, s); const all = g.operating.concat(g.failing, g.notBuilt, g.other); assert.ok(all.every(p => p.stratum === s && !(p.sdws3_passes > 0) && p.abandoned !== 'Y')); assert.ok(g.failing.every(p => p.sdws3_results > 0)); assert.ok(g.operating.every(p => p.has_records === 'Y' && !(p.sdws3_results > 0))); assert.ok(g.notBuilt.every(p => /identifié|drilling/.test(p.name_pattern) && p.has_records !== 'Y')); });
   const fd = C.backlog(pts, 'HP-FD'); assert.equal(fd.failing.length + fd.operating.length + fd.notBuilt.length + fd.other.length, pts.filter(p => p.stratum === 'HP-FD' && p.abandoned !== 'Y' && !(p.sdws3_passes > 0)).length);
+});
+
+test('reach check flags a source farther than 25 km from every other selected source and from the town; nothing is replaced', () => {
+  const sel = [{ water_point_id: 'a', lat: -25.0, lon: 46.9 }, { water_point_id: 'b', lat: -25.05, lon: 46.95 }, { water_point_id: 'c', lat: -24.3, lon: 47.3 }, { water_point_id: 'd', lat: 'x', lon: 'y' }];
+  const r = C.reachCheck(sel, M.strata['HP-FD'].town);
+  const by = Object.fromEntries(r.map(x => [x.water_point_id, x]));
+  assert.equal(by.a.far, false); assert.equal(by.b.far, false); assert.equal(by.c.far, true); assert.ok(by.c.nearest_km > 25 && by.c.town_km > 25); assert.equal(by.d.far, false); assert.equal(by.d.nearest_km, null);
+  assert.equal(r.length, 4, 'no source is removed or replaced');
 });
 
 test('mwaterGet puts the token in the query only and never echoes it in errors', async () => {

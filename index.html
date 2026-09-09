@@ -67,6 +67,9 @@ tr.rep td{color:var(--grey);background:#fafafa}
 .num-icon{background:var(--blue);color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;line-height:24px;text-align:center;font-weight:700;font-size:.85rem;box-shadow:0 1px 4px rgba(0,0,0,.4)}
 .num-icon.rep{background:#9aa3ad}
 .num-icon.start{background:#157347;font-size:1rem}
+.num-icon.far{background:#e07b00}
+.commune-label{font:600 .75rem system-ui,sans-serif;color:#0b5e8a;background:rgba(255,255,255,.75);padding:0 .3rem;border-radius:4px;text-align:center;white-space:nowrap;pointer-events:none}
+tr.far td{background:#fff4e5}
 pre.audit{background:#0f172a;color:#d7e3f4;padding:.7rem;border-radius:8px;font-size:.75rem;overflow:auto;max-height:50vh}
 .kinput{width:5.5rem;min-height:36px;padding:.3rem}
 .howto p,.howto li{font-size:.95rem}
@@ -159,7 +162,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
     <div id="data-status"></div>
     <div id="data-summary" class="tablewrap"></div>
     <div class="btnrow"><button class="btn small secondary hidden" id="btn-frame-dl" type="button" data-i18n="data_frame_dl">Download loaded frame (CSV)</button></div>
-    <div class="btnrow"><button class="btn hidden" id="btn-next-params" type="button" data-i18n="next_params">Next: set parameters and draw</button></div>
+    <div class="btnrow"><button class="btn hidden" id="btn-next-params" type="button" data-i18n="next_backlog">Next: Test A backlog</button></div>
   </div>
 </section>
 
@@ -171,6 +174,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
     <div id="backlog-counts"></div>
     <div class="btnrow"><button class="btn small secondary" id="btn-backlog-csv" type="button" data-i18n="bl_csv">Export backlog CSV</button><button class="btn small secondary" id="btn-backlog-print" type="button" data-i18n="bl_print">Print visit sheets per commune</button></div>
     <p class="muted" data-i18n="bl_print_hint">Visit sheets and the CSV carry coordinates: for the field team only, never filed.</p>
+    <div class="btnrow"><button class="btn" id="btn-next-params2" type="button" data-i18n="next_params">Next: set parameters and draw</button></div>
   </div>
   <div class="card" id="backlog-tables"></div>
   <div id="backlog-print" class="printonly"></div>
@@ -183,15 +187,11 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
     <div class="grid">
       <div><label data-i18n="p_round">Round name</label><input type="text" id="p-round" value="2026 R1"></div>
       <div><label data-i18n="p_drawn_by">Drawn by (name, role)</label><input type="text" id="p-drawn-by" autocomplete="name"></div>
-      <div><label data-i18n="p_method">Sampling method</label><select id="p-method"><option value="pps_households" data-i18n="method_pps">Protocol v2.1 §6.4: sources PPS by households served</option><option value="commune_clusters" data-i18n="method_clusters">Commune clusters (v1)</option></select></div>
+
       <div><label data-i18n="p_stratum">Stratum</label><select id="p-stratum"></select></div>
       <div><label data-i18n="p_target">Target PoU samples</label><input type="number" id="p-target" value="58" min="1"></div>
       <div><label data-i18n="p_hh">Households per source</label><input type="number" id="p-hh" value="5" min="1"></div>
-      <div><label data-i18n="p_cmode">Cluster definition</label>
-        <select id="p-cmode"><option value="commune" data-i18n="cmode_commune">Communes</option><option value="axis" data-i18n="cmode_axis">Custom axes (drawn on map)</option></select></div>
-      <div><label><span data-i18n="p_nclusters">Clusters to select</span> <small id="p-nclusters-hint"></small></label><input type="number" id="p-nclusters" min="1" placeholder="auto"></div>
       <div><label data-i18n="p_repfrac">Replacement fraction (%)</label><input type="number" id="p-repfrac" value="20" min="0" max="100"></div>
-      <div><label data-i18n="p_hhrep">Household replacements per point</label><input type="number" id="p-hhrep" value="2" min="0"></div>
       <div><label><span data-i18n="p_seed">Seed</span> <small data-i18n="p_seed_hint">(reproduces the draw)</small></label><input type="text" id="p-seed"></div>
     </div>
     <h3 data-i18n="params_stats">Statistical check</h3>
@@ -225,6 +225,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
         <button class="btn" id="btn-pdf" type="button" data-i18n="btn_pdf">Export sampling record (PDF + JSON + CSV)</button>
       </div>
       <div id="res-export-msg"></div>
+      <div class="btnrow"><button class="btn" id="btn-next-map" type="button" data-i18n="next_map">Next: map</button></div>
       <div class="btnrow hidden">
         <button class="btn secondary" id="btn-print" type="button" data-i18n="btn_print">Print field sheet</button>
       </div>
@@ -241,24 +242,14 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
 <section class="tab" id="tab-map">
   <div class="card">
     <div class="btnrow">
-      <button class="btn small" id="btn-start-click" type="button" data-i18n="map_start_click">Set start: tap on map</button>
-      <button class="btn small" id="btn-start-gps" type="button" data-i18n="map_start_gps">Set start: my GPS</button>
-      <select id="sel-start-wp" style="width:auto;display:inline-block"><option value="" data-i18n="map_start_wp">Start from a water point…</option></select>
       <button class="btn small secondary" id="btn-fit" type="button" data-i18n="map_fit">Fit</button>
       <label style="display:inline-flex;align-items:center;gap:.3rem;margin:0"><span data-i18n="map_show">Show on map</span> <select id="map-mode" style="width:auto"><option value="draw" data-i18n="map_show_draw">the draw</option><option value="backlog" data-i18n="tab_backlog">Test A backlog</option></select></label>
-    </div>
-    <div class="btnrow">
-      <button class="btn small secondary" id="btn-axis-draw" type="button" data-i18n="axis_draw">Draw axis polygon</button>
-      <button class="btn small" id="btn-axis-finish" type="button" data-i18n="axis_finish" disabled>Finish polygon</button>
-      <button class="btn small secondary" id="btn-axis-cancel" type="button" data-i18n="axis_cancel" disabled>Cancel</button>
-      <button class="btn small secondary" id="btn-axis-export" type="button" data-i18n="axis_export">Export axes JSON</button>
-      <label class="btn small secondary" for="file-axes" style="margin:0" data-i18n="axis_import">Import axes JSON</label><input type="file" id="file-axes" accept=".json" class="hidden">
     </div>
     <div id="map-msg" class="muted"></div>
   </div>
   <div id="map"></div>
-  <div class="card"><h2 data-i18n="map_route">Suggested visiting order (nearest neighbour, straight-line)</h2><div class="tablewrap" id="route-table"></div></div>
-  <div class="card"><h2 data-i18n="axis_list">Saved axes</h2><div id="axis-list"></div></div>
+  <div class="card" id="map-list"></div>
+  <div class="card"><div class="btnrow"><button class="btn" id="btn-next-sheet" type="button" data-i18n="next_sheet">Next: field sheet</button></div></div>
 </section>
 
 <!-- ============ FIELD SHEET ============ -->
