@@ -1,10 +1,11 @@
 /* SaniTap Sampler service worker: caches the app shell for offline use. Map tiles are never cached. */
-const CACHE = 'sanitap-sampler-v1.1.0';
+const CACHE = 'sanitap-sampler-v1.2.0';
 const SHELL = [
   './', './index.html', './app.js',
-  './data/sample-water-points.csv', './data/sample-households.csv',
+  './data/sample-water-points.csv',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
-  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js'
 ];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(async c => {

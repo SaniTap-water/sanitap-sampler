@@ -123,7 +123,6 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
       </details>
       <div class="grid">
         <div><label data-i18n="mw_stratum">Stratum to load</label><select id="mw-stratum"></select></div>
-        <div><label>&nbsp;</label><label style="font-weight:400"><input type="checkbox" id="mw-hh" checked> <span data-i18n="mw_hh">Also fetch registered households (survey links)</span></label></div>
       </div>
       <button class="btn" id="btn-mw-fetch" type="button" data-i18n="mw_fetch">Fetch from mWater</button>
       <div id="mw-progress" class="muted"></div>
@@ -132,9 +131,6 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
     <label data-i18n="data_wp_label">Water points CSV (mWater export)</label>
     <input type="file" id="file-wp" accept=".csv,text/csv">
     <p class="muted" data-i18n="data_wp_cols">Required columns: water_point_id, name, stratum, commune, fokontany, village, lat, lon, households_served, status</p>
-    <label data-i18n="data_hh_label">Households CSV (optional)</label>
-    <input type="file" id="file-hh" accept=".csv,text/csv">
-    <p class="muted" data-i18n="data_hh_cols">Columns: household_id, water_point_id, name_or_code, lat, lon</p>
     </div>
     <div class="btnrow">
       <button class="btn secondary" id="btn-sample" type="button" data-i18n="data_sample">Load sample data</button>
@@ -142,7 +138,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
     </div>
     <div id="data-status"></div>
     <div id="data-summary" class="tablewrap"></div>
-    <div class="btnrow"><button class="btn small secondary hidden" id="btn-frame-dl" type="button" data-i18n="data_frame_dl">Download loaded frame (CSV)</button><button class="btn small secondary hidden" id="btn-hh-dl" type="button" data-i18n="data_hh_dl">Download household list (CSV)</button></div>
+    <div class="btnrow"><button class="btn small secondary hidden" id="btn-frame-dl" type="button" data-i18n="data_frame_dl">Download loaded frame (CSV)</button></div>
   </div>
 </section>
 
@@ -152,9 +148,11 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
     <h2 data-i18n="params_title">Round parameters</h2>
     <div class="grid">
       <div><label data-i18n="p_round">Round name</label><input type="text" id="p-round" value="2026 R1"></div>
+      <div><label data-i18n="p_drawn_by">Drawn by (name, role)</label><input type="text" id="p-drawn-by" autocomplete="name"></div>
+      <div><label data-i18n="p_method">Sampling method</label><select id="p-method"><option value="pps_households" data-i18n="method_pps">Protocol v2.1 §6.4: sources PPS by households served</option><option value="commune_clusters" data-i18n="method_clusters">Commune clusters (v1)</option></select></div>
       <div><label data-i18n="p_stratum">Stratum</label><select id="p-stratum"></select></div>
       <div><label data-i18n="p_target">Target PoU samples</label><input type="number" id="p-target" value="58" min="1"></div>
-      <div><label data-i18n="p_hh">Households per water point</label><input type="number" id="p-hh" value="5" min="1"></div>
+      <div><label data-i18n="p_hh">Households per source</label><input type="number" id="p-hh" value="5" min="1"></div>
       <div><label data-i18n="p_cmode">Cluster definition</label>
         <select id="p-cmode"><option value="commune" data-i18n="cmode_commune">Communes</option><option value="axis" data-i18n="cmode_axis">Custom axes (drawn on map)</option></select></div>
       <div><label><span data-i18n="p_nclusters">Clusters to select</span> <small id="p-nclusters-hint"></small></label><input type="number" id="p-nclusters" min="1" placeholder="auto"></div>
@@ -190,6 +188,11 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
         <button class="btn" id="btn-csv" type="button" data-i18n="btn_csv">Export CSV (mWater)</button>
         <button class="btn" id="btn-json" type="button" data-i18n="btn_json">Export audit JSON</button>
         <button class="btn secondary" id="btn-mwcsv" type="button" data-i18n="btn_mwcsv">Export mWater site list (CSV)</button>
+        <button class="btn" id="btn-pdf" type="button" data-i18n="btn_pdf">Export sampling record (PDF + JSON + CSV)</button>
+        <button class="btn secondary hidden" id="btn-mark" type="button" data-i18n="mark_title">Mark round in mWater</button>
+      </div>
+      <div id="res-export-msg"></div>
+      <div class="btnrow hidden">
         <button class="btn secondary" id="btn-print" type="button" data-i18n="btn_print">Print field sheet</button>
       </div>
     </div>
@@ -237,6 +240,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
 </main>
 <footer>SaniTap Sampler · Gold Standard SDWS v2.0 · <span data-i18n="foot">open source, no data leaves the device</span></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin=""></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js" crossorigin=""></script>
 <script src="app.js"></script>
 </body>
 </html>

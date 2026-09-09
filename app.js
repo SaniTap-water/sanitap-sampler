@@ -3,8 +3,14 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '1.1.0';
-const ALGORITHM = 'seed string -> xmur3 32-bit hash -> mulberry32 PRNG; stage 1 sequential PPS without replacement; stage 2 & 3 simple random sampling without replacement (sequential uniform index draws)';
+const APP_VERSION = '1.2.0';
+const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
+const APP_URL = 'https://sanitap-water.github.io/sanitap-sampler/';
+const ALGORITHMS = {
+  pps_households: 'seed string -> xmur3 32-bit hash -> mulberry32 PRNG (v1.2.0); stage 1: systematic PPS of sources proportional to households served, frame ordered by commune then water_point_id, one random start, certainty selection for sources larger than the interval; replacements: sequential PPS without replacement in random order; stage 2: households by the field rule (k-th household walking clockwise from the source), numbers from mulberry32 seeded with seed|water_point_id|K',
+  commune_clusters: 'seed string -> xmur3 32-bit hash -> mulberry32 PRNG (v1.2.0); stage 1 sequential PPS of commune/axis clusters without replacement; stage 2 simple random sampling of sources without replacement; stage 3 households by the field rule'
+};
+const ALGORITHM = ALGORITHMS.pps_households;
 
 /* =====================================================================
  *  CORE
@@ -227,83 +233,124 @@ const Core = (function () {
   }
 
   /* ---------- the draw ---------- */
-  function draw(params, allPoints, householdsByWp, axes) {
-    const p = Object.assign({}, params);
+  // Systematic PPS: frame in fixed order, weights w_i, n draws, one random start. Sources with w_i >= interval are taken with certainty
+  // and the interval recomputed on the rest (repeated until stable), so no source can be hit twice. Returns selected in frame order with the hit positions.
+  function systematicPps(frame, weights, n, rng) {
+    const certain = []; let rest = frame.map((f, i) => ({ f, w: weights[i], i })); let interval = 0, total = 0;
+    for (;;) {
+      total = rest.reduce((a, r) => a + r.w, 0); const k = n - certain.length; if (k <= 0 || !rest.length) { interval = 0; break; }
+      interval = total / k; const big = rest.filter(r => r.w >= interval);
+      if (!big.length) break;
+      big.forEach(r => certain.push(r)); rest = rest.filter(r => r.w < interval);
+    }
+    const k = n - certain.length; const start = k > 0 ? rng.next() * interval : 0; const hits = [];
+    if (k > 0) { let cum = 0, j = 0; rest.forEach(r => { const from = cum; cum += r.w; while (j < k && start + j * interval < cum) { if (start + j * interval >= from) hits.push({ f: r.f, w: r.w, from, to: cum, hit: start + j * interval, i: r.i }); j++; } }); }
+    const selected = certain.map(r => ({ f: r.f, w: r.w, from: null, to: null, hit: null, certainty: true, i: r.i })).concat(hits).sort((a, b) => a.i - b.i);
+    return { selected, interval, start, total, certainty: certain.length, remaining: rest.filter(r => !hits.some(h => h.i === r.i)).map(r => ({ f: r.f, w: r.w, i: r.i })) };
+  }
+  function median(arr) { const a = arr.slice().sort((x, y) => x - y); return a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2) : 0; }
+  function recordId(p) { return String(p.roundName || 'round').replace(/\s+/g, '') + '-' + p.stratum + '-' + p.seed; }
+
+  function draw(params, allPoints, axes) {
+    const p = Object.assign({ method: 'pps_households' }, params);
     const warnings = [];
     const rng = makeRng(p.seed);
     const eligible = allPoints.filter(pt => pt.active && String(pt.stratum) === String(p.stratum))
       .sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id)));
     const noCoords = eligible.filter(pt => !isFinite(pt.lat) || !isFinite(pt.lon)).length;
     if (noCoords) warnings.push({ code: 'no_coords', n: noCoords });
-    const { clusters, unassigned } = assignClusters(eligible, p.clusterMode, axes);
-    if (unassigned.length) warnings.push({ code: 'unassigned', n: unassigned.length, ids: unassigned.map(u => u.water_point_id) });
+    if (!eligible.length) return { error: 'no_eligible', warnings, eligibleCount: 0 };
     const st = stats(p);
     const nWp = st.nWp;
     const nRep = Math.ceil(nWp * p.replacementFraction);
     const needed = nWp + nRep;
-    const autoK = defaultClusterCount(clusters, needed);
-    let k = p.nClusters && p.nClusters > 0 ? Math.min(p.nClusters, clusters.length) : autoK;
-    if (!clusters.length) return { error: 'no_eligible', warnings, eligibleCount: 0 };
-
-    // Stage 1: sequential PPS without replacement
-    const pool1 = clusters.slice(); const selectedClusters = [];
-    while (selectedClusters.length < k && pool1.length) {
-      const total = pool1.reduce((s, c) => s + c.size, 0);
-      let u = rng.next() * total, idx = 0;
-      for (; idx < pool1.length; idx++) { u -= pool1[idx].size; if (u < 0) break; }
-      if (idx >= pool1.length) idx = pool1.length - 1;
-      const c = pool1.splice(idx, 1)[0];
-      selectedClusters.push({ name: c.name, size: c.size, order: selectedClusters.length + 1 });
+    let clusters = [], unassigned = [], selectedClusters = [], selected = [], replacements = [], stage1 = null, autoK = null, k = null;
+    const clusterOf = {};
+    if (p.method === 'commune_clusters') {
+      const ac = assignClusters(eligible, p.clusterMode, axes); clusters = ac.clusters; unassigned = ac.unassigned;
+      if (unassigned.length) warnings.push({ code: 'unassigned', n: unassigned.length, ids: unassigned.map(u => u.water_point_id) });
+      autoK = defaultClusterCount(clusters, needed);
+      k = p.nClusters && p.nClusters > 0 ? Math.min(p.nClusters, clusters.length) : autoK;
+      if (!clusters.length) return { error: 'no_eligible', warnings, eligibleCount: 0 };
+      const pool1 = clusters.slice();
+      while (selectedClusters.length < k && pool1.length) {
+        const total = pool1.reduce((sum, c) => sum + c.size, 0);
+        let u = rng.next() * total, idx = 0;
+        for (; idx < pool1.length; idx++) { u -= pool1[idx].size; if (u < 0) break; }
+        if (idx >= pool1.length) idx = pool1.length - 1;
+        const c = pool1.splice(idx, 1)[0];
+        selectedClusters.push({ name: c.name, size: c.size, order: selectedClusters.length + 1 });
+      }
+      const selNames = new Set(selectedClusters.map(c => c.name));
+      clusters.forEach(c => c.points.forEach(pt => { clusterOf[pt.water_point_id] = c.name; }));
+      const pool2 = clusters.filter(c => selNames.has(c.name)).flatMap(c => c.points).sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id)));
+      if (pool2.length < needed) warnings.push({ code: 'insufficient_points', have: pool2.length, needed, nWp, nRep });
+      const pick = n => { const out = []; while (out.length < n && pool2.length) out.push(pool2.splice(randInt(rng, pool2.length), 1)[0]); return out; };
+      selected = pick(nWp); replacements = pick(nRep);
+      stage1 = { method: 'commune_clusters', cluster_mode: p.clusterMode, clusters_auto: autoK, clusters_selected: k };
+    } else {
+      // Protocol v2.1 §6.4: sources drawn proportional to households served, frame ordered by commune then id (implicit stratification across communes)
+      const frame = eligible.slice().sort((a, b) => String(a.commune || '').localeCompare(String(b.commune || '')) || String(a.water_point_id).localeCompare(String(b.water_point_id)));
+      const known = frame.filter(f => f.households_served > 0).map(f => f.households_served);
+      const imputed = known.length ? Math.max(1, Math.round(median(known))) : 1;
+      const nImputed = frame.length - known.length;
+      if (nImputed) warnings.push({ code: 'imputed_weights', n: nImputed, value: imputed });
+      const weights = frame.map(f => f.households_served > 0 ? f.households_served : imputed);
+      if (frame.length < needed) warnings.push({ code: 'insufficient_points', have: frame.length, needed, nWp, nRep });
+      const sp = systematicPps(frame, weights, Math.min(nWp, frame.length), rng);
+      selected = sp.selected.map(x => x.f);
+      const hitOf = {}; sp.selected.forEach(x => { hitOf[x.f.water_point_id] = x; });
+      // replacements: sequential PPS without replacement among the remaining sources, in draw order
+      let rest = sp.remaining.slice();
+      while (replacements.length < nRep && rest.length) {
+        const total = rest.reduce((a, r) => a + r.w, 0); let u = rng.next() * total, idx = 0;
+        for (; idx < rest.length; idx++) { u -= rest[idx].w; if (u < 0) break; }
+        if (idx >= rest.length) idx = rest.length - 1;
+        const r = rest.splice(idx, 1)[0]; replacements.push(r.f); hitOf[r.f.water_point_id] = { w: r.w, hit: null, from: null, to: null };
+      }
+      frame.forEach(f => { clusterOf[f.water_point_id] = f.commune || '(no commune)'; });
+      const byCommune = {}; frame.forEach(f => { const c = f.commune || '(no commune)'; byCommune[c] = byCommune[c] || { name: c, size: 0, households: 0, selected: 0 }; byCommune[c].size++; byCommune[c].households += f.households_served > 0 ? f.households_served : imputed; });
+      selected.forEach(f => { byCommune[f.commune || '(no commune)'].selected++; });
+      clusters = Object.keys(byCommune).sort().map(c => ({ name: c, size: byCommune[c].size, households: byCommune[c].households, selected: byCommune[c].selected, points: frame.filter(f => (f.commune || '(no commune)') === c) }));
+      selectedClusters = clusters.filter(c => c.selected > 0).map((c, i) => ({ name: c.name, size: c.size, households: c.households, selected: c.selected, order: i + 1 }));
+      stage1 = { method: 'pps_households', frame_order: 'commune, water_point_id', frame_size: frame.length, total_households: sp.total, imputed_weight: imputed, imputed_count: nImputed, interval: +sp.interval.toFixed(4), random_start: +sp.start.toFixed(4), certainty_selections: sp.certainty, communes_covered: selectedClusters.length, communes_in_frame: clusters.length };
+      selected.forEach(f => { f.__hit = hitOf[f.water_point_id]; }); replacements.forEach(f => { f.__hit = hitOf[f.water_point_id]; });
     }
-    const selNames = new Set(selectedClusters.map(c => c.name));
-    const clusterOf = {}; clusters.forEach(c => c.points.forEach(pt => { clusterOf[pt.water_point_id] = c.name; }));
-
-    // Stage 2: SRS without replacement in the pooled selected clusters
-    const pool2 = clusters.filter(c => selNames.has(c.name)).flatMap(c => c.points)
-      .sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id)));
-    if (pool2.length < needed) warnings.push({ code: 'insufficient_points', have: pool2.length, needed, nWp, nRep });
-    const pick = n => { const out = []; while (out.length < n && pool2.length) out.push(pool2.splice(randInt(rng, pool2.length), 1)[0]); return out; };
-    const selected = pick(nWp), replacements = pick(nRep);
     if (selected.length < nWp) warnings.push({ code: 'short_selection', have: selected.length, nWp });
 
-    // Stage 3: households
+    // Stage 2 (households): field rule for every source
     const hhN = p.hhPerPoint, hhR = p.hhReplacements;
-    function hhFor(pt) {
-      const list = householdsByWp && householdsByWp[pt.water_point_id];
-      if (list && list.length) {
-        const pool = list.slice(); const out = [];
-        while (out.length < hhN + hhR && pool.length) out.push(pool.splice(randInt(rng, pool.length), 1)[0]);
-        if (list.length < hhN + hhR) warnings.push({ code: 'few_households', id: pt.water_point_id, have: list.length, needed: hhN + hhR });
-        return { mode: 'list', primary: out.slice(0, hhN), replacements: out.slice(hhN), listed: list.length };
-      }
-      return { mode: 'rule', n: hhN, extra: hhR };
-    }
     const mk = (pt, i, rep) => ({
       order: i + 1, replacement: rep, water_point_id: pt.water_point_id, name: pt.name, cluster: clusterOf[pt.water_point_id],
-      commune: pt.commune, fokontany: pt.fokontany, village: pt.village, lat: pt.lat, lon: pt.lon, households_served: pt.households_served,
-      households: hhFor(pt)
+      commune: pt.commune, fokontany: pt.fokontany, village: pt.village, lat: pt.lat, lon: pt.lon, households_served: pt.households_served, pump: pt.pump,
+      weight: pt.__hit ? pt.__hit.w : undefined, hit: pt.__hit && pt.__hit.hit !== null && pt.__hit.hit !== undefined ? +pt.__hit.hit.toFixed(4) : undefined, cum_from: pt.__hit && pt.__hit.from !== null && pt.__hit.from !== undefined ? +pt.__hit.from.toFixed(4) : undefined, cum_to: pt.__hit && pt.__hit.to !== null && pt.__hit.to !== undefined ? +pt.__hit.to.toFixed(4) : undefined, certainty: pt.__hit && pt.__hit.certainty ? true : undefined,
+      households: { mode: 'rule', n: hhN, extra: hhR }
     });
     const selectedOut = selected.map((pt, i) => mk(pt, i, false));
     const replacementOut = replacements.map((pt, i) => mk(pt, i, true));
+    selected.concat(replacements).forEach(f => { delete f.__hit; });
 
     const audit = {
-      tool: 'SaniTap Sampler', version: APP_VERSION, methodology: 'Gold Standard SDWS v2.0',
-      timestamp: p.timestamp || new Date().toISOString(),
-      seed: p.seed, seed_word_uint32: rng.seedWord, algorithm: ALGORITHM,
-      input: { source: p.source || 'csv', water_points_file: p.wpFileName || null, water_points_sha256: p.wpFileHash || null, households_file: p.hhFileName || null, households_sha256: p.hhFileHash || null, mwater: p.source === 'mwater' ? (p.mwater || null) : null, axes: p.clusterMode === 'axis' ? (axes || []) : null },
-      parameters: { round: p.roundName, stratum: p.stratum, target_samples: p.target, households_per_point: hhN, household_replacements: hhR, cluster_mode: p.clusterMode, clusters_requested: p.nClusters || null, clusters_auto: autoK, clusters_selected: k, replacement_fraction: p.replacementFraction, icc: p.icc, expected_pass_rate: p.expectedPass, confidence: p.confidence, precision: p.precision, precision_type: p.precisionType },
-      frame: { eligible_points: eligible.length, clusters: clusters.map(c => ({ name: c.name, size: c.size })), unassigned: unassigned.map(u => u.water_point_id) },
+      tool: 'SaniTap Sampler', version: APP_VERSION, commit: APP_COMMIT, methodology: 'Gold Standard SDWS v2.0; SaniTap Water Quality Testing Protocol v2.1 section 6.4',
+      record_id: recordId(p),
+      timestamp: p.timestamp || new Date().toISOString(), drawn_by: p.drawnBy || null,
+      seed: p.seed, seed_word_uint32: rng.seedWord, algorithm: ALGORITHMS[p.method] || ALGORITHMS.pps_households,
+      input: { source: p.source || 'csv', water_points_file: p.wpFileName || null, water_points_sha256: p.wpFileHash || null, frame_rule: FRAME_RULE_TEXT.en, mwater: p.source === 'mwater' ? (p.mwater || null) : null, axes: p.method === 'commune_clusters' && p.clusterMode === 'axis' ? (axes || []) : null },
+      parameters: { round: p.roundName, stratum: p.stratum, method: p.method, target_samples: p.target, households_per_point: hhN, household_replacements: hhR, cluster_mode: p.method === 'commune_clusters' ? p.clusterMode : null, clusters_requested: p.method === 'commune_clusters' ? (p.nClusters || null) : null, clusters_auto: autoK, clusters_selected: k, replacement_fraction: p.replacementFraction, icc: p.icc, expected_pass_rate: p.expectedPass, confidence: p.confidence, precision: p.precision, precision_type: p.precisionType },
+      frame: { eligible_points: eligible.length, clusters: clusters.map(c => ({ name: c.name, size: c.size, households: c.households, selected: c.selected })), unassigned: unassigned.map(u => u.water_point_id) },
+      stage1,
       statistics: st,
       selected_clusters: selectedClusters,
       water_points: selectedOut.map(auditWp), replacements: replacementOut.map(auditWp),
-      field_rule: 'Number households clockwise from the pump starting at the nearest; K = total households counted on the day; draw N=' + hhN + ' numbers (+' + hhR + ' replacements) from 1..K with PRNG seeded by seed|water_point_id|K=K',
+      field_rule: 'Count the households served (K), number them clockwise from the source starting at the nearest; draw N=' + hhN + ' numbers (+' + hhR + ' replacements) from 1..K with mulberry32 seeded by seed|water_point_id|K=K',
       warnings
     };
     return { params: p, eligible, clusters, unassigned, stats: st, nWp, nRep, selectedClusters, selected: selectedOut, replacements: replacementOut, warnings, audit };
   }
   function auditWp(w) {
-    return { order: w.order, water_point_id: w.water_point_id, name: w.name, cluster: w.cluster, lat: w.lat, lon: w.lon,
-      households: w.households.mode === 'list' ? { mode: 'list', listed: w.households.listed, primary: w.households.primary.map(h => h.household_id), replacements: w.households.replacements.map(h => h.household_id) } : w.households };
+    const o = { order: w.order, water_point_id: w.water_point_id, name: w.name, cluster: w.cluster, commune: w.commune, lat: w.lat, lon: w.lon, households_served: w.households_served, households: w.households };
+    if (w.weight !== undefined) o.weight = w.weight; if (w.hit !== undefined) o.hit = w.hit; if (w.cum_from !== undefined) { o.cum_from = w.cum_from; o.cum_to = w.cum_to; } if (w.certainty) o.certainty = true;
+    return o;
   }
   // field rule numbers when K is typed on the day: reproducible from seed, point and K
   function fieldNumbers(seed, wpId, K, n, extra) {
@@ -328,16 +375,11 @@ const Core = (function () {
     const add = (w, wpRep) => {
       const o = ord[w.water_point_id] || (wpRep ? 'R' + w.order : w.order);
       const base = [p.roundName, p.stratum, w.cluster, w.water_point_id, o];
-      if (w.households.mode === 'list') {
-        w.households.primary.forEach(h => rows.push(base.concat([h.household_id, wpRep ? 'water_point' : 'none'])));
-        w.households.replacements.forEach(h => rows.push(base.concat([h.household_id, wpRep ? 'water_point+household' : 'household'])));
-      } else {
-        const r = ruleText(w, kv);
-        if (r.primary.length) {
-          r.primary.forEach(x => rows.push(base.concat([x, wpRep ? 'water_point' : 'none'])));
-          r.replacements.forEach(x => rows.push(base.concat([x, wpRep ? 'water_point+household' : 'household'])));
-        } else rows.push(base.concat([r.text, wpRep ? 'water_point' : 'none']));
-      }
+      const r = ruleText(w, kv);
+      if (r.primary.length) {
+        r.primary.forEach(x => rows.push(base.concat([x, wpRep ? 'water_point' : 'none'])));
+        r.replacements.forEach(x => rows.push(base.concat([x, wpRep ? 'water_point+household' : 'household'])));
+      } else rows.push(base.concat([r.text, wpRep ? 'water_point' : 'none']));
     };
     result.selected.forEach(w => add(w, false));
     result.replacements.forEach(w => add(w, true));
@@ -354,31 +396,50 @@ const Core = (function () {
     group: 'group:aaaf0a14e4ce44eaa7a2bcfd1c74aa56', // MadAvance operator group: owner of the programme water points and households
     entityType: 'water_point',
     strata: {
-      FD: { label: 'Fort-Dauphin (Taolagnaro)', districts: ['Taolagnaro', 'Fort-Dauphin'] },
-      MA: { label: 'Maroantsetra', districts: ['Maroantsetra'] },
-      BE: { label: 'Beloha', districts: ['Beloha'] },
-      AM: { label: 'Amboasary-Atsimo', districts: ['Amboasary-Atsimo', 'Amboasary Sud', 'Amboasary'] }
+      'HP-FD': { label: 'Hand pumps — Fort-Dauphin (Taolagnaro)', districts: ['Taolagnaro', 'Fort-Dauphin'] },
+      'HP-MA': { label: 'Hand pumps — Maroantsetra', districts: ['Maroantsetra'] }
     },
+    excludedDistricts: { label: 'Marolinta', districts: ['Beloha', 'Amboasary-Atsimo', 'Amboasary Sud', 'Amboasary'] },
+    unassigned: 'unassigned',
     forms: {
       beneficiaries: { name: 'Clean Water || Nombre de bénéficiaires', id: '8aa2dd78eb1f460f8f43db7935955846', wpQ: 'e796e451be1243d58b547bc0f6c1d5b4', roofsQ: '00ae079e071a40349e0706c659430f9b' },
       maintenance: { name: 'Clean Water || Première réhabilitation/Entretien préventif/Réparation', id: '86cf66efdd3749dd8a121314bab3675a', wpQ: '6b454d5e31ce4f6bb4918aca5f824d75', statusQ: 'c843c54776864de7b5b8b90825bc4c06', status2Q: '701d5b8d583145e3baab2e75a5f17ce4', pumpQ: '2ba451c8124f4d02aa76c44e6f5a88a3',
         status: { asVbMu3: 'functional', LATrLet: 'not_functional', NScsLF7: 'functional_substandard' }, pump: { '6Txb2rB': 'Canzee', mQmlpWT: 'IndiaMark', '72yyu9B': 'other' } },
-      registration: [
-        { name: 'Baseline Cbn&Gender', id: '7312b69c4c33466a9611791197cd21bf', wpQ: '229291742afe47c9af1a25034c81dbd1', hhQ: '3794238133a142418711164fc0cad4e6' },
-        { name: 'Project Cbn&Gender', id: '2eeb86824b4545eca33db9e7cf7dcbd4', wpQ: '229291742afe47c9af1a25034c81dbd1', hhQ: '3794238133a142418711164fc0cad4e6' },
-        { name: 'Hygiene&San', id: '209cc5fc24e24463aff702c11b6bd18f', wpQ: '07e2aa4fa29b4a45b9357d67f049d2c2', hhQ: '9954412d58164a25bc9efe27cab1bae1' }
-      ]
+      sdws3: { name: 'Clean Water || Water Quality Testing_SDWS 3_Result', id: '7b33c5d7e5074808a94915939a5a0783', wpQ: 'a3390d2e97494b3da193e5c015a879d1', dateQ: '630ccd46f76f420692572e0db2d86ad8',
+        // the form's own pass calculations (design.calculations): E. coli = 0; turbidity <= 5 NTU; conductivity < 1500 µS/cm; 6 <= pH <= 8.5; arsenic <= 10 µg/L; fluoride <= 1.5 mg/L; iron <= 0.3 mg/L or no result; manganese <= 0.4 mg/L or no result
+        params: [
+          { key: 'ecoli', q: '892f1d81bf1a4c4483e53271dda474a5', test: v => v === 0, missing: false, rule: 'E. coli = 0 CFU/100 mL' },
+          { key: 'turbidity', q: 'c70eb0f3cf764b04a26a2bc463a8ca2e', test: v => v <= 5, missing: false, rule: 'turbidity <= 5 NTU' },
+          { key: 'conductivity', q: '64809a7fc4ff4cefa9c49087e74d9f97', test: v => v < 1500, missing: false, rule: 'conductivity < 1500 µS/cm' },
+          { key: 'ph', q: '5eaf270dfe27443ebd33da195b9b89c9', test: v => v >= 6 && v <= 8.5, missing: false, rule: '6 <= pH <= 8.5' },
+          { key: 'arsenic', q: '4b86e349e9bc418ea5a4868e7b383604', test: v => v <= 10, missing: false, rule: 'arsenic <= 10 µg/L' },
+          { key: 'fluoride', q: 'b4e94c2a5ca4497199bcde2856f2cd0c', test: v => v <= 1.5, missing: false, rule: 'fluoride <= 1.5 mg/L' },
+          { key: 'iron', q: '3ba8917797a7429aa31b69023c7f3c1f', test: v => v <= 0.3, missing: true, rule: 'iron <= 0.3 mg/L (no result accepted)' },
+          { key: 'manganese', q: 'c0a900a9659e45c29acce3349e32f1fd', test: v => v <= 0.4, missing: true, rule: 'manganese <= 0.4 mg/L (no result accepted)' }
+        ] },
+      samplingRound: null // set to { id, deployment, questions } once a writable "Clean Water || Sampling round" form exists (see README)
     },
     inactiveNames: /ab[ao]ndonn|identifi|drilling|proposal|puits? ouvert/i,
     entityFields: { name: 1, desc: 1, type: 1, code: 1, alt_id: 1, alt_id_org: 1, location: 1, admin_region: 1, admin_div1: 1, admin_div2: 1, admin_div3: 1, admin_div4: 1, admin_div5: 1, _private: 1, _rev: 1, _modified_on: 1 }
   };
-  const FRAME_COLUMNS = ['water_point_id', 'name', 'stratum', 'commune', 'fokontany', 'village', 'lat', 'lon', 'households_served', 'status', 'mwater_id', 'pump', 'district', 'status_reason'];
+  const FRAME_COLUMNS = ['water_point_id', 'name', 'stratum', 'commune', 'fokontany', 'village', 'lat', 'lon', 'households_served', 'status', 'mwater_id', 'pump', 'district', 'status_reason', 'sdws3_passes', 'sdws3_results', 'sdws3_last_pass'];
   // district name from an admin_regions document: full_name is "Fokontany, Commune, District, Region, Country"
   function regionParts(reg) { const p = String((reg && reg.full_name) || '').split(',').map(x => x.trim()); const n = p.length; return { fokontany: n >= 5 ? p[n - 5] : '', commune: n >= 4 ? p[n - 4] : '', district: n >= 3 ? p[n - 3] : '' }; }
   function mwaterStratum(district, strata) {
-    const d = String(district || '').trim().toLowerCase(); if (!d) return '';
+    const d = String(district || '').trim().toLowerCase(); if (!d) return MWATER.unassigned;
     for (const code in strata) if (strata[code].districts.some(x => x.toLowerCase() === d)) return code;
-    return d.replace(/\s+/g, '-').toUpperCase().slice(0, 12);
+    return MWATER.unassigned;
+  }
+  // SDWS 3 result pass/fail exactly as the form's calculations: every parameter present and within its limit; iron and manganese may be absent
+  function sdws3Pass(response, cfg) {
+    const d = (response && response.data) || {}; const failed = [];
+    cfg.params.forEach(pm => { const a = d[pm.q]; const raw = a && a.value; const v = (raw === null || raw === undefined || raw === '') ? null : Number(raw); if (v === null) { if (!pm.missing) failed.push(pm.key + ':missing'); } else if (isNaN(v) || !pm.test(v)) failed.push(pm.key + ':' + raw); });
+    return { pass: failed.length === 0, failed };
+  }
+  function sdws3PassingPoints(responses, cfg) {
+    const out = {};
+    responses.forEach(r => { if (r.status && r.status !== 'final') return; const d = r.data || {}; const code = d[cfg.wpQ] && d[cfg.wpQ].value && d[cfg.wpQ].value.code; if (!code) return; const o = out[code] = out[code] || { results: 0, passes: 0, last_pass: '' }; o.results++; if (sdws3Pass(r, cfg).pass) { o.passes++; const when = String((d[cfg.dateQ] && d[cfg.dateQ].value) || r.submittedOn || ''); if (when > o.last_pass) o.last_pass = when; } });
+    return out;
   }
   function mwaterLatestStatus(responses, cfg) {
     const out = {};
@@ -397,41 +458,36 @@ const Core = (function () {
     responses.slice().sort((a, b) => String(a.submittedOn || '').localeCompare(String(b.submittedOn || ''))).forEach(r => { const d = r.data || {}; const code = d[cfg.wpQ] && d[cfg.wpQ].value && d[cfg.wpQ].value.code; const n = d[cfg.roofsQ] && d[cfg.roofsQ].value; if (code && n !== null && n !== undefined && !isNaN(n)) out[code] = Number(n); });
     return out;
   }
-  // responsesByForm: [{cfg, responses}] -> { wpCode: [{household_id, source}] } (deduplicated, sorted)
-  function mwaterHouseholdLinks(responsesByForm) {
-    const map = {};
-    responsesByForm.forEach(({ cfg, responses }) => responses.forEach(r => {
-      if (r.status && r.status !== 'final') return; const d = r.data || {};
-      const w = d[cfg.wpQ] && d[cfg.wpQ].value && d[cfg.wpQ].value.code, h = d[cfg.hhQ] && d[cfg.hhQ].value && d[cfg.hhQ].value.code;
-      if (!w || !h) return; const l = map[w] = map[w] || {}; if (!l[h]) l[h] = cfg.name;
-    }));
-    const out = {}; Object.keys(map).sort().forEach(w => { out[w] = Object.keys(map[w]).sort().map(h => ({ household_id: h, source: map[w][h] })); });
-    return out;
-  }
-  // entities (mWater water_point docs) -> sampler frame rows
+  // entities (mWater water_point docs) -> sampler frame rows, applying the eligibility rule in this order:
+  //   1 at least one passing SDWS 3 result  2 not abandoned / not functional / not a hand pump  3 district not excluded (Marolinta)  4 district mapped to a stratum
   function mapMwaterEntities(entities, extras) {
-    const ex = extras || {}; const strata = ex.strata || MWATER.strata; const regions = ex.regionsById || {}; const roofs = ex.roofs || {}; const latest = ex.latest || {};
+    const ex = extras || {}; const strata = ex.strata || MWATER.strata; const regions = ex.regionsById || {}; const roofs = ex.roofs || {}; const latest = ex.latest || {}; const passing = ex.passing || {};
+    const counts = { total_in_group: entities.length, sdws3_pass_count: 0, excluded_no_pass: 0, excluded_abandoned: 0, excluded_marolinta: 0, unassigned: 0, eligible: 0, eligible_by_stratum: {} };
+    Object.keys(strata).forEach(k => { counts.eligible_by_stratum[k] = 0; });
     const points = entities.map(e => {
       const rp = regionParts(regions[e.admin_region]);
       const district = e.admin_div2 || rp.district || '';
-      const st = latest[e.code] || {};
+      const st = latest[e.code] || {}; const ps = passing[e.code] || { results: 0, passes: 0, last_pass: '' };
+      let stratum = mwaterStratum(district, strata);
+      const excluded = MWATER.excludedDistricts.districts.some(x => x.toLowerCase() === String(district).trim().toLowerCase());
       let reason = '';
-      if (MWATER.inactiveNames.test(e.name || '')) reason = 'name:' + e.name;
-      else if (st.status === 'not_functional') reason = 'maintenance:not_functional@' + String(st.status_on || '').slice(0, 10);
-      else if (['kiosk', 'Unprotected dug well', 'Protected dug well'].includes(e.type)) reason = 'type:' + e.type;
+      if (ps.passes > 0) counts.sdws3_pass_count++;
+      if (!(ps.passes > 0)) { reason = 'no_passing_sdws3_result'; counts.excluded_no_pass++; }
+      else if (MWATER.inactiveNames.test(e.name || '')) { reason = 'abandoned:' + e.name; counts.excluded_abandoned++; }
+      else if (st.status === 'not_functional') { reason = 'abandoned:maintenance not functional ' + String(st.status_on || '').slice(0, 10); counts.excluded_abandoned++; }
+      else if (['kiosk', 'Unprotected dug well', 'Protected dug well'].includes(e.type)) { reason = 'abandoned:type ' + e.type; counts.excluded_abandoned++; }
+      else if (excluded) { reason = 'excluded_district:' + district; counts.excluded_marolinta++; }
+      else if (stratum === MWATER.unassigned) { reason = 'unassigned_district:' + (district || '(none)'); counts.unassigned++; }
+      else { counts.eligible++; counts.eligible_by_stratum[stratum]++; }
       const coords = (e.location && e.location.coordinates) || [];
-      return { water_point_id: String(e.code), name: [e.name, e.alt_id].filter(Boolean).join(' '), stratum: mwaterStratum(district, strata), commune: e.admin_div3 || rp.commune || '', fokontany: e.admin_div4 || rp.fokontany || '', village: e.admin_div5 || '',
-        lat: coords.length ? coords[1] : '', lon: coords.length ? coords[0] : '', households_served: roofs[e.code] !== undefined ? Math.round(roofs[e.code]) : '', status: reason ? 'inactive' : 'active', mwater_id: e._id, pump: st.pump || e.name || '', district, status_reason: reason };
+      return { water_point_id: String(e.code), name: [e.name, e.alt_id].filter(Boolean).join(' '), stratum, commune: e.admin_div3 || rp.commune || '', fokontany: e.admin_div4 || rp.fokontany || '', village: e.admin_div5 || '',
+        lat: coords.length ? coords[1] : '', lon: coords.length ? coords[0] : '', households_served: roofs[e.code] !== undefined ? Math.round(roofs[e.code]) : '', status: reason ? 'inactive' : 'active', mwater_id: e._id, pump: st.pump || e.name || '', district, status_reason: reason, sdws3_passes: ps.passes, sdws3_results: ps.results, sdws3_last_pass: String(ps.last_pass || '').slice(0, 10) };
     }).sort((a, b) => a.water_point_id.localeCompare(b.water_point_id));
-    const byStratum = {}; points.forEach(p => { const b = byStratum[p.stratum || '(none)'] = byStratum[p.stratum || '(none)'] || { total: 0, active: 0 }; b.total++; if (p.status === 'active') b.active++; });
-    return { points, counts: { fetched: points.length, active: points.filter(p => p.status === 'active').length, noStratum: points.filter(p => !p.stratum).length, byStratum } };
+    return { points, counts };
   }
   function frameToCsv(points) { return [FRAME_COLUMNS].concat(points.map(p => FRAME_COLUMNS.map(c => p[c]))).map(r => r.map(csvEscape).join(',')).join('\r\n') + '\r\n'; }
-  function householdsToCsv(links, names) {
-    const rows = [['household_id', 'water_point_id', 'name_or_code', 'lat', 'lon', 'source']];
-    Object.keys(links).sort().forEach(w => links[w].forEach(h => { const e = (names || {})[h.household_id] || {}; const c = (e.location && e.location.coordinates) || []; rows.push([h.household_id, w, e.name || '', c.length ? c[1] : '', c.length ? c[0] : '', h.source]); }));
-    return rows.map(r => r.map(csvEscape).join(',')).join('\r\n') + '\r\n';
-  }
+  const FRAME_RULE_TEXT = { en: 'A source is eligible when it belongs to the MadAvance water point register (mWater group ' + MWATER.group + '), has at least one water quality result in the form "' + MWATER.forms.sdws3.name + '" that passes all of that form\'s own pass calculations (E. coli = 0 CFU/100 mL; turbidity <= 5 NTU; conductivity < 1500 µS/cm; 6 <= pH <= 8.5; arsenic <= 10 µg/L; fluoride <= 1.5 mg/L; iron <= 0.3 mg/L and manganese <= 0.4 mg/L when measured), is not abandoned, identified-only, proposed, reported not functional in its latest maintenance record or of a non-hand-pump type, and lies in a district mapped to a stratum (Taolagnaro -> HP-FD, Maroantsetra -> HP-MA); the Marolinta area (Beloha and Amboasary districts) is excluded and any other district is unassigned.',
+    fr: 'Une source est éligible si elle appartient au registre des points d\'eau MadAvance (groupe mWater ' + MWATER.group + '), possède au moins un résultat d\'analyse dans le formulaire « ' + MWATER.forms.sdws3.name + ' » satisfaisant tous les calculs de conformité du formulaire (E. coli = 0 UFC/100 mL ; turbidité <= 5 NTU ; conductivité < 1500 µS/cm ; 6 <= pH <= 8,5 ; arsenic <= 10 µg/L ; fluorure <= 1,5 mg/L ; fer <= 0,3 mg/L et manganèse <= 0,4 mg/L lorsqu\'ils sont mesurés), n\'est pas abandonnée, seulement identifiée, proposée, déclarée non fonctionnelle dans son dernier enregistrement de maintenance ni d\'un type autre que pompe à main, et se trouve dans un district rattaché à une strate (Taolagnaro -> HP-FD, Maroantsetra -> HP-MA) ; la zone de Marolinta (districts de Beloha et Amboasary) est exclue et tout autre district est non affecté.' };
   // --- HTTP helpers: the token only ever travels as the ?client= query parameter; errors never echo the URL ---
   async function mwaterGet(path, params, token, fetchImpl) {
     const u = new URL(MWATER.api + '/' + path); Object.keys(params || {}).forEach(k => u.searchParams.set(k, params[k])); if (token) u.searchParams.set('client', token);
@@ -454,28 +510,96 @@ const Core = (function () {
     const b = await r.json(); const token = typeof b === 'string' ? b : (b.client || b.id || b._id); if (!token) throw new Error('mWater login: no client id in reply');
     return { token, username: (typeof b === 'object' && (b.username || b.email)) || username };
   }
-  // Full frame load: entities of the programme group, admin regions for rows without admin_div fields, households served, latest functional status, registered household links
+  // Full frame load: entities of the programme group, admin regions for rows without admin_div fields, households served, latest functional status, SDWS 3 results
   async function mwaterLoadFrame(token, opts) {
     const o = opts || {}; const prog = o.onProgress || function () {}; const F = o.fetchImpl; const cfg = MWATER.forms; const used = [];
     const entities = await mwaterPages('entities/' + MWATER.entityType, { _managed_by: MWATER.group }, MWATER.entityFields, token, prog, F, 100);
     const missing = [...new Set(entities.filter(e => !e.admin_div2 && e.admin_region).map(e => e.admin_region))];
     const regionsById = {};
     if (missing.length) { const regs = await mwaterGet('admin_regions', { filter: JSON.stringify({ _id: { $in: missing } }), fields: JSON.stringify({ _id: 1, full_name: 1 }), limit: String(missing.length) }, token, F); regs.forEach(r => { regionsById[r._id] = r; }); }
-    let roofs = {}, latest = {}, links = {}, names = {};
+    const sd = cfg.sdws3; const sdFields = { ['data.' + sd.wpQ]: 1, ['data.' + sd.dateQ]: 1, submittedOn: 1, status: 1 }; sd.params.forEach(pm => { sdFields['data.' + pm.q] = 1; });
+    const sdResp = await mwaterPages('responses', { form: sd.id, status: 'final' }, sdFields, token, prog, F, 500); used.push(sd.id);
+    const passing = sdws3PassingPoints(sdResp, sd);
+    let roofs = {}, latest = {};
     try { const rr = await mwaterPages('responses', { form: cfg.beneficiaries.id, status: 'final' }, { ['data.' + cfg.beneficiaries.wpQ]: 1, ['data.' + cfg.beneficiaries.roofsQ]: 1, submittedOn: 1, status: 1 }, token, prog, F, 500); roofs = mwaterRoofs(rr, cfg.beneficiaries); used.push(cfg.beneficiaries.id); } catch (e) { prog('warn', 'beneficiaries: ' + e.message); }
     try { const m = cfg.maintenance; const rr = await mwaterPages('responses', { form: m.id, status: 'final' }, { ['data.' + m.wpQ]: 1, ['data.' + m.statusQ]: 1, ['data.' + m.status2Q]: 1, ['data.' + m.pumpQ]: 1, submittedOn: 1, status: 1 }, token, prog, F, 500); latest = mwaterLatestStatus(rr, m); used.push(m.id); } catch (e) { prog('warn', 'maintenance: ' + e.message); }
-    if (o.households !== false) {
-      const byForm = [];
-      for (const rc of cfg.registration) { try { const rr = await mwaterPages('responses', { form: rc.id, status: 'final' }, { ['data.' + rc.wpQ]: 1, ['data.' + rc.hhQ]: 1, status: 1 }, token, prog, F, 500); byForm.push({ cfg: rc, responses: rr }); used.push(rc.id); } catch (e) { prog('warn', rc.name + ': ' + e.message); } }
-      links = mwaterHouseholdLinks(byForm);
-      const codes = [...new Set(Object.values(links).flat().map(h => h.household_id))];
-      for (let i = 0; i < codes.length; i += 150) { try { const hs = await mwaterGet('entities/household', { filter: JSON.stringify({ code: { $in: codes.slice(i, i + 150) } }), fields: JSON.stringify({ code: 1, name: 1, location: 1 }), limit: '150' }, token, F); hs.forEach(h => { names[h.code] = h; }); } catch (e) { prog('warn', 'households: ' + e.message); } }
-    }
-    const mapped = mapMwaterEntities(entities, { roofs, latest, regionsById });
-    return { fetchedAt: new Date().toISOString(), points: mapped.points, counts: mapped.counts, frameCsv: frameToCsv(mapped.points), householdsCsv: Object.keys(links).length ? householdsToCsv(links, names) : null, householdLinks: links, formsUsed: used, source: { api: MWATER.api, group: MWATER.group, entity_type: MWATER.entityType } };
+    const mapped = mapMwaterEntities(entities, { roofs, latest, regionsById, passing });
+    return { fetchedAt: new Date().toISOString(), points: mapped.points, counts: mapped.counts, frameCsv: frameToCsv(mapped.points), formsUsed: used, sdws3Responses: sdResp.length, source: { api: MWATER.api, group: MWATER.group, entity_type: MWATER.entityType } };
   }
 
-  return { xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, pointInPolygon, convexHull, nearestNeighbourRoute, sha256, sha256Sync, stats, assignClusters, defaultClusterCount, draw, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, ALGORITHM, MWATER, FRAME_COLUMNS, regionParts, mwaterStratum, mwaterLatestStatus, mwaterRoofs, mwaterHouseholdLinks, mapMwaterEntities, frameToCsv, householdsToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame };
+  /* ---------- sampling record PDF (pdf-lib, standard fonts, deterministic output) ---------- */
+  const PDF_SAFE = /[^\x20-\x7E\xA0-\xFFŒœ–—‘’“”•…€]/g;
+  const pdfSafe = str => String(str === undefined || str === null ? '' : str).replace(/≤/g, '<=').replace(/≥/g, '>=').replace(/→/g, '->').replace(/×/g, 'x').replace(/\r?\n/g, ' ').replace(PDF_SAFE, '?');
+  async function buildSamplingRecordPdf(ctx) {
+    const { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PageSizes } = ctx.PDFLib;
+    const a = ctx.audit; const lang = ctx.lang === 'fr' ? 'fr' : 'en'; const T = (I18N[lang] && I18N[lang].pdf) || I18N.en.pdf; const P = a.parameters; const st = a.statistics; const kv = ctx.kValues || {};
+    const rid = a.record_id || recordId({ roundName: P.round, stratum: P.stratum, seed: a.seed });
+    const doc = await PDFDocument.create({ updateMetadata: false });
+    const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const W = 595.28, H = 841.89, M = 50, CW = W - 2 * M; let page = null, y = 0;
+    const newPage = () => { page = doc.addPage(PageSizes && PageSizes.A4 ? PageSizes.A4 : [W, H]); y = H - M; };
+    const ensure = h => { if (!page || y - h < M + 22) newPage(); };
+    const wrap = (text, f, size, width) => { const out = []; String(text).split(/\n/).forEach(par => { const words = par.split(/\s+/); let line = ''; words.forEach(wd => { const cand = line ? line + ' ' + wd : wd; if (f.widthOfTextAtSize(cand, size) <= width) line = cand; else { if (line) out.push(line); line = wd; while (f.widthOfTextAtSize(line, size) > width && line.length > 1) { let cut = line.length - 1; while (cut > 1 && f.widthOfTextAtSize(line.slice(0, cut), size) > width) cut--; out.push(line.slice(0, cut)); line = line.slice(cut); } } }); out.push(line); }); return out; };
+    const para = (text, o) => { o = o || {}; const f = o.bold ? bold : font, size = o.size || 9.5, lh = size * 1.35; const lines = wrap(pdfSafe(text), f, size, CW - (o.indent || 0)); lines.forEach(l => { ensure(lh); page.drawText(l, { x: M + (o.indent || 0), y: y - size, size, font: f, color: o.color || rgb(0.1, 0.1, 0.1) }); y -= lh; }); y -= (o.gap === undefined ? 4 : o.gap); };
+    const heading = (text) => { ensure(30); y -= 6; page.drawText(pdfSafe(text), { x: M, y: y - 12, size: 12.5, font: bold, color: rgb(0.04, 0.37, 0.54) }); y -= 18; page.drawLine({ start: { x: M, y }, end: { x: M + CW, y }, thickness: 0.6, color: rgb(0.04, 0.37, 0.54) }); y -= 6; };
+    const kvRow = (label, value) => { const size = 9.5, lw = 150; const lines = wrap(pdfSafe(value), font, size, CW - lw - 6); const h = Math.max(1, lines.length) * size * 1.35; ensure(h); page.drawText(pdfSafe(label), { x: M, y: y - size, size, font: bold }); lines.forEach((l, i) => page.drawText(l, { x: M + lw, y: y - size - i * size * 1.35, size, font })); y -= h + 2; };
+    const table = (headers, rows, widths) => {
+      const size = 8.5, lh = size * 1.3, pad = 3; const drawHead = () => { ensure(lh + 2 * pad + 10); page.drawRectangle({ x: M, y: y - lh - 2 * pad, width: CW, height: lh + 2 * pad, color: rgb(0.93, 0.95, 0.97) }); let x = M; headers.forEach((h, i) => { page.drawText(pdfSafe(h), { x: x + pad, y: y - pad - size, size, font: bold }); x += widths[i]; }); y -= lh + 2 * pad; };
+      drawHead();
+      rows.forEach(r => { const cells = r.map((c, i) => wrap(pdfSafe(c), font, size, widths[i] - 2 * pad)); const n = Math.max.apply(null, cells.map(c => c.length)); const h = n * lh + 2 * pad; if (y - h < M + 22) { newPage(); drawHead(); } let x = M; cells.forEach((lines, i) => { lines.forEach((l, j) => page.drawText(l, { x: x + pad, y: y - pad - size - j * lh, size, font })); x += widths[i]; }); y -= h; page.drawLine({ start: { x: M, y }, end: { x: M + CW, y }, thickness: 0.3, color: rgb(0.8, 0.82, 0.85) }); });
+      y -= 6;
+    };
+    const num = (v, d) => (v === undefined || v === null || v === '' || isNaN(v)) ? '—' : Number(v).toFixed(d === undefined ? 0 : d);
+    const pct = v => Math.round(Number(v) * 100) + ' %';
+    // ---- title
+    newPage();
+    page.drawText(pdfSafe(T.title), { x: M, y: y - 18, size: 18, font: bold, color: rgb(0.04, 0.37, 0.54) }); y -= 26;
+    page.drawText(pdfSafe(P.round + ' / ' + P.stratum + ' — ' + T.record + ' ' + rid), { x: M, y: y - 11, size: 11, font }); y -= 22;
+    heading(T.h_id);
+    kvRow(T.programme, T.programme_v); kvRow(T.stratum, P.stratum + (MWATER.strata[P.stratum] ? ' — ' + MWATER.strata[P.stratum].label : '')); kvRow(T.round, P.round); kvRow(T.drawn_at, a.timestamp); kvRow(T.drawn_by, a.drawn_by || '—'); kvRow(T.record_id, rid); kvRow(T.tool, 'SaniTap Sampler v' + a.version + ' (' + (a.commit || 'dev') + ') — ' + (ctx.url || APP_URL));
+    // ---- method
+    heading(T.h_method);
+    const method = P.method || 'pps_households';
+    (method === 'pps_households' ? T.method_pps : T.method_clusters).forEach(t => para(t));
+    para(T.method_poc);
+    // ---- frame
+    heading(T.h_frame);
+    para(FRAME_RULE_TEXT[lang]);
+    const inp = a.input || {}; const mw = inp.mwater || {};
+    if (inp.source === 'mwater') { kvRow(T.frame_source, T.frame_source_mwater); kvRow(T.frame_group, mw.group || MWATER.group); kvRow(T.frame_forms, (mw.forms_used || []).join(', ') || '—'); kvRow(T.frame_fetched, mw.fetched_at || '—'); if (mw.stratum_filter) kvRow(T.frame_filter, mw.stratum_filter); }
+    else { kvRow(T.frame_source, T.frame_source_csv); kvRow(T.frame_file, inp.water_points_file || '—'); }
+    const c = mw.counts || {};
+    if (c.total_in_group !== undefined) table([T.c_item, T.c_value], [[T.c_total, num(c.total_in_group)], [T.c_pass, num(c.sdws3_pass_count)], [T.c_nopass, num(c.excluded_no_pass)], [T.c_abandoned, num(c.excluded_abandoned)], [T.c_marolinta, num(c.excluded_marolinta)], [T.c_unassigned, num(c.unassigned)]].concat(Object.keys(c.eligible_by_stratum || {}).map(k => [T.c_eligible + ' ' + k, num(c.eligible_by_stratum[k])])), [CW - 120, 120]);
+    kvRow(T.frame_eligible, num((a.frame || {}).eligible_points) + ' (' + P.stratum + ')'); kvRow(T.frame_sha, inp.water_points_sha256 || '—');
+    // ---- randomness
+    heading(T.h_random);
+    kvRow(T.seed, a.seed); kvRow(T.seed_word, String(a.seed_word_uint32)); kvRow(T.prng, T.prng_v.replace('{v}', a.version + ' (' + (a.commit || 'dev') + ')'));
+    if (a.stage1 && a.stage1.method === 'pps_households') kvRow(T.stage1_numbers, T.stage1_numbers_v.replace('{tot}', num(a.stage1.total_households)).replace('{int}', num(a.stage1.interval, 4)).replace('{start}', num(a.stage1.random_start, 4)).replace('{cert}', num(a.stage1.certainty_selections)).replace('{imp}', num(a.stage1.imputed_count)).replace('{impv}', num(a.stage1.imputed_weight)));
+    para(T.reproducible);
+    T.repro_steps.forEach((step, i) => para((i + 1) + '. ' + step.replace('{url}', ctx.url || APP_URL).replace('{sha}', inp.water_points_sha256 || '—').replace('{seed}', a.seed).replace('{round}', P.round).replace('{stratum}', P.stratum).replace('{target}', P.target_samples).replace('{m}', P.households_per_point).replace('{rep}', pct(P.replacement_fraction)).replace('{method}', method === 'pps_households' ? T.method_name_pps : T.method_name_clusters), { indent: 12 }));
+    // ---- design check
+    heading(T.h_design);
+    table([T.c_item, T.c_value], [[T.d_target, num(P.target_samples)], [T.d_sources, num(st.nWp) + ' (' + T.d_selected.replace('{n}', num(a.water_points.length)) + ')'], [T.d_m, num(st.m)], [T.d_n, num(st.nActual)], [T.d_pass, st.expectedPass], [T.d_conf, pct(P.confidence) + ' / ' + pct(P.precision) + ' ' + (P.precision_type === 'absolute' ? T.d_abs : T.d_rel)], [T.d_nreq, num(st.nReq)], [T.d_icc, st.icc], [T.d_deff, num(st.deff, 2)], [T.d_neff, num(st.nEff, 1)], [T.d_result, st.pass ? T.d_ok : T.d_fail]], [CW - 160, 160]);
+    // ---- tables
+    heading(T.h_selected);
+    const kText = w => { const K = kv[w.water_point_id]; if (!K) return T.k_blank; const fn = fieldNumbers(a.seed, w.water_point_id, K, w.households.n, w.households.extra); return 'K=' + K + ': ' + fn.primary.join(', ') + ' (+' + fn.replacements.join(', ') + ')'; };
+    const wrow = (w, rep) => [rep ? 'R' + w.order : String(w.order), w.water_point_id, w.name || '', w.commune || w.cluster || '', num(w.households_served), kText(w)];
+    table([T.t_order, T.t_id, T.t_name, T.t_commune, T.t_hh, T.t_k], a.water_points.map(w => wrow(w, false)), [36, 70, 90, 95, 60, CW - 351]);
+    heading(T.h_replacements); para(T.replacements_note);
+    table([T.t_order, T.t_id, T.t_name, T.t_commune, T.t_hh, T.t_k], a.replacements.map(w => wrow(w, true)), [36, 70, 90, 95, 60, CW - 351]);
+    heading(T.h_field_rule); para(T.field_rule_text.replace('{n}', P.households_per_point).replace('{r}', P.household_replacements));
+    if (a.warnings && a.warnings.length) { heading(T.h_warnings); a.warnings.forEach(wn => para('- ' + JSON.stringify(wn))); }
+    // ---- footer on every page
+    const pages = doc.getPages(); const n = pages.length;
+    pages.forEach((pg, i) => { const left = pdfSafe(T.footer_record + ' ' + rid + ' · ' + T.footer_sha + ' ' + (ctx.auditSha || '')); const right = pdfSafe('SaniTap Sampler v' + a.version + ' (' + (a.commit || 'dev') + ') · ' + T.page.replace('{x}', i + 1).replace('{y}', n)); pg.drawLine({ start: { x: M, y: M - 8 }, end: { x: W - M, y: M - 8 }, thickness: 0.4, color: rgb(0.7, 0.7, 0.7) }); pg.drawText(left, { x: M, y: M - 18, size: 6.5, font, color: rgb(0.35, 0.35, 0.35) }); pg.drawText(right, { x: W - M - font.widthOfTextAtSize(right, 6.5), y: M - 28, size: 6.5, font, color: rgb(0.35, 0.35, 0.35) }); });
+    // ---- deterministic metadata: dates fixed to the draw timestamp; the token never enters this document
+    const when = new Date(a.timestamp);
+    doc.setTitle(pdfSafe(T.title + ' ' + rid)); doc.setAuthor(pdfSafe(a.drawn_by || 'SaniTap Sampler')); doc.setSubject(rid); doc.setKeywords(['record:' + rid, 'audit-sha256:' + (ctx.auditSha || '')]); doc.setProducer('SaniTap Sampler v' + a.version); doc.setCreator('SaniTap Sampler v' + a.version); doc.setCreationDate(when); doc.setModificationDate(when);
+    const info = doc.context.lookup(doc.context.trailerInfo.Info); if (info && info.set) { info.set(PDFName.of('RecordId'), PDFString.of(rid)); info.set(PDFName.of('AuditSHA256'), PDFString.of(ctx.auditSha || '')); info.set(PDFName.of('FrameSHA256'), PDFString.of(inp.water_points_sha256 || '')); }
+    return doc.save({ useObjectStreams: false, addDefaultPage: false, updateFieldAppearances: false });
+  }
+
+  return { xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, pointInPolygon, convexHull, nearestNeighbourRoute, sha256, sha256Sync, stats, assignClusters, defaultClusterCount, draw, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
 
@@ -484,10 +608,28 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;
  * ===================================================================*/
 const I18N = {
   en: {
+    pdf: {
+      title: 'Sampling record', record: 'record', h_id: '1. Identification', programme: 'Programme', programme_v: 'SaniTap safe drinking water supply, Madagascar — Gold Standard SDWS methodology v2.0 — operator MadAvance', stratum: 'Stratum', round: 'Round', drawn_at: 'Draw date/time (UTC)', drawn_by: 'Drawn by', record_id: 'Record id', tool: 'Tool',
+      h_method: '2. Method', method_name_pps: 'Protocol v2.1 section 6.4 (systematic PPS by households served)', method_name_clusters: 'Commune clusters (v1)',
+      method_pps: ['The sample is a two-stage cluster sample as described in the SaniTap Water Quality Testing Protocol v2.1, section 6.4, applied separately to each stratum.', 'Stage 1 — sources. The eligible sources of the stratum are listed in a fixed order (commune, then water point id) with their number of households served. Sources are drawn at random with probability proportional to households served by systematic sampling: the list is cut into as many equal intervals of households as there are sources to select, one random start is drawn in the first interval, and the source containing each successive point (start, start + interval, start + 2 x interval, ...) is selected. Ordering by commune spreads the selection across communes in proportion to their households. A source serving more households than one interval is selected with certainty and the interval is recomputed on the others, so no source is selected twice. Sources with no recorded household count receive the median count of the stratum.', 'Replacement list. After the main selection, replacement sources are drawn one by one from the remaining sources, again with probability proportional to households served, and listed in draw order. A replacement is used only when a selected source cannot be sampled (pump broken, inaccessible, refusal); the reason is written on the field sheet and in mWater, and replacements are taken strictly in the listed order.', 'Stage 2 — households. At each source the sampler counts the households served (K), numbers them clockwise from the source starting at the nearest, and draws the household numbers by the field rule: N random numbers between 1 and K plus replacements, generated from the round seed, the source id and K. A point-of-use (PoU) sample is taken from the stored drinking water of each selected household.'],
+      method_clusters: ['The sample is a multi-stage cluster sample: communes (or custom axes) are selected with probability proportional to the number of eligible sources, then sources are selected by simple random sampling within the selected clusters, then households by the field rule (SaniTap Sampler v1 design).'],
+      method_poc: 'Point-of-collection (PoC) sample. One PoC sample is taken at the source outlet on each day households of that source are sampled, after disinfection of the spout and flushing, so that every PoU sample is paired with a PoC sample of the same source and day.',
+      h_frame: '3. Sampling frame', frame_source: 'Source of the frame', frame_source_mwater: 'Fetched live from the mWater API by the tool', frame_source_csv: 'CSV file loaded into the tool', frame_group: 'mWater group', frame_forms: 'mWater forms used', frame_fetched: 'Fetched at (UTC)', frame_filter: 'Stratum filter at fetch', frame_file: 'Frame file', frame_eligible: 'Eligible sources in this stratum', frame_sha: 'Frame file SHA-256',
+      c_item: 'Item', c_value: 'Value', c_total: 'Water points in the MadAvance group', c_pass: 'with at least one passing SDWS 3 result', c_nopass: 'excluded: no passing result', c_abandoned: 'excluded: abandoned / not functional / not a hand pump', c_marolinta: 'excluded: Marolinta area (Beloha, Amboasary)', c_unassigned: 'unassigned district', c_eligible: 'eligible in stratum',
+      h_random: '4. Randomness and reproducibility', seed: 'Seed string', seed_word: 'Seed word (xmur3, uint32)', prng: 'Generator', prng_v: 'mulberry32 (32-bit), seeded with the xmur3 hash of the seed string — SaniTap Sampler v{v}', stage1_numbers: 'Stage 1 numbers', stage1_numbers_v: 'total households {tot}; interval {int}; random start {start}; certainty selections {cert}; sources with imputed count {imp} (value {impv})',
+      reproducible: 'The same seed string, the same frame file and the same parameters reproduce exactly the same selection on any device. To reproduce this draw:',
+      repro_steps: ['Open {url} (any browser; the tool runs offline after the first load).', 'Data: choose "CSV file", load the frame file whose SHA-256 is {sha} (the file is filed with this record and is also produced by "Download loaded frame").', 'Parameters: round "{round}", stratum {stratum}, target {target} samples, {m} households per source, replacement fraction {rep}, method "{method}", seed "{seed}".', 'Press "Draw the sample". The audit record shown must list the same sources in the same order as this document, and its SHA-256 must equal the value in the footer once exported.'],
+      h_design: '5. Design check (CDM 90/10 rule)', d_target: 'Target PoU samples', d_sources: 'Sources to select', d_selected: '{n} selected', d_m: 'Households per source (m)', d_n: 'PoU samples planned (n)', d_pass: 'Expected pass rate (p)', d_conf: 'Confidence / precision', d_abs: 'absolute', d_rel: 'relative to p', d_nreq: 'Required sample size', d_icc: 'ICC assumed', d_deff: 'Design effect 1 + (m - 1) x ICC', d_neff: 'Effective sample size n / DEFF', d_result: 'Check', d_ok: 'PASS — effective n is at least the required n', d_fail: 'FAIL — effective n is below the required n',
+      h_selected: '6. Selected sources (visit in any order; numbers are draw order)', h_replacements: '7. Replacement sources (use strictly in this order)', replacements_note: 'Use a replacement only when a selected source cannot be sampled; record the reason.', t_order: 'No.', t_id: 'Source id', t_name: 'Name', t_commune: 'Commune', t_hh: 'Households', t_k: 'Field rule (K, household numbers)', k_blank: 'K = ____ (numbers generated in the tool when K is entered)',
+      h_field_rule: '8. Field rule', field_rule_text: 'At each source: count all households that draw water from it (K), number them clockwise from the source starting at the nearest, enter K in the tool to obtain {n} household numbers plus {r} replacement numbers, and sample those households. The numbers are generated from the seed, the source id and K, so they can be re-generated by the verifier.',
+      h_warnings: '9. Notes generated by the tool', footer_record: 'Record', footer_sha: 'audit JSON SHA-256', page: 'page {x} of {y}'
+    },
     src_mwater: 'mWater (live)', src_csv: 'CSV file (offline)', mw_settings: 'mWater connection', mw_user: 'mWater username or email', mw_pass: 'Password', mw_pass_hint: '(used once to obtain a token; never stored)', mw_login: 'Sign in', mw_token: '…or paste an API token (client id)', mw_save: 'Save token', mw_forget: 'Forget token',
-    mw_token_hint: "The token stays in this browser's local storage only, is shown masked, never logged and never included in exports.", mw_stratum: 'Stratum to load', mw_all: 'All strata', mw_hh: 'Also fetch registered households (survey links)', mw_fetch: 'Fetch from mWater',
+    mw_token_hint: "The token stays in this browser's local storage only, is shown masked, never logged and never included in exports.", mw_stratum: 'Stratum to load', mw_all: 'All strata', mw_fetch: 'Fetch from mWater',
     mw_connected: 'Token saved: {mask}{user}', mw_not_connected: 'No mWater token. Open "mWater connection" to sign in or paste a token. The programme water points are private, so a token is required.', mw_no_token: 'Sign in or paste a token first.', mw_fetching: 'Fetching {what}: {n} rows…', mw_done: 'Fetched {n} water points ({a} active) at {t}.', mw_err: 'Fetch failed: {e}. Check the connection and the token, or use the CSV source offline.', mw_login_err: 'Sign-in failed: {e}', mw_warn: 'Partial: {w}',
     data_frame_dl: 'Download loaded frame (CSV)', data_hh_dl: 'Download household list (CSV)', data_source: 'Source', data_fetched: 'fetched', btn_mwcsv: 'Export mWater site list (CSV)',
+    p_drawn_by: 'Drawn by (name, role)', p_method: 'Sampling method', method_pps: 'Protocol v2.1 §6.4: sources PPS by households served', method_clusters: 'Commune clusters (v1)', btn_pdf: 'Export sampling record (PDF + JSON + CSV)', pdf_err: 'PDF library not loaded (needs one online visit first).', pdf_need_by: 'Enter "Drawn by" before exporting the record.', mark_title: 'Mark round in mWater', mark_off: 'Round marking in mWater is not available: response creation in the Sampling round form is refused by the API for this account. Use the mWater site list CSV export.', w_imputed: '{n} sources without a household count were given the stratum median ({value}) as sampling weight.',
+    c_total: 'in MadAvance group', c_pass: 'with a passing SDWS 3 result', c_nopass: 'excluded: no passing result', c_abandoned: 'excluded: abandoned/not functional', c_marolinta: 'excluded: Marolinta', c_unassigned: 'unassigned district', c_eligible: 'eligible',
     tab_data: '1 Data', tab_params: '2 Parameters', tab_results: '3 Draw', tab_map: '4 Map', tab_sheet: '5 Field sheet', tab_how: 'How it works',
     data_title: 'Load water points', data_privacy: 'Everything runs in your browser. No file leaves this device.',
     data_wp_label: 'Water points CSV (mWater export)', data_wp_cols: 'Required columns: water_point_id, name, stratum, commune, fokontany, village, lat, lon, households_served, status',
@@ -544,10 +686,28 @@ const I18N = {
 <p>After the first load the app shell is cached by a service worker and works offline. Map tiles are not cached. Loaded data, axes and the last draw are kept in the browser's local storage on this device only.</p>`
   },
   fr: {
+    pdf: {
+      title: 'Enregistrement d’échantillonnage', record: 'enregistrement', h_id: '1. Identification', programme: 'Programme', programme_v: 'SaniTap approvisionnement en eau potable, Madagascar — méthodologie Gold Standard SDWS v2.0 — opérateur MadAvance', stratum: 'Strate', round: 'Cycle', drawn_at: 'Date/heure du tirage (UTC)', drawn_by: 'Tiré par', record_id: 'Identifiant', tool: 'Outil',
+      h_method: '2. Méthode', method_name_pps: 'Protocole v2.1 section 6.4 (PPS systématique selon les ménages desservis)', method_name_clusters: 'Grappes communales (v1)',
+      method_pps: ['L’échantillon est un échantillon en grappes à deux degrés tel que décrit dans le Protocole SaniTap de tests de qualité de l’eau v2.1, section 6.4, appliqué séparément à chaque strate.', 'Degré 1 — sources. Les sources éligibles de la strate sont listées dans un ordre fixe (commune, puis identifiant du point d’eau) avec leur nombre de ménages desservis. Les sources sont tirées au hasard avec une probabilité proportionnelle aux ménages desservis par tirage systématique : la liste est découpée en autant d’intervalles égaux de ménages qu’il y a de sources à sélectionner, un départ aléatoire est tiré dans le premier intervalle, et la source contenant chaque point successif (départ, départ + intervalle, départ + 2 x intervalle, ...) est sélectionnée. L’ordre par commune répartit la sélection entre les communes proportionnellement à leurs ménages. Une source desservant plus de ménages qu’un intervalle est sélectionnée d’office et l’intervalle est recalculé sur les autres, de sorte qu’aucune source n’est sélectionnée deux fois. Les sources sans nombre de ménages enregistré reçoivent la médiane de la strate.', 'Liste de remplacement. Après la sélection principale, les sources de remplacement sont tirées une à une parmi les sources restantes, toujours avec une probabilité proportionnelle aux ménages desservis, et listées dans l’ordre de tirage. Un remplacement n’est utilisé que si une source sélectionnée ne peut pas être échantillonnée (pompe en panne, inaccessible, refus) ; la raison est notée sur la fiche terrain et dans mWater, et les remplacements sont pris strictement dans l’ordre listé.', 'Degré 2 — ménages. À chaque source, le préleveur compte les ménages desservis (K), les numérote dans le sens horaire depuis la source en commençant par le plus proche, et tire les numéros de ménages selon la règle terrain : N nombres aléatoires entre 1 et K plus des remplacements, générés à partir de la graine du cycle, de l’identifiant de la source et de K. Un échantillon au point d’utilisation (PoU) est prélevé dans l’eau de boisson stockée de chaque ménage sélectionné.'],
+      method_clusters: ['L’échantillon est un échantillon en grappes à plusieurs degrés : les communes (ou axes personnalisés) sont sélectionnées avec une probabilité proportionnelle au nombre de sources éligibles, puis les sources par tirage aléatoire simple dans les grappes retenues, puis les ménages selon la règle terrain (conception SaniTap Sampler v1).'],
+      method_poc: 'Échantillon au point de collecte (PoC). Un échantillon PoC est prélevé à la sortie de la source chaque jour où des ménages de cette source sont échantillonnés, après désinfection du bec et purge, de sorte que chaque échantillon PoU est apparié à un échantillon PoC de la même source et du même jour.',
+      h_frame: '3. Base de sondage', frame_source: 'Source de la base', frame_source_mwater: 'Chargée en direct depuis l’API mWater par l’outil', frame_source_csv: 'Fichier CSV chargé dans l’outil', frame_group: 'Groupe mWater', frame_forms: 'Formulaires mWater utilisés', frame_fetched: 'Chargée le (UTC)', frame_filter: 'Filtre de strate au chargement', frame_file: 'Fichier de base', frame_eligible: 'Sources éligibles dans cette strate', frame_sha: 'SHA-256 du fichier de base',
+      c_item: 'Élément', c_value: 'Valeur', c_total: 'Points d’eau du groupe MadAvance', c_pass: 'avec au moins un résultat SDWS 3 conforme', c_nopass: 'exclus : aucun résultat conforme', c_abandoned: 'exclus : abandonnés / non fonctionnels / autre que pompe à main', c_marolinta: 'exclus : zone de Marolinta (Beloha, Amboasary)', c_unassigned: 'district non affecté', c_eligible: 'éligibles dans la strate',
+      h_random: '4. Aléa et reproductibilité', seed: 'Graine (seed)', seed_word: 'Mot de graine (xmur3, uint32)', prng: 'Générateur', prng_v: 'mulberry32 (32 bits), initialisé par le hachage xmur3 de la graine — SaniTap Sampler v{v}', stage1_numbers: 'Nombres du degré 1', stage1_numbers_v: 'total des ménages {tot} ; intervalle {int} ; départ aléatoire {start} ; sélections d’office {cert} ; sources avec nombre imputé {imp} (valeur {impv})',
+      reproducible: 'La même graine, le même fichier de base et les mêmes paramètres reproduisent exactement la même sélection sur n’importe quel appareil. Pour reproduire ce tirage :',
+      repro_steps: ['Ouvrir {url} (tout navigateur ; l’outil fonctionne hors ligne après le premier chargement).', 'Données : choisir « Fichier CSV », charger le fichier de base dont le SHA-256 est {sha} (le fichier est classé avec cet enregistrement et est aussi produit par « Télécharger la base chargée »).', 'Paramètres : cycle « {round} », strate {stratum}, cible {target} échantillons, {m} ménages par source, fraction de remplacement {rep}, méthode « {method} », graine « {seed} ».', 'Appuyer sur « Tirer l’échantillon ». L’enregistrement d’audit affiché doit lister les mêmes sources dans le même ordre que ce document, et son SHA-256 doit être égal à la valeur en pied de page une fois exporté.'],
+      h_design: '5. Vérification du plan (règle 90/10 du MDP)', d_target: 'Échantillons PoU visés', d_sources: 'Sources à sélectionner', d_selected: '{n} sélectionnées', d_m: 'Ménages par source (m)', d_n: 'Échantillons PoU prévus (n)', d_pass: 'Taux de conformité attendu (p)', d_conf: 'Confiance / précision', d_abs: 'absolue', d_rel: 'relative à p', d_nreq: 'Taille d’échantillon requise', d_icc: 'ICC supposé', d_deff: 'Effet de plan 1 + (m - 1) x ICC', d_neff: 'Taille effective n / DEFF', d_result: 'Vérification', d_ok: 'CONFORME — n effectif au moins égal au n requis', d_fail: 'NON CONFORME — n effectif inférieur au n requis',
+      h_selected: '6. Sources sélectionnées (ordre de visite libre ; les numéros sont l’ordre de tirage)', h_replacements: '7. Sources de remplacement (à utiliser strictement dans cet ordre)', replacements_note: 'N’utiliser un remplacement que si une source sélectionnée ne peut pas être échantillonnée ; noter la raison.', t_order: 'N°', t_id: 'Id source', t_name: 'Nom', t_commune: 'Commune', t_hh: 'Ménages', t_k: 'Règle terrain (K, numéros de ménages)', k_blank: 'K = ____ (numéros générés dans l’outil à la saisie de K)',
+      h_field_rule: '8. Règle terrain', field_rule_text: 'À chaque source : compter tous les ménages qui y puisent (K), les numéroter dans le sens horaire depuis la source en commençant par le plus proche, saisir K dans l’outil pour obtenir {n} numéros de ménages plus {r} numéros de remplacement, et échantillonner ces ménages. Les numéros sont générés à partir de la graine, de l’identifiant de la source et de K : le vérificateur peut les régénérer.',
+      h_warnings: '9. Notes générées par l’outil', footer_record: 'Enregistrement', footer_sha: 'SHA-256 du JSON d’audit', page: 'page {x} sur {y}'
+    },
     src_mwater: 'mWater (en direct)', src_csv: 'Fichier CSV (hors ligne)', mw_settings: 'Connexion mWater', mw_user: 'Identifiant ou e-mail mWater', mw_pass: 'Mot de passe', mw_pass_hint: '(utilisé une fois pour obtenir un jeton ; jamais stocké)', mw_login: 'Se connecter', mw_token: '…ou coller un jeton API (client id)', mw_save: 'Enregistrer le jeton', mw_forget: 'Oublier le jeton',
-    mw_token_hint: 'Le jeton reste uniquement dans le stockage local de ce navigateur, est affiché masqué, jamais journalisé ni inclus dans les exports.', mw_stratum: 'Strate à charger', mw_all: 'Toutes les strates', mw_hh: 'Charger aussi les ménages enregistrés (liens des enquêtes)', mw_fetch: 'Charger depuis mWater',
+    mw_token_hint: 'Le jeton reste uniquement dans le stockage local de ce navigateur, est affiché masqué, jamais journalisé ni inclus dans les exports.', mw_stratum: 'Strate à charger', mw_all: 'Toutes les strates', mw_fetch: 'Charger depuis mWater',
     mw_connected: 'Jeton enregistré : {mask}{user}', mw_not_connected: 'Aucun jeton mWater. Ouvrez « Connexion mWater » pour vous connecter ou coller un jeton. Les points d’eau du programme sont privés : un jeton est nécessaire.', mw_no_token: 'Connectez-vous ou collez un jeton d’abord.', mw_fetching: 'Chargement {what} : {n} lignes…', mw_done: '{n} points d’eau chargés ({a} actifs) à {t}.', mw_err: 'Échec du chargement : {e}. Vérifiez la connexion et le jeton, ou utilisez la source CSV hors ligne.', mw_login_err: 'Connexion échouée : {e}', mw_warn: 'Partiel : {w}',
     data_frame_dl: 'Télécharger la base chargée (CSV)', data_hh_dl: 'Télécharger la liste des ménages (CSV)', data_source: 'Source', data_fetched: 'chargé', btn_mwcsv: 'Exporter la liste de sites mWater (CSV)',
+    p_drawn_by: 'Tiré par (nom, fonction)', p_method: 'Méthode d’échantillonnage', method_pps: 'Protocole v2.1 §6.4 : sources PPS selon les ménages desservis', method_clusters: 'Grappes communales (v1)', btn_pdf: 'Exporter l’enregistrement (PDF + JSON + CSV)', pdf_err: 'Bibliothèque PDF non chargée (une visite en ligne est nécessaire).', pdf_need_by: 'Renseignez « Tiré par » avant d’exporter l’enregistrement.', mark_title: 'Marquer le cycle dans mWater', mark_off: 'Le marquage du cycle dans mWater n’est pas disponible : la création de réponses dans le formulaire Sampling round est refusée par l’API pour ce compte. Utilisez l’export CSV de la liste de sites mWater.', w_imputed: '{n} sources sans nombre de ménages ont reçu la médiane de la strate ({value}) comme poids de sondage.',
+    c_total: 'dans le groupe MadAvance', c_pass: 'avec un résultat SDWS 3 conforme', c_nopass: 'exclus : aucun résultat conforme', c_abandoned: 'exclus : abandonnés/non fonctionnels', c_marolinta: 'exclus : Marolinta', c_unassigned: 'district non affecté', c_eligible: 'éligibles',
     tab_data: '1 Données', tab_params: '2 Paramètres', tab_results: '3 Tirage', tab_map: '4 Carte', tab_sheet: '5 Fiche terrain', tab_how: 'Fonctionnement',
     data_title: 'Charger les points d’eau', data_privacy: 'Tout se passe dans votre navigateur. Aucun fichier ne quitte cet appareil.',
     data_wp_label: 'CSV des points d’eau (export mWater)', data_wp_cols: 'Colonnes requises : water_point_id, name, stratum, commune, fokontany, village, lat, lon, households_served, status',
@@ -611,7 +771,7 @@ const I18N = {
 if (typeof window !== 'undefined' && typeof document !== 'undefined') (function () {
   const $ = id => document.getElementById(id);
   const LS = { get(k, d) { try { const v = localStorage.getItem('sanitap.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem('sanitap.' + k, JSON.stringify(v)); } catch (e) { console.warn('localStorage', e); } }, del(k) { try { localStorage.removeItem('sanitap.' + k); } catch (e) {} } };
-  const state = { mw: LS.get('mw', null), lang: LS.get('lang', (navigator.language || '').startsWith('fr') ? 'fr' : 'en'), wp: LS.get('wp', null), hh: LS.get('hh', null), points: [], hhByWp: {}, axes: LS.get('axes', []), result: null, kValues: LS.get('k', {}), start: LS.get('start', null), route: null, map: null, layers: {}, drawing: null, pickStart: false };
+  const state = { mw: LS.get('mw', null), lang: LS.get('lang', (navigator.language || '').startsWith('fr') ? 'fr' : 'en'), wp: LS.get('wp', null), points: [], axes: LS.get('axes', []), result: null, kValues: LS.get('k', {}), start: LS.get('start', null), route: null, map: null, layers: {}, drawing: null, pickStart: false };
   const t = (k, v) => { let s = (I18N[state.lang] && I18N[state.lang][k]) || I18N.en[k] || k; if (v) for (const x in v) s = s.split('{' + x + '}').join(v[x]); return s; };
   const esc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = (n, d) => (n === undefined || n === null || isNaN(n)) ? '' : Number(n).toFixed(d === undefined ? 1 : d);
@@ -657,36 +817,28 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     if (strata.includes(cur)) sel.value = cur;
     updateSeed();
   }
-  async function loadHh(text, name, meta) {
-    const parsed = Core.parseCsv(text);
-    const hash = await Core.sha256(text);
-    state.hh = Object.assign({ name, hash, text, missing: ['household_id', 'water_point_id'].filter(c => !parsed.header.includes(c)), source: 'csv' }, meta || {});
-    LS.set('hh', state.hh); applyHh();
-  }
-  function applyHh() { state.hhByWp = state.hh ? Core.normaliseHouseholds(Core.parseCsv(state.hh.text).records) : {}; }
   $('file-wp').onchange = async e => { const f = e.target.files[0]; if (!f) return; await loadWp(await readFile(f), f.name, { source: 'csv' }); setSource('csv'); renderData(); renderPreview(); };
-  $('file-hh').onchange = async e => { const f = e.target.files[0]; if (!f) return; await loadHh(await readFile(f), f.name); renderData(); renderPreview(); };
   $('btn-sample').onclick = async () => {
     try {
-      const [a, b] = await Promise.all([fetch('data/sample-water-points.csv').then(r => r.text()), fetch('data/sample-households.csv').then(r => r.text())]);
-      await loadWp(a, 'sample-water-points.csv', { source: 'csv' }); await loadHh(b, 'sample-households.csv', { source: 'csv' }); setSource('csv'); renderData(); renderPreview();
+      const a = await fetch('data/sample-water-points.csv').then(r => r.text());
+      await loadWp(a, 'sample-water-points.csv', { source: 'csv' }); setSource('csv'); renderData(); renderPreview();
     } catch (e) { $('data-status').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   };
-  $('btn-clear').onclick = () => { ['wp', 'hh', 'last', 'k', 'start'].forEach(LS.del); state.wp = null; state.hh = null; state.points = []; state.hhByWp = {}; state.result = null; state.kValues = {}; state.route = null; state.start = null; applyWp(); renderData(); renderPreview(); renderResults(); renderSheet(); };
+  $('btn-clear').onclick = () => { ['wp', 'last', 'k', 'start'].forEach(LS.del); state.wp = null; state.points = []; state.result = null; state.kValues = {}; state.route = null; state.start = null; applyWp(); renderData(); renderPreview(); renderResults(); renderSheet(); };
   function renderData() {
     const st = $('data-status'), sm = $('data-summary');
-    if (!state.wp) { st.innerHTML = `<div class="msg warn">${t('data_none')}</div>`; sm.innerHTML = ''; $('btn-frame-dl').classList.add('hidden'); $('btn-hh-dl').classList.add('hidden'); return; }
+    if (!state.wp) { st.innerHTML = `<div class="msg warn">${t('data_none')}</div>`; sm.innerHTML = ''; $('btn-frame-dl').classList.add('hidden'); return; }
     const src = state.wp.source === 'mwater' ? `mWater · ${t('data_fetched')} ${esc(state.wp.fetchedAt || '')}` : 'CSV';
     let h = `<div class="msg ok">${t('data_source')}: <b>${src}</b><br>${t('data_loaded')}: <b>${esc(state.wp.name)}</b> — ${state.points.length} ${t('data_points')}${state.wp.counts ? ` (${state.wp.counts.active} ${t('col_active').toLowerCase()})` : ''}<br><small>${t('sha')}: ${state.wp.hash}</small></div>`;
-    $('btn-frame-dl').classList.remove('hidden'); $('btn-hh-dl').classList.toggle('hidden', !state.hh);
+    $('btn-frame-dl').classList.remove('hidden');
+    const fc = state.wp.mwater && state.wp.mwater.counts; if (fc && fc.total_in_group !== undefined) h += `<div class="stat">${[['c_total', fc.total_in_group], ['c_pass', fc.sdws3_pass_count], ['c_nopass', fc.excluded_no_pass], ['c_abandoned', fc.excluded_abandoned], ['c_marolinta', fc.excluded_marolinta], ['c_unassigned', fc.unassigned]].map(x => `<div><b>${x[1]}</b><span>${t(x[0])}</span></div>`).join('')}${Object.keys(fc.eligible_by_stratum || {}).map(k => `<div><b>${fc.eligible_by_stratum[k]}</b><span>${t('c_eligible')} ${k}</span></div>`).join('')}</div>`;
     if (state.wp.missing.length) h += `<div class="msg err">${t('missing_cols')}: ${state.wp.missing.join(', ')}</div>`;
     if (state.wp.errors && state.wp.errors.length) h += `<div class="msg warn">${state.wp.errors.slice(0, 5).map(esc).join('<br>')}${state.wp.errors.length > 5 ? '…' : ''}</div>`;
-    if (state.hh) { const nh = Object.values(state.hhByWp).reduce((s, l) => s + l.length, 0); h += `<div class="msg ok">${t('data_loaded')}: <b>${esc(state.hh.name)}</b> — ${nh} ${t('data_hh')} ${Object.keys(state.hhByWp).length} ${t('data_points')}<br><small>${t('sha')}: ${state.hh.hash}</small></div>`; if (state.hh.missing.length) h += `<div class="msg err">${t('missing_cols')}: ${state.hh.missing.join(', ')}</div>`; }
     st.innerHTML = h;
     const by = {};
-    state.points.forEach(p => { const b = by[p.stratum] = by[p.stratum] || { a: 0, i: 0, c: new Set(), l: 0 }; p.active ? b.a++ : b.i++; b.c.add(p.commune); if (state.hhByWp[p.water_point_id]) b.l++; });
-    sm.innerHTML = `<table><tr><th>${t('col_stratum')}</th><th>${t('col_active')}</th><th>${t('col_inactive')}</th><th>${t('col_communes')}</th><th>${t('col_hh_listed')}</th></tr>` +
-      Object.keys(by).sort().map(s => `<tr><td>${esc(s)}</td><td>${by[s].a}</td><td>${by[s].i}</td><td>${by[s].c.size}</td><td>${by[s].l}</td></tr>`).join('') + '</table>';
+    state.points.forEach(p => { const b = by[p.stratum] = by[p.stratum] || { a: 0, i: 0, c: new Set(), hh: 0 }; p.active ? b.a++ : b.i++; if (p.active) { b.c.add(p.commune); b.hh += p.households_served || 0; } });
+    sm.innerHTML = `<table><tr><th>${t('col_stratum')}</th><th>${t('col_active')}</th><th>${t('col_inactive')}</th><th>${t('col_communes')}</th><th>${t('col_hh')}</th></tr>` +
+      Object.keys(by).sort().map(s => `<tr><td>${esc(s)}</td><td>${by[s].a}</td><td>${by[s].i}</td><td>${by[s].c.size}</td><td>${by[s].hh}</td></tr>`).join('') + '</table>';
   }
 
 
@@ -697,7 +849,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     c.innerHTML = state.mw && state.mw.token ? `<span class="msg ok" style="display:inline-block">${t('mw_connected', { mask: mask(state.mw.token), user: state.mw.username ? ' · ' + esc(state.mw.username) : '' })}</span>` : `<div class="msg warn">${t('mw_not_connected')}</div>`;
     const sel = $('mw-stratum'); const cur = sel.value;
     sel.innerHTML = `<option value="">${t('mw_all')}</option>` + Object.keys(Core.MWATER.strata).map(k => `<option value="${k}">${k} — ${esc(Core.MWATER.strata[k].label)}</option>`).join('');
-    sel.value = cur || (LS.get('mwstratum', 'FD'));
+    sel.value = cur || (LS.get('mwstratum', 'HP-FD'));
   }
   function setSource(src) { document.querySelectorAll('input[name=src]').forEach(r => { r.checked = r.value === src; }); $('src-mwater').classList.toggle('hidden', src !== 'mwater'); $('src-csv').classList.toggle('hidden', src !== 'csv'); LS.set('src', src); }
   document.querySelectorAll('input[name=src]').forEach(r => r.addEventListener('change', () => setSource(r.value)));
@@ -717,17 +869,12 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     if (!state.mw || !state.mw.token) { out.innerHTML = `<div class="msg err">${t('mw_no_token')}</div>`; $('mw-settings').open = true; return; }
     const stratum = $('mw-stratum').value; const warns = []; $('btn-mw-fetch').disabled = true;
     try {
-      const r = await Core.mwaterLoadFrame(state.mw.token, { households: $('mw-hh').checked, onProgress: (what, n) => { if (what === 'warn') warns.push(n); else out.textContent = t('mw_fetching', { what: what.replace(/^entities\//, ''), n }); } });
+      const r = await Core.mwaterLoadFrame(state.mw.token, { onProgress: (what, n) => { if (what === 'warn') warns.push(n); else out.textContent = t('mw_fetching', { what: what.replace(/^entities\//, ''), n }); } });
       const points = stratum ? r.points.filter(p => p.stratum === stratum) : r.points;
-      const ids = new Set(points.map(p => p.water_point_id));
       const frameCsv = Core.frameToCsv(points);
-      const counts = { fetched: points.length, active: points.filter(p => p.status === 'active').length, fetched_total: r.counts.fetched, active_total: r.counts.active };
-      const mwMeta = Object.assign({}, r.source, { fetched_at: r.fetchedAt, stratum_filter: stratum || null, forms_used: r.formsUsed, counts, status_rule: 'inactive if name matches ' + String(Core.MWATER.inactiveNames) + ', if the latest final maintenance record says not functional, or if type is kiosk/dug well' });
+      const counts = Object.assign({}, r.counts, { fetched: points.length, active: points.filter(p => p.status === 'active').length });
+      const mwMeta = Object.assign({}, r.source, { fetched_at: r.fetchedAt, stratum_filter: stratum || null, forms_used: r.formsUsed, sdws3_responses: r.sdws3Responses, counts, frame_rule: Core.FRAME_RULE_TEXT.en });
       await loadWp(frameCsv, 'mwater:' + Core.MWATER.entityType + (stratum ? ':' + stratum : '') + '@' + r.fetchedAt, { source: 'mwater', fetchedAt: r.fetchedAt, counts, mwater: mwMeta });
-      if (r.householdsCsv) {
-        const lines = r.householdsCsv.split('\r\n'); const kept = [lines[0]].concat(lines.slice(1).filter(l => l && ids.has(Core.parseCsv(lines[0] + '\r\n' + l).records[0].water_point_id)));
-        await loadHh(kept.join('\r\n') + '\r\n', 'mwater:registration-forms@' + r.fetchedAt, { source: 'mwater', fetchedAt: r.fetchedAt });
-      } else { state.hh = null; LS.del('hh'); applyHh(); }
       if (stratum) { $('p-stratum').value = stratum; seedTouched = false; updateSeed(); }
       out.innerHTML = `<div class="msg ok">${t('mw_done', { n: counts.fetched, a: counts.active, t: r.fetchedAt })}</div>` + (warns.length ? `<div class="msg warn">${esc(t('mw_warn', { w: warns.join('; ') }))}</div>` : '');
       renderData(); renderPreview();
@@ -735,22 +882,24 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     $('btn-mw-fetch').disabled = false;
   };
   $('btn-frame-dl').onclick = () => { if (state.wp) download((state.wp.source === 'mwater' ? 'sanitap-frame-mwater' : 'sanitap-frame') + '.csv', state.wp.text, 'text/csv'); };
-  $('btn-hh-dl').onclick = () => { if (state.hh) download('sanitap-households.csv', state.hh.text, 'text/csv'); };
 
   /* ---------- parameters ---------- */
   let seedTouched = false;
   function updateSeed() { if (!seedTouched) $('p-seed').value = ($('p-round').value.replace(/\s+/g, '') || 'round') + '-' + ($('p-stratum').value || 'stratum'); }
   $('p-seed').oninput = () => { seedTouched = $('p-seed').value.trim() !== ''; };
   ['p-round', 'p-stratum'].forEach(id => $(id).addEventListener('input', () => { seedTouched = false; updateSeed(); renderPreview(); }));
-  ['p-target', 'p-hh', 'p-cmode', 'p-nclusters', 'p-repfrac', 'p-hhrep', 'p-icc', 'p-pass', 'p-conf', 'p-prectype'].forEach(id => $(id).addEventListener('input', renderPreview));
+  ['p-target', 'p-hh', 'p-cmode', 'p-nclusters', 'p-repfrac', 'p-hhrep', 'p-icc', 'p-pass', 'p-conf', 'p-prectype', 'p-method'].forEach(id => $(id).addEventListener('input', renderPreview));
+  $('p-drawn-by').addEventListener('input', () => LS.set('drawnBy', $('p-drawn-by').value));
+  function methodUi() { const pps = $('p-method').value !== 'commune_clusters'; $('p-cmode').closest('div').classList.toggle('hidden', pps); $('p-nclusters').closest('div').classList.toggle('hidden', pps); }
+  $('p-method').addEventListener('input', methodUi);
   function readParams() {
     const num = (id, d) => { const v = parseFloat($(id).value); return isNaN(v) ? d : v; };
     return {
-      roundName: $('p-round').value.trim(), stratum: $('p-stratum').value, target: Math.max(1, Math.round(num('p-target', 58))), hhPerPoint: Math.max(1, Math.round(num('p-hh', 5))),
+      roundName: $('p-round').value.trim(), stratum: $('p-stratum').value, drawnBy: $('p-drawn-by').value.trim(), method: $('p-method').value, target: Math.max(1, Math.round(num('p-target', 58))), hhPerPoint: Math.max(1, Math.round(num('p-hh', 5))),
       clusterMode: $('p-cmode').value, nClusters: $('p-nclusters').value ? Math.max(1, Math.round(num('p-nclusters', 0))) : null,
       replacementFraction: Math.min(1, Math.max(0, num('p-repfrac', 20) / 100)), hhReplacements: Math.max(0, Math.round(num('p-hhrep', 2))), seed: $('p-seed').value.trim() || 'seed',
       icc: Math.min(1, Math.max(0, num('p-icc', 0.1))), expectedPass: Math.min(0.99, Math.max(0.01, num('p-pass', 0.95))), confidence: $('p-conf').value, precision: 0.10, precisionType: $('p-prectype').value,
-      wpFileName: state.wp && state.wp.name, wpFileHash: state.wp && state.wp.hash, hhFileName: state.hh && state.hh.name, hhFileHash: state.hh && state.hh.hash,
+      wpFileName: state.wp && state.wp.name, wpFileHash: state.wp && state.wp.hash,
       source: (state.wp && state.wp.source) || 'csv', mwater: state.wp && state.wp.source === 'mwater' ? state.wp.mwater : null
     };
   }
@@ -758,22 +907,20 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     const el = $('params-preview'); if (!state.points.length) { el.textContent = t('err_nodata'); return; }
     const p = readParams();
     const elig = state.points.filter(x => x.active && String(x.stratum) === String(p.stratum));
-    const { clusters } = Core.assignClusters(elig, p.clusterMode, state.axes);
     const st = Core.stats(p); const nRep = Math.ceil(st.nWp * p.replacementFraction);
-    const k = Core.defaultClusterCount(clusters, st.nWp + nRep);
-    $('p-nclusters-hint').textContent = t('auto', { k }); $('p-nclusters').placeholder = t('auto', { k });
-    el.textContent = t('preview', { n: elig.length, c: clusters.length, w: st.nWp, r: nRep, t: st.nWp + nRep, k });
+    if (p.method === 'commune_clusters') { const { clusters } = Core.assignClusters(elig, p.clusterMode, state.axes); const k = Core.defaultClusterCount(clusters, st.nWp + nRep); $('p-nclusters-hint').textContent = t('auto', { k }); $('p-nclusters').placeholder = t('auto', { k }); el.textContent = t('preview', { n: elig.length, c: clusters.length, w: st.nWp, r: nRep, t: st.nWp + nRep, k }); }
+    else { const communes = new Set(elig.map(x => x.commune)); el.textContent = t('preview', { n: elig.length, c: communes.size, w: st.nWp, r: nRep, t: st.nWp + nRep, k: '—' }); }
   }
   $('btn-draw').onclick = () => {
     const msg = $('params-msg'); msg.innerHTML = '';
     if (!state.points.length) { msg.innerHTML = `<div class="msg err">${t('err_nodata')}</div>`; return; }
     const p = readParams();
-    if (p.clusterMode === 'axis' && !state.axes.length) { msg.innerHTML = `<div class="msg err">${t('err_noaxes')}</div>`; return; }
+    if (p.method === 'commune_clusters' && p.clusterMode === 'axis' && !state.axes.length) { msg.innerHTML = `<div class="msg err">${t('err_noaxes')}</div>`; return; }
     runDraw(p, true);
   };
   function runDraw(p, fresh) {
     if (fresh) { p.timestamp = new Date().toISOString(); state.kValues = {}; state.route = null; }
-    const r = Core.draw(p, state.points, state.hhByWp, state.axes);
+    const r = Core.draw(p, state.points, state.axes);
     if (r.error) { $('params-msg').innerHTML = `<div class="msg err">${t('err_noeligible')}</div>`; return; }
     state.result = r; LS.set('last', p); LS.set('k', state.kValues);
     if (state.start) computeRoute();
@@ -788,14 +935,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
       case 'unassigned': return t('w_unassigned', { n: w.n, ids: w.ids.join(', ') });
       case 'insufficient_points': return t('w_insufficient', { have: w.have, needed: w.needed, w: w.nWp, r: w.nRep });
       case 'short_selection': return t('w_short', { have: w.have, w: w.nWp });
-      case 'few_households': return t('w_few_hh', w);
+      case 'imputed_weights': return t('w_imputed', w);
       default: return JSON.stringify(w);
     }
   }
   function orderMap() { const o = {}; if (state.route) state.route.stops.forEach((s, i) => { o[s.point.water_point_id] = i + 1; }); return o; }
   function hhCell(w) {
     const h = w.households;
-    if (h.mode === 'list') return h.primary.map(x => esc(x.household_id)).join(', ') + (h.replacements.length ? ` <span class="muted">(${t('rep_short')} ${h.replacements.map(x => esc(x.household_id)).join(', ')})</span>` : '');
     const K = state.kValues[w.water_point_id];
     const fn = K ? Core.fieldNumbers(state.result.params.seed, w.water_point_id, K, h.n, h.extra) : null;
     let s = `<span class="muted">${t('rule_short', { n: h.n })}</span><br>${t('col_k')}: <input class="kinput" type="number" min="1" inputmode="numeric" data-k="${esc(w.water_point_id)}" value="${K || ''}"> `;
@@ -813,10 +959,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     st.suggestions.forEach(s => { h += `<div class="msg warn">${s.type === 'fewer_hh' ? t('sug_fewer', { t: p.target, m: s.m, w: s.nWp }) : t('sug_more', { m: st.m, w: s.nWp, s: s.nSamples })}</div>`; });
     r.warnings.forEach(w => { h += `<div class="msg warn">${esc(warnText(w))}</div>`; });
     $('res-check').innerHTML = h;
-    const selOrd = {}; r.selectedClusters.forEach(c => { selOrd[c.name] = c.order; });
-    $('res-clusters').innerHTML = `<table><tr><th>${t('col_cluster')}</th><th>${t('col_size')}</th><th>${t('col_selected')}</th><th>${t('col_sel_order')}</th></tr>` + r.clusters.map(c => `<tr class="${selOrd[c.name] ? '' : 'rep'}"><td>${esc(c.name)}</td><td>${c.size}</td><td>${selOrd[c.name] ? t('yes') : t('no')}</td><td>${selOrd[c.name] || ''}</td></tr>`).join('') + '</table>';
+    const selOrd = {}; r.selectedClusters.forEach(c => { selOrd[c.name] = c.selected || c.order; });
+    $('res-clusters').innerHTML = `<table><tr><th>${t('col_cluster')}</th><th>${t('col_size')}</th><th>${t('col_hh')}</th><th>${t('col_selected')}</th></tr>` + r.clusters.map(c => `<tr class="${selOrd[c.name] ? '' : 'rep'}"><td>${esc(c.name)}</td><td>${c.size}</td><td>${c.households !== undefined ? c.households : ''}</td><td>${selOrd[c.name] ? (p.method === 'commune_clusters' ? t('yes') : c.selected) : t('no')}</td></tr>`).join('') + '</table>';
     const om = orderMap();
-    const row = (w, rep) => `<tr class="${rep ? 'rep' : ''}"><td>${rep ? 'R' + w.order : (om[w.water_point_id] || w.order)}</td><td><b>${esc(w.water_point_id)}</b><br><small>${esc(w.name)}</small></td><td>${esc(w.cluster)}<br><small>${esc(w.fokontany)} / ${esc(w.village)}</small></td><td>${hhCell(w)}</td></tr>`;
+    const row = (w, rep) => `<tr class="${rep ? 'rep' : ''}"><td>${rep ? 'R' + w.order : (om[w.water_point_id] || w.order)}</td><td><b>${esc(w.water_point_id)}</b><br><small>${esc(w.name)}${w.households_served ? ' · ' + w.households_served + ' hh' : ''}</small></td><td>${esc(w.cluster)}<br><small>${esc(w.fokontany)} / ${esc(w.village)}</small></td><td>${hhCell(w)}</td></tr>`;
     $('res-points').innerHTML = `<table><tr><th>${t('col_order')}</th><th>${t('col_id')}</th><th>${t('col_cluster')}</th><th>${t('col_hh')}</th></tr>` + r.selected.map(w => row(w, false)).join('') + r.replacements.map(w => row(w, true)).join('') + '</table>';
     $('res-points').querySelectorAll('input[data-k]').forEach(inp => inp.addEventListener('change', () => { const v = parseInt(inp.value, 10); if (v > 0) state.kValues[inp.dataset.k] = v; else delete state.kValues[inp.dataset.k]; LS.set('k', state.kValues); renderResults(); renderSheet(); }));
     $('res-audit').textContent = Core.auditJson(r, auditExtra());
@@ -825,7 +971,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     const ex = {}; const om = orderMap();
     if (state.route) ex.visiting_order = { start: state.start, stops: state.route.stops.map((s, i) => ({ stop: i + 1, water_point_id: s.point.water_point_id, leg_km: +s.legKm.toFixed(2), cumulative_km: +s.cumKm.toFixed(2) })), total_km: +state.route.totalKm.toFixed(2) };
     const ks = Object.keys(state.kValues);
-    if (ks.length && state.result) ex.field_rule_numbers = ks.map(id => { const w = state.result.selected.concat(state.result.replacements).find(x => x.water_point_id === id); if (!w || w.households.mode !== 'rule') return null; return Object.assign({ water_point_id: id }, Core.fieldNumbers(state.result.params.seed, id, state.kValues[id], w.households.n, w.households.extra)); }).filter(Boolean);
+    if (ks.length && state.result) ex.field_rule_numbers = ks.map(id => { const w = state.result.selected.concat(state.result.replacements).find(x => x.water_point_id === id); if (!w) return null; return Object.assign({ water_point_id: id }, Core.fieldNumbers(state.result.params.seed, id, state.kValues[id], w.households.n, w.households.extra)); }).filter(Boolean);
     return ex;
   }
   function download(name, content, type) {
@@ -834,6 +980,19 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   const fname = ext => `sanitap-${(state.result.params.roundName || 'round').replace(/\s+/g, '')}-${state.result.params.stratum}-${ext}`;
   $('btn-csv').onclick = () => { if (state.result) download(fname('selection.csv'), Core.toCsv(state.result, orderMap(), state.kValues), 'text/csv'); };
   $('btn-json').onclick = () => { if (state.result) download(fname('audit.json'), Core.auditJson(state.result, auditExtra()), 'application/json'); };
+  $('btn-mark').onclick = () => { $('res-export-msg').innerHTML = `<div class="msg warn">${t('mark_off')}</div>`; };
+  $('btn-pdf').onclick = async () => {
+    if (!state.result) return; const msg = $('res-export-msg'); msg.innerHTML = '';
+    if (typeof PDFLib === 'undefined') { msg.innerHTML = `<div class="msg err">${t('pdf_err')}</div>`; return; }
+    if (!state.result.audit.drawn_by) { msg.innerHTML = `<div class="msg warn">${t('pdf_need_by')}</div>`; }
+    try {
+      const auditText = Core.auditJson(state.result, auditExtra()); const auditSha = await Core.sha256(auditText);
+      const bytes = await Core.buildSamplingRecordPdf({ PDFLib, audit: JSON.parse(auditText), auditSha, lang: state.lang, url: Core.APP_URL, kValues: state.kValues });
+      state.lastRecord = { auditSha, recordId: state.result.audit.record_id }; LS.set('lastRecord', state.lastRecord);
+      download(fname('record.pdf'), bytes, 'application/pdf'); download(fname('audit.json'), auditText, 'application/json'); download(fname('selection.csv'), Core.toCsv(state.result, orderMap(), state.kValues), 'text/csv');
+      msg.innerHTML = `<div class="msg ok">${esc(state.result.audit.record_id)} · ${t('sha')} ${auditSha}</div>`;
+    } catch (e) { msg.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+  };
   $('btn-mwcsv').onclick = () => {
     if (!state.result) return; const r = state.result, p = r.params, om = orderMap();
     const rows = [['code', 'name', 'round', 'stratum', 'role', 'order', 'seed', 'drawn_at']];
@@ -851,15 +1010,14 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     const sheet = (w, rep) => {
       const h = w.households; const K = state.kValues[w.water_point_id];
       const fn = (h.mode === 'rule' && K) ? Core.fieldNumbers(p.seed, w.water_point_id, K, h.n, h.extra) : null;
-      const ids = h.mode === 'list' ? h.primary.map(x => [x.household_id, x.name_or_code]).concat(h.replacements.map(x => [x.household_id, x.name_or_code, true]))
-        : fn ? fn.primary.map(x => ['HH#' + x, '']).concat(fn.replacements.map(x => ['HH#' + x, '', true]))
+      const ids = fn ? fn.primary.map(x => ['HH#' + x, '']).concat(fn.replacements.map(x => ['HH#' + x, '', true]))
         : Array.from({ length: h.n + h.extra }, (_, i) => ['', '', i >= h.n]);
       return `<div class="sheet">
 <h2>${t('sheet_title')} — ${esc(p.roundName)} / ${esc(p.stratum)}</h2>
 <div class="meta"><div><b>${t('sheet_order')}:</b> ${rep ? 'R' + w.order : (om[w.water_point_id] || w.order)}</div><div><b>${t('sheet_date')}:</b> ${line(8)}</div>
 <div><b>${t('sheet_wp')}:</b> ${esc(w.water_point_id)} — ${esc(w.name)}</div><div><b>${t('sheet_team')}:</b> ${line(8)}</div>
 <div><b>${t('sheet_cluster')}:</b> ${esc(w.cluster)} · ${esc(w.fokontany)} · ${esc(w.village)}</div><div><b>${t('sheet_arrive')}:</b> ${line(4)} <b>${t('sheet_depart')}:</b> ${line(4)}</div>
-<div><b>${t('sheet_gps')}:</b> ${isFinite(w.lat) ? fmt(w.lat, 5) + ', ' + fmt(w.lon, 5) : '—'}</div><div><b>${t('sheet_seed')}:</b> ${esc(p.seed)}</div></div>
+<div><b>${t('sheet_gps')}:</b> ${isFinite(w.lat) ? fmt(w.lat, 5) + ', ' + fmt(w.lon, 5) : '—'}${w.households_served ? ' · ' + w.households_served + ' ' + t('col_hh').toLowerCase() : ''}</div><div><b>${t('sheet_seed')}:</b> ${esc(p.seed)}</div></div>
 ${rep ? `<div class="rule big">${t('sheet_replacement')}</div>` : ''}
 <h3>${t('sheet_poc')}</h3>
 <span class="chk">${t('sheet_c1')} — ${t('sheet_time')} ${line(4)}</span>
@@ -867,7 +1025,7 @@ ${rep ? `<div class="rule big">${t('sheet_replacement')}</div>` : ''}
 <span class="chk">${t('sheet_c3')}</span>
 <span class="chk">${t('sheet_c4')} ${line(6)}</span>
 <h3>${t('sheet_hh')}</h3>
-${h.mode === 'rule' ? `<div class="rule">${t('sheet_rule')}<br><span class="big">${t('sheet_k')} ${K ? K : line(4)}</span>${fn ? ` &nbsp; <b>${t('sheet_numbers')}: <span class="big">${fn.primary.join(' – ')}</span></b> &nbsp; ${t('sheet_rep_numbers')}: ${fn.replacements.join(', ')}` : ''}</div>` : ''}
+${`<div class="rule">${t('sheet_rule')}<br><span class="big">${t('sheet_k')} ${K ? K : line(4)}</span>${fn ? ` &nbsp; <b>${t('sheet_numbers')}: <span class="big">${fn.primary.join(' – ')}</span></b> &nbsp; ${t('sheet_rep_numbers')}: ${fn.replacements.join(', ')}` : ''}</div>`}
 <table><tr><th>${t('sheet_hh_col_n')}</th><th>${t('sheet_hh_col_id')}</th><th>${t('sheet_hh_col_name')}</th><th>${t('sheet_hh_col_sample')}</th><th>${t('sheet_hh_col_time')}</th><th>${t('sheet_hh_col_store')}</th><th>${t('sheet_hh_col_notes')}</th></tr>
 ${ids.map((x, i) => `<tr><td>${x[2] ? 'R' + (i - h.n + 1) : i + 1}</td><td>${esc(x[0])}&nbsp;</td><td>${esc(x[1])}&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>`).join('')}</table>
 <div class="box"><b>${t('sheet_notes')}:</b></div>
@@ -942,13 +1100,13 @@ ${ids.map((x, i) => `<tr><td>${x[2] ? 'R' + (i - h.n + 1) : i + 1}</td><td>${esc
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
 
   /* ---------- boot ---------- */
-  applyWp(); applyHh(); applyLang(); onlineBadge(); renderMw(); setSource(LS.get('src', (state.wp && state.wp.source === 'csv') ? 'csv' : 'mwater'));
+  applyWp(); applyLang(); onlineBadge(); renderMw(); $('p-drawn-by').value = LS.get('drawnBy', ''); $('btn-mark').classList.toggle('hidden', !Core.MWATER.forms.samplingRound); setSource(LS.get('src', (state.wp && state.wp.source === 'csv') ? 'csv' : 'mwater'));
   const last = LS.get('last', null);
   if (last && state.points.length) {
     $('p-round').value = last.roundName; $('p-stratum').value = last.stratum; $('p-target').value = last.target; $('p-hh').value = last.hhPerPoint; $('p-cmode').value = last.clusterMode;
-    $('p-nclusters').value = last.nClusters || ''; $('p-repfrac').value = Math.round(last.replacementFraction * 100); $('p-hhrep').value = last.hhReplacements; $('p-seed').value = last.seed; seedTouched = true;
+    $('p-nclusters').value = last.nClusters || ''; $('p-repfrac').value = Math.round(last.replacementFraction * 100); $('p-hhrep').value = last.hhReplacements; $('p-seed').value = last.seed; seedTouched = true; $('p-method').value = last.method || 'pps_households'; $('p-drawn-by').value = last.drawnBy || '';
     $('p-icc').value = last.icc; $('p-pass').value = last.expectedPass; $('p-conf').value = last.confidence; $('p-prectype').value = last.precisionType;
     runDraw(last, false); renderRoute();
   }
-  renderPreview();
+  methodUi(); renderPreview();
 })();

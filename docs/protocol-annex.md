@@ -1,4 +1,4 @@
-# Annex X — Random selection of water points and households for PoU/PoC water quality testing
+# Annex D — Random selection of sources and households for PoU/PoC water quality testing
 
 *Annex to the SaniTap Water Quality Testing Protocol. Applies to monitoring under the Gold Standard "Safe Drinking Water Supply" (SDWS) methodology v2.0.*
 
@@ -6,27 +6,26 @@
 
 ## 1. Purpose and standard
 
-This annex describes how the water points and households tested in each monitoring round are selected. The selection is a **multi-stage cluster sample** drawn in accordance with the CDM *Standard: Sampling and surveys for CDM project activities and programmes of activities* (UNFCCC, EB, latest version), which the Gold Standard accepts for sampling under SDWS. Selection is performed with the open-source **SaniTap Sampler** tool, which runs entirely on the sampler's phone or laptop, needs no connection and records every draw.
+This annex describes how the sources (water points) and households tested in each monitoring round are selected. The selection is a **two-stage cluster sample** (Protocol section 6.4) drawn in accordance with the CDM *Standard: Sampling and surveys for CDM project activities and programmes of activities* (UNFCCC, EB, latest version), which the Gold Standard accepts for sampling under SDWS. Selection is performed with the open-source **SaniTap Sampler** tool, which runs entirely on the sampler's phone or laptop, works offline once loaded and records every draw.
 
 ## 2. Sampling frame and stratification
 
-The frame is the mWater register of project water points (entity type *water point*, MadAvance operator group), **fetched live from mWater by the tool at the time of the draw, or loaded from a CSV export of the same register when offline**. A water point is *active* unless the register marks it abandoned, identified-only or proposed, the latest maintenance record reports it not functional, or it is not a hand pump. Households served come from the *Nombre de bénéficiaires* form. The tool records the source (mWater or CSV), the fetch time and the SHA-256 hash of the frame it used. Each stratum (project area or technology group as defined in the monitoring plan) is sampled separately with its own seed, so that each stratum meets the sample size requirement on its own.
+Inputs are the **water points fetched from mWater by the tool at the time of the draw, or a CSV export of the same register when offline**. The frame is the MadAvance water point register in mWater. A source is eligible when it has at least one water quality result in the form *Water Quality Testing_SDWS 3_Result* that passes all of that form's pass calculations (E. coli = 0 CFU/100 mL and every chemical parameter within its limit), is not abandoned, identified-only, proposed, reported not functional in its latest maintenance record or of a non-hand-pump type, and lies in a stratum district. Strata are **HP-FD** (hand pumps, Taolagnaro district) and **HP-MA** (hand pumps, Maroantsetra district); the Marolinta area (Beloha and Amboasary districts) is excluded and any other district is unassigned. Each stratum is sampled separately with its own seed, so that each stratum meets the sample size requirement on its own. The tool records the source (mWater or CSV), the fetch time, the exclusion counts and the SHA-256 hash of the frame it used. Households served per source come from the *Nombre de bénéficiaires* form and are the stage-1 weights.
 
 ## 3. Sampling stages
 
 | Stage | Unit | Method |
 |---|---|---|
-| 1 | Geographic cluster (commune, or a custom "axis" polygon defined for logistics) | Selection **with probability proportional to size** (number of eligible water points), sequentially and without replacement. The number of clusters defaults to the smallest number whose smallest members can hold the required water points; the sampler may increase it. |
-| 2 | Water point | **Simple random sampling without replacement** among the eligible water points of the selected clusters, until ⌈target samples ÷ households per point⌉ points are selected. A replacement list (default 20 % of that number) is then drawn in random order. |
-| 3 | Household | If registered households are linked to the water point in mWater (survey responses linking a household code to the water point code): simple random sample of N households (default 5) plus 2 replacements. Otherwise the **field rule**: the sampler counts the households served by the pump (K), numbers them clockwise from the pump starting at the nearest, and the tool draws N random numbers between 1 and K (plus 2 replacements) from the round seed. |
+| 1 | Source (water point) | The eligible sources of the stratum are listed by commune then id with their households served. ⌈target samples ÷ households per source⌉ sources are drawn by **systematic sampling with probability proportional to households served**: one random start, then every interval of households; ordering by commune spreads the selection across communes. A source larger than the interval is taken with certainty. A **replacement list** (default 20 % of the selection) is then drawn from the remaining sources, again proportional to households, and kept in draw order. |
+| 2 | Household | The **field rule**: the sampler counts the households served by the source (K), numbers them clockwise from the source starting at the nearest, and the tool draws N random numbers between 1 and K (default 5, plus 2 replacements) from the round seed, the source id and K. |
 
-Replacement water points and households are used strictly in the listed order and only when a primary unit cannot be sampled (pump broken, household absent after two visits, refusal). The reason is written on the field sheet and in mWater.
+Replacement sources and households are used strictly in the listed order and only when a primary unit cannot be sampled (pump broken, household absent after two visits, refusal). The reason is written on the field sheet and in mWater.
 
-At each selected water point one **point-of-collection (PoC)** sample is taken after disinfection of the spout and flushing, and one **point-of-use (PoU)** sample is taken from the stored drinking water of each selected household, following the main protocol.
+At each selected source one **point-of-collection (PoC)** sample is taken after disinfection of the spout and flushing on each day households of that source are sampled, so that every **point-of-use (PoU)** sample taken from the stored drinking water of a selected household is paired with a PoC sample of the same source and day, following the main protocol.
 
 ## 4. Randomness and reproducibility
 
-All random numbers come from the *mulberry32* pseudo-random generator seeded with a 32-bit hash (*xmur3*) of a seed text of the form `<round>-<stratum>` (for example `2026R1-FD`). The same seed, input file and parameters always reproduce the same selection on any device, which allows the VVB to re-run the draw. The seed is fixed **before** fieldwork and written in the monitoring report.
+All random numbers come from the *mulberry32* pseudo-random generator seeded with a 32-bit hash (*xmur3*) of a seed text of the form `<round>-<stratum>` (for example `2026R1-HP-FD`). The same seed, input file and parameters always reproduce the same selection on any device, which allows the VVB to re-run the draw. The seed is fixed **before** fieldwork and written in the monitoring report.
 
 ## 5. Sample size and precision
 
@@ -34,7 +33,7 @@ The sample size per stratum is set so that the proportion of samples meeting the
 
 ## 6. Evidence retained for verification
 
-For every draw the tool produces an **audit record** (JSON) containing: timestamp, seed, algorithm, name and SHA-256 hash of the input files, all parameters, the frame (clusters and their sizes), the selected clusters, water points, replacements, and the selected households or field rule (with the numbers generated once K was entered). The audit record, the exported selection CSV imported into mWater, and the signed field sheets are filed with the monitoring report for the round. **The audit record is the evidence of random selection retained for the validation and verification body (VVB).**
+For every draw the tool produces an **audit record** (JSON) containing: record id, timestamp, who drew it, seed, algorithm and tool version, source and SHA-256 hash of the frame, eligibility counts, all parameters, stage-1 numbers (total households, interval, random start), the selected sources with their weights and hit positions, the replacements, and the field rule (with the numbers generated once K was entered). The tool also produces a **sampling record (PDF)** that narrates the method, frame, randomness, design check and selection for a validator and carries the audit record's SHA-256 in its footer. Both, with the selection CSV and the frame file, are filed under `records/<round>/<stratum>/` in the tool's repository and published at `https://sanitap-water.github.io/sanitap-sampler/records/`, and are referenced in the monitoring report. **The audit record and the sampling record are the evidence of random selection retained for the validation and verification body (VVB).**
 
 ## 7. Deviations
 
