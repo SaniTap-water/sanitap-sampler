@@ -50,14 +50,20 @@ const round = args.round || '2026-DRY';
     process.stderr.write('\n');
     r.audit.households = { dataset: C.USAGE.buildings.name, version, service_areas: areas.filter(a => !a.error) };
     if (C.hasCoordinateKeys(r.audit)) throw new Error('coordinates in the audit');
-    out.scenarios[scenario] = { seed: p.seed, frame_sha256: p.frameHash, frame: uf.counts, stage1: r.audit.stage1, communes: r.audit.communes, water_points: r.audit.water_points, reserves: r.audit.reserves, service_areas: areas, warnings: r.warnings };
+    // straight-line spread of the drawn points (primaries), per zone and overall, in km; computed here, never written to the record
+    const spread = pts => { let m = 0; for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) if (isFinite(pts[i].lat) && isFinite(pts[j].lat)) m = Math.max(m, C.haversineKm(pts[i], pts[j])); return +m.toFixed(1); };
+    const spreadKm = { overall: spread(r.points) }; r.zones.forEach(z => { spreadKm[z.name] = spread(r.points.filter(w => w.zone === z.name)); });
+    out.scenarios[scenario] = { seed: p.seed, frame_sha256: p.frameHash, frame: uf.counts, stage1: r.audit.stage1, zones_formed: r.audit.zones_formed, zone_merges: r.audit.zone_merges, zones: r.audit.zones, spread_km: spreadKm, water_points: r.audit.water_points, reserves: r.audit.reserves, service_areas: areas, warnings: r.warnings };
   }
   if (args.json) fs.writeFileSync(args.json, JSON.stringify(out, null, 1));
   for (const [s, v] of Object.entries(out.scenarios)) {
     console.log(`\n== ${s}  seed ${v.seed}  frame ${v.frame.frame} points (fleet in scenario; ${v.frame.not_in_fleet} group points of the scenario not in the fleet)  frame SHA-256 ${v.frame_sha256.slice(0, 16)}…`);
-    v.communes.forEach(c => console.log(`  commune ${c.name}: ${c.points} points, pi ${c.pi}${c.certainty ? ' (certainty)' : ''}${c.added ? ' (added)' : ''}; fokontany ${c.fokontany_drawn.length}/${c.fokontany_in_frame}: ${c.fokontany_drawn.map(f => f.name).join(', ')}`));
+    console.log(`  zones formed (${v.zones_formed.length}):`); v.zones_formed.forEach(z => console.log(`    ${z.name}: ${z.points} points, ${z.fokontany_in_frame} fokontany [${z.communes.map(c => c.name + ' ' + c.fokontany).join(', ')}]`));
+    v.zone_merges.forEach(m => console.log(`    join: ${m.zone} (${m.fokontany} fokontany) -> ${m.joined} via ${m.nearest_commune}, ${m.km} km`));
+    v.zones.forEach(c => console.log(`  zone drawn ${c.name}: ${c.points} points, pi ${c.pi}${c.certainty ? ' (certainty)' : ''}; fokontany ${c.fokontany_drawn.length}/${c.fokontany_in_frame}: ${c.fokontany_drawn.map(f => f.name + (c.communes.length > 1 ? ' (' + f.commune + ')' : '')).join(', ')}; spread ${v.spread_km[c.name]} km`));
+    console.log(`  spread of the 12 drawn points overall: ${v.spread_km.overall} km`);
     const byId = Object.fromEntries(v.service_areas.map(a => [a.water_point_id, a]));
-    v.water_points.concat(v.reserves).forEach(w => { const a = byId[w.water_point_id] || {}; console.log(`  ${w.reserve ? 'R' + w.order : String(w.order).padStart(2)} ${w.water_point_id.padEnd(10)} ${String(w.commune + ' / ' + w.fokontany).padEnd(40)} ${w.reserve ? 'p(in commune) ' + w.p_conditional : 'pi ' + w.pi + ' weight ' + w.weight}  buildings ${a.error ? a.error : a.buildings_kept + ' kept / ' + a.buildings_in_circle + ' in 1 km (area kept ' + a.area_kept_pct + ' %' + (Object.keys(a.barrier_ways || {}).length ? ', barriers ' + JSON.stringify(a.barrier_ways) : '') + ')' + (a.short ? ' SHORT' : '')}`); });
+    v.water_points.concat(v.reserves).forEach(w => { const a = byId[w.water_point_id] || {}; console.log(`  ${w.reserve ? 'R' + w.order : String(w.order).padStart(2)} ${w.water_point_id.padEnd(10)} ${String(w.commune + ' / ' + w.fokontany).padEnd(40)} ${w.reserve ? 'p(in zone) ' + w.p_conditional : 'pi ' + w.pi + ' weight ' + w.weight}  buildings ${a.error ? a.error : a.buildings_kept === undefined ? 'not prepared (--only)' : a.buildings_kept + ' kept / ' + a.buildings_in_circle + ' in 1 km (area kept ' + a.area_kept_pct + ' %' + (Object.keys(a.barrier_ways || {}).length ? ', barriers ' + JSON.stringify(a.barrier_ways) : '') + ')' + (a.short ? ' SHORT' : '')}`); });
     if (v.warnings.length) console.log('  warnings: ' + JSON.stringify(v.warnings));
   }
 })().catch(e => { console.error(e.stack || e.message); process.exit(1); });

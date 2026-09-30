@@ -3,7 +3,7 @@
 A static, offline-capable web tool that draws **statistically valid, logistics-aware samples** for the SaniTap programme under the Gold Standard *Safe Drinking Water Supply* (SDWS) methodology v2.0, in two modes chosen on the Parameters tab:
 
 - **SDWS 18 point-of-use (water quality)** — the original mode, unchanged since v2.2.0 (a regression test proves its draws and records reproduce byte for byte);
-- **Usage survey (SDWS 26)** — v2.3.0: a three-stage clustered draw of water points from the carbon fleet and a rooftop draw of households from building footprints, with an offline phone field view. See [Usage survey mode](#usage-survey-mode-sdws-26).
+- **Usage survey (SDWS 26)** — v2.4.0 (zones, SOP-MAD-SDWS26 v0.4 §4.2): a three-stage clustered draw of water points from the carbon fleet and a rooftop draw of households from building footprints, with an offline phone field view. See [Usage survey mode](#usage-survey-mode-sdws-26).
 
 **Live tool:** https://sanitap-water.github.io/sanitap-sampler/ (deployed from `main` by GitHub Actions; works offline after the first load).
 
@@ -104,11 +104,12 @@ Choose **Usage survey (SDWS 26)** under *Survey* on the Parameters tab. It sampl
 
 **Draw** (`Core.drawUsage`), seeded `<round>-<scenario>-U` (xmur3 → mulberry32), reproducible from seed + frame hash:
 
-1. **Communes**: 3, by systematic PPS on the number of frame points per commune (communes in name order, one random start; a commune larger than the interval is taken with certainty). A drawn commune with fewer than 4 fokontany is taken whole, and a further commune is drawn by sequential PPS among the remaining communes, until 12 fokontany are drawn; its recorded probability is the conditional probability at that draw.
-2. **Fokontany**: 4 per drawn commune, simple random sampling among fokontany with at least 1 frame point.
-3. **Water points**: 1 per fokontany at equal probability; 1 **reserve** per drawn commune at equal probability among its undrawn points.
+0. **Zones** (v2.4.0, SOP-MAD-SDWS26 v0.4 section 4.2), built from the frame before the draw: a zone is a set of neighbouring communes holding at least 4 fokontany with frame points. A commune with 4 or more is its own zone; while any zone has fewer, the zone with the fewest (ties: zone name) joins the zone holding the nearest commune, by straight-line distance between commune frame-point centres. Zones are named by their communes in name order; every zone and every join (with its distance) is listed in the sampling record.
+1. **Zones drawn**: 3, by systematic PPS on the number of frame points per zone (zones in name order, one random start; a zone larger than the interval is taken with certainty).
+2. **Fokontany**: 4 per drawn zone, simple random sampling among its fokontany with at least 1 frame point.
+3. **Water points**: 1 per fokontany at equal probability; 1 **reserve** per drawn zone at equal probability among its undrawn points.
 
-Each point's overall probability (commune × fokontany × point) and inverse-probability weight are recorded. The map colours the points by commune; the stop list is grouped by commune.
+Each point's overall probability (zone × fokontany × point) and inverse-probability weight are recorded. The map colours the points by zone; the stop list is grouped by zone. Before v2.4.0 stage 1 drew communes, and a commune with fewer than 4 fokontany pulled in a further commune drawn at random, which could be far away (2026-DRY: Manantenina, 75–84 km from the other three).
 
 **Households.** For every drawn and reserve water point, *Prepare households* reads the building footprints within 1 km and the barrier network, and keeps the buildings whose centre lies in the service area:
 
@@ -120,7 +121,7 @@ Each point's overall probability (commune × fokontany × point) and inverse-pro
 
 **Field view** (tab *Field*, phone): choose the water point; the next building is shown on the map with its distance and bearing from the phone's GPS, and its **draw position** (1–15), which is entered on the mWater response. Buttons: *Interviewed*, *Refused*, *Nobody home* (the building closes after 3 visits), *Not a dwelling*, *Out of area*, *Far side of an unfordable river*. Every closed non-interview opens the next reserve, strictly in order; the water point is done at 10 interviews. *Outcome log (CSV)* exports every entry (record id, water point, draw position, primary/reserve, outcome, visit, time, team) for filing — no coordinates.
 
-**Record.** *Sampling record (PDF)* carries the seed and frame hash, the fleet file hash, the stage-1 numbers, the drawn communes, fokontany and water points with probabilities and weights, the reserves, and, once prepared, the building count per service area (within 1 km, kept after the clip, area kept, barriers, and the SHA-256 of the building list). The full audit is attached as `audit.json`. Like the SDWS 18 record it is byte-reproducible and carries **no coordinates** (tested).
+**Record.** *Sampling record (PDF)* carries the seed and frame hash, the fleet file hash, the zones formed and every join, the stage-1 numbers, the drawn zones, fokontany and water points with probabilities and weights, the reserves, and, once prepared, the building count per service area (within 1 km, kept after the clip, area kept, barriers, and the SHA-256 of the building list). The full audit is attached as `audit.json`. Like the SDWS 18 record it is byte-reproducible and carries **no coordinates** (tested).
 
 **Dry run.** `FGB_DIR=<folder with node_modules/flatgeobuf> node bin/usage-dry-run.js --env ~/mwater-mcp/.env --round 2026-DRY` draws both scenarios on the live frame, prepares every service area as the phone does, and prints ids, probabilities, weights and building counts only.
 

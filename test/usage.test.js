@@ -3,7 +3,7 @@
 const test = require('node:test'); const assert = require('node:assert/strict'); const path = require('path');
 const C = require('../app.js'); const U = C.USAGE;
 
-// synthetic frame: 6 communes of different sizes; commune F has only 2 fokontany (forces an added commune when drawn)
+// synthetic frame: 6 communes of different sizes; commune F has only 2 fokontany (it joins its nearest commune's zone)
 function frame() {
   const pts = []; const spec = { A: [5, 3, 2, 4, 1], B: [2, 2, 2, 2], C: [6, 1, 1, 1, 1, 2], D: [1, 1, 1, 1], E: [3, 3, 3, 3, 3], F: [4, 4] };
   Object.keys(spec).forEach(c => spec[c].forEach((n, fi) => { for (let i = 0; i < n; i++) pts.push({ water_point_id: c + fi + '-' + i, name: 'Canzee', stratum: 'HP-FD', commune: 'Commune ' + c, fokontany: 'Fkt ' + c + fi, lat: -25 + fi * 0.01, lon: 46.9 + i * 0.01, households_served: 0, active: i % 3 !== 0 }); }));
@@ -18,23 +18,48 @@ test('usage draw is reproducible from seed + frame, whatever the input order', (
   assert.notEqual(JSON.stringify(c.audit.water_points), JSON.stringify(a.audit.water_points));
 });
 
-test('three stages: 3+ communes, 4 fokontany each (fewer only when the commune has fewer), 1 point per fokontany, 1 reserve per commune, probabilities and weights', () => {
+test('zones: every zone has at least 4 fokontany; small communes join the nearest; built deterministically before the draw', () => {
+  const z = C.buildZones(frame());
+  z.zones.forEach(x => assert.ok(Object.keys(x.fok).length >= 4, x.name + ' has ' + Object.keys(x.fok).length));
+  assert.equal(z.zones.reduce((a, x) => a + x.points.length, 0), frame().length, 'every frame point is in exactly one zone');
+  assert.deepEqual(z.zones.map(x => x.name), z.zones.map(x => x.name).slice().sort(), 'zones listed in name order');
+  const zr = C.buildZones(frame().reverse()); assert.equal(JSON.stringify(zr.merges), JSON.stringify(z.merges), 'independent of input order');
+  // F (2 fokontany) is the only short commune; its nearest commune by frame-point centre joins it
+  assert.equal(z.merges.length, 1); assert.equal(z.merges[0].zone, 'Commune F'); assert.equal(z.merges[0].fokontany, 2);
+  // two short communes far apart from each other: each joins its own nearest neighbour; a chain of shorts merges until >= 4
+  const mk = (c, nf, lat, lon) => Array.from({ length: nf }, (_, f) => ({ water_point_id: c + f, commune: c, fokontany: c + '-f' + f, lat: lat + f * 0.001, lon }));
+  const fr = [].concat(mk('A', 5, -25.0, 47.0), mk('B', 1, -25.02, 47.0), mk('C', 1, -25.03, 47.0), mk('D', 1, -25.04, 47.0), mk('E', 4, -24.0, 46.0), mk('G', 2, -24.02, 46.0));
+  const zz = C.buildZones(fr);
+  assert.deepEqual(zz.zones.map(x => x.name), ['A + B + C + D', 'E + G']);
+  zz.zones.forEach(x => assert.ok(Object.keys(x.fok).length >= 4));
+  zz.merges.forEach(m => assert.ok(m.km > 0));
+  // a commune with 4 or more stays on its own
+  assert.ok(C.buildZones(mk('X', 4, -25, 47).concat(mk('Y', 4, -25.5, 47))).zones.length === 2);
+});
+
+test('three stages: 3 zones, 4 fokontany each, 1 point per fokontany, 1 reserve per zone, probabilities and weights', () => {
   for (let s = 0; s < 60; s++) {
     const r = C.drawUsage(Object.assign({}, P, { seed: 'seed-' + s }), frame());
-    const fok = r.communes.reduce((a, c) => a + c.fokontany_drawn.length, 0);
-    assert.ok(r.communes.length >= 3); assert.ok(fok >= 12 || r.communes.length === 6, 'at least 12 fokontany unless the frame runs out');
-    r.communes.forEach(c => { assert.equal(c.fokontany_drawn.length, Math.min(4, c.fokontany_in_frame)); const nres = r.reserves.filter(w => w.commune === c.name).length; if (c.points > c.fokontany_drawn.length) assert.equal(nres, 1); else { assert.equal(nres, 0); assert.ok(r.warnings.some(w => w.code === 'no_reserve' && w.commune === c.name), 'a commune with every point drawn has no reserve, and says so'); } if (c.fokontany_in_frame < 4) assert.ok(r.warnings.some(w => w.code === 'few_fokontany' && w.commune === c.name)); });
-    assert.equal(r.points.length, fok); assert.equal(new Set(r.points.map(w => w.commune + '|' + w.fokontany)).size, fok, 'one point per fokontany');
+    assert.equal(r.zones.length, 3);
+    r.zones.forEach(z => { assert.equal(z.fokontany_drawn.length, 4); assert.ok(z.fokontany_in_frame >= 4); const nres = r.reserves.filter(w => w.zone === z.name).length; if (z.points > 4) assert.equal(nres, 1); else { assert.equal(nres, 0); assert.ok(r.warnings.some(w => w.code === 'no_reserve' && w.zone === z.name)); } });
+    assert.equal(r.points.length, 12); assert.equal(new Set(r.points.map(w => w.commune + '|' + w.fokontany)).size, 12, 'one point per fokontany');
     const ids = r.points.concat(r.reserves).map(w => w.water_point_id); assert.equal(new Set(ids).size, ids.length, 'no point twice');
-    r.points.forEach(w => { assert.ok(Math.abs(w.pi - w.pi_commune * w.p_fokontany * w.p_point) < 1e-5); assert.ok(Math.abs(w.weight - 1 / w.pi) / w.weight < 1e-3); assert.ok(w.pi > 0 && w.pi <= 1); });
-    if (r.communes.some(c => c.added)) assert.ok(r.communes.some(c => c.fokontany_in_frame < 4), 'a commune is added only after a short one');
+    r.points.forEach(w => { assert.ok(Math.abs(w.pi - w.pi_zone * w.p_fokontany * w.p_point) < 1e-5); assert.ok(Math.abs(w.weight - 1 / w.pi) / w.weight < 1e-3); assert.ok(w.pi > 0 && w.pi <= 1); assert.ok(r.zones.some(z => z.name === w.zone && z.communes.some(c => c.name === w.commune))); });
+    assert.ok(Array.isArray(r.audit.zones_formed) && r.audit.zones_formed.length >= 3); assert.ok(Array.isArray(r.audit.zone_merges));
+    assert.equal(r.audit.parameters.zones, 3); assert.equal(r.audit.parameters.min_zone_fokontany, 4);
   }
 });
 
-test('stage 1 inclusion frequencies match the recorded commune probabilities (systematic PPS on frame points)', () => {
+test('stage 1 inclusion frequencies match the recorded zone probabilities (systematic PPS on frame points)', () => {
   const hits = {}, pis = {}; const N = 3000;
-  for (let s = 0; s < N; s++) { const r = C.drawUsage(Object.assign({}, P, { seed: 'mc' + s }), frame()); r.communes.filter(c => !c.added).forEach(c => { hits[c.name] = (hits[c.name] || 0) + 1; pis[c.name] = c.pi; }); }
+  for (let s = 0; s < N; s++) { const r = C.drawUsage(Object.assign({}, P, { seed: 'mc' + s }), frame()); r.zones.forEach(c => { hits[c.name] = (hits[c.name] || 0) + 1; pis[c.name] = c.pi; }); }
   Object.keys(pis).forEach(c => { const f = hits[c] / N; assert.ok(Math.abs(f - pis[c]) < 0.04, c + ': frequency ' + f.toFixed(3) + ' vs pi ' + pis[c]); });
+});
+
+test('fokontany and point probabilities: empirical inclusion matches the recorded pi', () => {
+  const hits = {}, pis = {}; const N = 4000;
+  for (let s = 0; s < N; s++) { const r = C.drawUsage(Object.assign({}, P, { seed: 'pp' + s }), frame()); r.points.forEach(w => { hits[w.water_point_id] = (hits[w.water_point_id] || 0) + 1; pis[w.water_point_id] = w.pi; }); }
+  Object.keys(pis).filter(k => pis[k] > 0.08).forEach(k => { const f = hits[k] / N; assert.ok(Math.abs(f - pis[k]) < 0.035, k + ': ' + f.toFixed(3) + ' vs ' + pis[k]); });
 });
 
 test('frame: carbon fleet of the scenario, broken pumps stay in, Marolinta and non-fleet points out', () => {

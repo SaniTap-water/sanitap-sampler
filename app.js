@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.3.1';
+const APP_VERSION = '2.4.0';
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
 const APP_URL = 'https://sanitap-water.github.io/sanitap-sampler/';
@@ -595,16 +595,19 @@ const Core = (function () {
     const inp = a.input || {}; const fc = inp.counts || {}; const fl = inp.fleet || {};
     kvRow(T.frame_source, inp.source === 'mwater' ? T.frame_source_mwater : T.frame_source_csv);
     if (fl.url) { kvRow(T.fleet_url, fl.url); kvRow(T.fleet_sha, fl.sha256 || '—'); kvRow(T.fleet_fetched, fl.fetched_at || '—'); }
-    table([T.c_item, T.c_value], [[T.c_group, num(fc.group_points)], [T.c_fleet, num(fc.fleet_in_group)], [T.c_scenario, num(fc.in_scenario)], [T.c_notfleet, num(fc.not_in_fleet)], [T.c_frame, num(fc.frame)], [T.c_communes, num((a.frame || {}).communes)], [T.c_fokontany, num((a.frame || {}).fokontany)]].filter(r => r[1] !== '—'), [CW - 120, 120]);
+    table([T.c_item, T.c_value], [[T.c_group, num(fc.group_points)], [T.c_fleet, num(fc.fleet_in_group)], [T.c_scenario, num(fc.in_scenario)], [T.c_notfleet, num(fc.not_in_fleet)], [T.c_frame, num(fc.frame)], [T.c_communes, num((a.frame || {}).communes)], [T.c_zones, num((a.frame || {}).zones)], [T.c_fokontany, num((a.frame || {}).fokontany)]].filter(r => r[1] !== '—'), [CW - 120, 120]);
     kvRow(T.frame_sha, inp.frame_sha256 || '—');
     heading(T.h_random);
     kvRow(T.seed, a.seed); kvRow(T.seed_word, String(a.seed_word_uint32)); kvRow(T.frame_sha, inp.frame_sha256 || '—');
     kvRow(T.stage1, T.stage1_v.replace('{tot}', num(a.stage1.total_points)).replace('{int}', num(a.stage1.interval, 4)).replace('{start}', num(a.stage1.random_start, 4)).replace('{cert}', num(a.stage1.certainty_selections)));
     para(T.reproducible);
+    heading(T.h_zones_formed); para(T.zones_rule);
+    table([T.t_zone, T.t_communes, T.t_points, T.t_fok], (a.zones_formed || []).map(z => [z.name, z.communes.map(c => c.name + ' (' + c.fokontany + ')').join(', '), num(z.points), num(z.fokontany_in_frame)]), [150, CW - 290, 70, 70]);
+    if ((a.zone_merges || []).length) table([T.t_merge_zone, T.t_merge_joined, T.t_merge_km], a.zone_merges.map(m => [m.zone + ' (' + m.fokontany + ')', m.joined + ' (' + T.via + ' ' + m.nearest_commune + ')', m.km == null ? '—' : num(m.km, 1)]), [170, CW - 240, 70]);
     heading(T.h_communes);
-    table([T.t_commune, T.t_points, T.t_fok, T.t_pi, T.t_note], a.communes.map(c => [c.name, num(c.points), num(c.fokontany_in_frame) + ' / ' + T.drawn + ' ' + c.fokontany_drawn.length, num(c.pi, 4), c.certainty ? T.certainty : c.added ? T.added : '']), [140, 60, 110, 70, CW - 380]);
+    table([T.t_zone, T.t_points, T.t_fok, T.t_pi, T.t_note], a.zones.map(c => [c.name, num(c.points), num(c.fokontany_in_frame) + ' / ' + T.drawn + ' ' + c.fokontany_drawn.length, num(c.pi, 4), c.certainty ? T.certainty : '']), [180, 60, 110, 70, CW - 420]);
     heading(T.h_points); para(T.points_note);
-    table([T.t_no, T.t_id, T.t_commune + ' / ' + T.t_fokontany, T.t_pi_parts, T.t_pi, T.t_weight], a.water_points.map(w => [String(w.order), w.water_point_id + (w.alt_id ? ' / ' + w.alt_id : ''), w.commune + ' / ' + w.fokontany, num(w.pi_commune, 4) + ' x ' + num(w.p_fokontany, 3) + ' x ' + num(w.p_point, 3), num(w.pi, 5), num(w.weight, 1)]), [30, 85, 150, 110, 60, CW - 435]);
+    table([T.t_no, T.t_id, T.t_commune + ' / ' + T.t_fokontany, T.t_pi_parts, T.t_pi, T.t_weight], a.water_points.map(w => [String(w.order), w.water_point_id + (w.alt_id ? ' / ' + w.alt_id : ''), w.commune + ' / ' + w.fokontany, num(w.pi_zone, 4) + ' x ' + num(w.p_fokontany, 3) + ' x ' + num(w.p_point, 3), num(w.pi, 5), num(w.weight, 1)]), [30, 85, 150, 110, 60, CW - 435]);
     heading(T.h_reserves); para(T.reserves_note);
     table([T.t_no, T.t_id, T.t_commune + ' / ' + T.t_fokontany, T.t_pcond], a.reserves.map(w => ['R' + w.order, w.water_point_id + (w.alt_id ? ' / ' + w.alt_id : ''), w.commune + ' / ' + w.fokontany, num(w.p_conditional, 4)]), [30, 110, 220, CW - 360]);
     heading(T.h_households); para(T.households_rule);
@@ -650,7 +653,8 @@ const Core = (function () {
    * ===================================================================*/
   const USAGE = {
     mode: 'usage_sdws26',
-    communes: 3, fokontanyPerCommune: 4, pointsPerFokontany: 1, reservesPerCommune: 1,
+    // SOP-MAD-SDWS26 v0.4 section 4.2: stage 1 draws ZONES of neighbouring communes, each with at least 4 fokontany holding frame points
+    zones: 3, fokontanyPerZone: 4, minZoneFokontany: 4, pointsPerFokontany: 1, reservesPerZone: 1,
     households: 10, householdReserves: 5,
     radiusM: 1000, rasterM: 10, crossingM: 40,
     barrierKinds: ['river', 'canal', 'coastline'], // waterway=stream is not a barrier (sdws1_barrier_clip.py)
@@ -663,7 +667,7 @@ const Core = (function () {
     buildings: { name: 'Google Open Buildings v3 (the Google layer of the VIDA Google-Microsoft combined FlatGeobuf, Source Cooperative)', url: 'https://data.source.coop/vida/google-microsoft-open-buildings/flatgeobuf/by_country/country_iso=MDG/MDG.fgb', source: 'google' },
     overpass: 'https://overpass-api.de/api/interpreter'
   };
-  const USAGE_ALGORITHM = 'seed string <round>-<scenario>-U -> xmur3 -> mulberry32; stage 1: 3 communes by systematic PPS on the number of frame points (communes in name order), a commune with fewer than 4 fokontany is taken whole and a further commune is drawn by sequential PPS among the rest until 12 fokontany are drawn; stage 2: 4 fokontany per commune by simple random sampling among fokontany with at least 1 frame point (name order); stage 3: 1 water point per fokontany at equal probability (id order); 1 reserve water point per commune at equal probability among its undrawn points; households: building footprints (Google Open Buildings v3) whose centroid lies inside the 1 km service area after the barrier clip, sorted by key, 10 + 5 reserves drawn in random order with mulberry32 seeded by seed|water_point_id|B=<count>';
+  const USAGE_ALGORITHM = 'zones (SOP-MAD-SDWS26 v0.4 s.4.2), built from the frame before the draw: every commune starts as its own zone; while a zone has fewer than 4 fokontany holding frame points, the zone with the fewest (ties: zone name) joins the zone holding the nearest commune, by straight-line distance between commune frame-point centres (ties: zone name); a zone is named by its communes in name order; seed string <round>-<scenario>-U -> xmur3 -> mulberry32; stage 1: 3 zones by systematic PPS on the number of frame points (zones in name order); stage 2: 4 fokontany per zone by simple random sampling among its fokontany with at least 1 frame point (commune / fokontany name order); stage 3: 1 water point per fokontany at equal probability (id order); 1 reserve water point per zone at equal probability among its undrawn points; households: building footprints (Google Open Buildings v3) whose centroid lies inside the 1 km service area after the barrier clip, sorted by key, 10 + 5 reserves drawn in random order with mulberry32 seeded by seed|water_point_id|B=<count>';
   // the frame: fleet members of the scenario; no SDWS 3 eligibility filter, broken pumps stay in. A CSV frame (demo/offline) is used as it is.
   function usageFrame(points, scenario, fleet) {
     const inScenario = points.filter(p => String(p.stratum) === String(scenario));
@@ -675,53 +679,67 @@ const Core = (function () {
     return { points: frame, counts: { source: 'mwater+fleet', group_points: points.length, fleet_size: fleetIds.size, fleet_in_group: Object.values(byStratum).reduce((a, b) => a + b, 0), fleet_by_stratum: byStratum, in_scenario: inScenario.length, frame: frame.length, not_in_fleet: inScenario.length - frame.length } };
   }
   function srsWithoutReplacement(rng, items, k) { const pool = items.slice(); const out = []; while (out.length < k && pool.length) out.push(pool.splice(randInt(rng, pool.length), 1)[0]); return out; }
+  // zones: neighbouring communes grouped until each holds at least minZoneFokontany fokontany with frame points (deterministic, before the draw)
+  function buildZones(frame) {
+    const cmap = {};
+    frame.forEach(pt => { const cn = pt.commune || '(no commune)', fn = pt.fokontany || '(no fokontany)'; const c = cmap[cn] = cmap[cn] || { name: cn, points: [], fok: {} }; c.points.push(pt); (c.fok[fn] = c.fok[fn] || []).push(pt); });
+    const communes = Object.keys(cmap).sort().map(k => cmap[k]);
+    communes.forEach(c => { const g = c.points.filter(p => isFinite(p.lat) && isFinite(p.lon)); c.centre = g.length ? { lat: g.reduce((a, p) => a + p.lat, 0) / g.length, lon: g.reduce((a, p) => a + p.lon, 0) / g.length } : null; });
+    const zname = z => z.communes.map(c => c.name).sort().join(' + ');
+    const nfok = z => z.communes.reduce((a, c) => a + Object.keys(c.fok).length, 0);
+    let zones = communes.map(c => ({ communes: [c] }));
+    const merges = [];
+    while (zones.length > 1) {
+      const short = zones.filter(z => nfok(z) < USAGE.minZoneFokontany).sort((a, b) => nfok(a) - nfok(b) || zname(a).localeCompare(zname(b)));
+      if (!short.length) break;
+      const z = short[0]; let best = null;
+      zones.forEach(o => { if (o === z) return; z.communes.forEach(c => o.communes.forEach(d => { if (!c.centre || !d.centre) return; const km = haversineKm(c.centre, d.centre); if (!best || km < best.km - 1e-9 || (Math.abs(km - best.km) <= 1e-9 && zname(o) < zname(best.o))) best = { o, km, from: c.name, to: d.name }; })); });
+      if (!best) { const o = zones.filter(x => x !== z).sort((a, b) => zname(a).localeCompare(zname(b)))[0]; best = { o, km: null, from: z.communes[0].name, to: o.communes[0].name }; }
+      merges.push({ zone: zname(z), fokontany: nfok(z), joined: zname(best.o), nearest_commune: best.to, from_commune: best.from, km: best.km == null ? null : +best.km.toFixed(2) });
+      best.o.communes = best.o.communes.concat(z.communes); zones = zones.filter(x => x !== z);
+    }
+    zones = zones.map(z => { const fok = {}; z.communes.forEach(c => Object.keys(c.fok).forEach(f => { fok[c.name + ' / ' + f] = { commune: c.name, fokontany: f, points: c.fok[f] }; })); return { name: zname(z), communes: z.communes.slice().sort((a, b) => a.name.localeCompare(b.name)), points: z.communes.reduce((a, c) => a.concat(c.points), []), fok }; }).sort((a, b) => a.name.localeCompare(b.name));
+    return { zones, merges };
+  }
   function drawUsage(params, framePoints) {
     const p = Object.assign({}, params); const warnings = [];
     const rng = makeRng(p.seed);
     const frame = framePoints.slice().sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id)));
     if (!frame.length) return { error: 'no_eligible', warnings };
     const noCoords = frame.filter(pt => !isFinite(pt.lat) || !isFinite(pt.lon)).length; if (noCoords) warnings.push({ code: 'no_coords', n: noCoords });
-    const commKey = pt => pt.commune || '(no commune)', fokKey = pt => pt.fokontany || '(no fokontany)';
-    const communes = {}; frame.forEach(pt => { const c = communes[commKey(pt)] = communes[commKey(pt)] || { name: commKey(pt), points: [], fok: {} }; c.points.push(pt); (c.fok[fokKey(pt)] = c.fok[fokKey(pt)] || []).push(pt); });
-    const clist = Object.keys(communes).sort().map(k => communes[k]);
-    const M = frame.length, need = USAGE.communes * USAGE.fokontanyPerCommune;
-    // stage 1: systematic PPS on the number of frame points
-    const sp = systematicPps(clist, clist.map(c => c.points.length), Math.min(USAGE.communes, clist.length), rng);
-    const drawn = sp.selected.map(x => ({ c: x.f, pi: x.certainty ? 1 : x.w / sp.interval, certainty: !!x.certainty, added: false, hit: x.hit }));
-    const fokCount = d => Math.min(USAGE.fokontanyPerCommune, Object.keys(d.c.fok).length);
-    // a commune with fewer than 4 fokontany is taken whole; further communes by sequential PPS among the rest until 12 fokontany
-    let rest = clist.filter(c => !drawn.some(d => d.c === c));
-    while (drawn.reduce((a, d) => a + fokCount(d), 0) < need && rest.length) {
-      const tot = rest.reduce((a, c) => a + c.points.length, 0); let u = rng.next() * tot, i = 0;
-      for (; i < rest.length; i++) { u -= rest[i].points.length; if (u < 0) break; } if (i >= rest.length) i = rest.length - 1;
-      const c = rest.splice(i, 1)[0]; drawn.push({ c, pi: c.points.length / tot, certainty: false, added: true, conditional: true });
-      warnings.push({ code: 'commune_added', commune: c.name });
-    }
-    drawn.forEach(d => { if (Object.keys(d.c.fok).length < USAGE.fokontanyPerCommune) warnings.push({ code: 'few_fokontany', commune: d.c.name, fokontany: Object.keys(d.c.fok).length }); });
-    // stage 2: fokontany, simple random sampling within each drawn commune (in draw order: stage-1 communes in name order, then additions)
-    const stage2 = drawn.map(d => { const names = Object.keys(d.c.fok).sort(); const k = Math.min(USAGE.fokontanyPerCommune, names.length); return { d, names, picked: srsWithoutReplacement(rng, names, k).sort(), p: k / names.length }; });
+    const { zones, merges } = buildZones(frame);
+    const M = frame.length;
+    zones.forEach(z => { if (Object.keys(z.fok).length < USAGE.minZoneFokontany) warnings.push({ code: 'few_fokontany', zone: z.name, fokontany: Object.keys(z.fok).length }); });
+    // stage 1: systematic PPS on the number of frame points per zone
+    const sp = systematicPps(zones, zones.map(z => z.points.length), Math.min(USAGE.zones, zones.length), rng);
+    const drawn = sp.selected.map(x => ({ z: x.f, pi: x.certainty ? 1 : x.w / sp.interval, certainty: !!x.certainty }));
+    // stage 2: fokontany, simple random sampling within each drawn zone (zones in name order)
+    const stage2 = drawn.map(d => { const keys = Object.keys(d.z.fok).sort(); const k = Math.min(USAGE.fokontanyPerZone, keys.length); return { d, keys, picked: srsWithoutReplacement(rng, keys, k).sort(), p: k / keys.length }; });
     // stage 3: one water point per fokontany at equal probability
     const points = []; let order = 0;
-    stage2.forEach(s => s.picked.forEach(fn => { const pts = s.d.c.fok[fn].slice().sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id))); const w = pts[randInt(rng, pts.length)]; const pw = 1 / pts.length; const pi = s.d.pi * s.p * pw; points.push({ order: ++order, reserve: false, water_point_id: String(w.water_point_id), alt_id: w.alt_id || '', name: w.name || '', commune: s.d.c.name, fokontany: fn, lat: w.lat, lon: w.lon, pi_commune: +s.d.pi.toFixed(6), p_fokontany: +s.p.toFixed(6), p_point: +pw.toFixed(6), pi: +pi.toFixed(6), weight: +(1 / pi).toFixed(3), fokontany_points: pts.length }); }));
-    // reserves: one per drawn commune, equal probability among its undrawn frame points
+    stage2.forEach(s => s.picked.forEach(key => { const F = s.d.z.fok[key]; const pts = F.points.slice().sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id))); const w = pts[randInt(rng, pts.length)]; const pw = 1 / pts.length; const pi = s.d.pi * s.p * pw; points.push({ order: ++order, reserve: false, water_point_id: String(w.water_point_id), alt_id: w.alt_id || '', name: w.name || '', zone: s.d.z.name, commune: F.commune, fokontany: F.fokontany, lat: w.lat, lon: w.lon, pi_zone: +s.d.pi.toFixed(6), p_fokontany: +s.p.toFixed(6), p_point: +pw.toFixed(6), pi: +pi.toFixed(6), weight: +(1 / pi).toFixed(3), fokontany_points: pts.length }); }));
+    // reserves: one per drawn zone, equal probability among its undrawn frame points
     const reserves = []; let rorder = 0;
-    stage2.forEach(s => { const taken = new Set(points.filter(x => x.commune === s.d.c.name).map(x => x.water_point_id)); const pool = s.d.c.points.filter(pt => !taken.has(String(pt.water_point_id))).sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id))); if (!pool.length) { warnings.push({ code: 'no_reserve', commune: s.d.c.name }); return; } const w = pool[randInt(rng, pool.length)]; reserves.push({ order: ++rorder, reserve: true, water_point_id: String(w.water_point_id), alt_id: w.alt_id || '', name: w.name || '', commune: s.d.c.name, fokontany: fokKey(w), lat: w.lat, lon: w.lon, p_conditional: +(1 / pool.length).toFixed(6) }); });
-    const communesOut = stage2.map(s => ({ name: s.d.c.name, points: s.d.c.points.length, fokontany_in_frame: s.names.length, pi: +s.d.pi.toFixed(6), certainty: s.d.certainty || undefined, added: s.d.added || undefined, fokontany_drawn: s.picked.map(fn => ({ name: fn, points: s.d.c.fok[fn].length })), p_fokontany: +s.p.toFixed(6) }));
+    stage2.forEach(s => { const taken = new Set(points.filter(x => x.zone === s.d.z.name).map(x => x.water_point_id)); const pool = s.d.z.points.filter(pt => !taken.has(String(pt.water_point_id))).sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id))); if (!pool.length) { warnings.push({ code: 'no_reserve', zone: s.d.z.name }); return; } const w = pool[randInt(rng, pool.length)]; reserves.push({ order: ++rorder, reserve: true, water_point_id: String(w.water_point_id), alt_id: w.alt_id || '', name: w.name || '', zone: s.d.z.name, commune: w.commune || '(no commune)', fokontany: w.fokontany || '(no fokontany)', lat: w.lat, lon: w.lon, p_conditional: +(1 / pool.length).toFixed(6) }); });
+    const zoneOut = z => ({ name: z.name, communes: z.communes.map(c => ({ name: c.name, points: c.points.length, fokontany: Object.keys(c.fok).length })), points: z.points.length, fokontany_in_frame: Object.keys(z.fok).length });
+    const zonesFormed = zones.map(zoneOut);
+    const zonesOut = stage2.map(s => Object.assign(zoneOut(s.d.z), { pi: +s.d.pi.toFixed(6), certainty: s.d.certainty || undefined, fokontany_drawn: s.picked.map(k => ({ name: s.d.z.fok[k].fokontany, commune: s.d.z.fok[k].commune, points: s.d.z.fok[k].points.length })), p_fokontany: +s.p.toFixed(6) }));
     const audit = {
-      tool: 'SaniTap Sampler', version: APP_VERSION, commit: APP_COMMIT, mode: USAGE.mode, methodology: 'Gold Standard SDWS v2.0 annual usage survey (SDWS 26, SDWS 25, SDWS 22); VPA-DD B.7.2: 90/10, at least 100 households and 8 clusters per scenario; SOP-MAD-SDWS26 (usage survey)',
+      tool: 'SaniTap Sampler', version: APP_VERSION, commit: APP_COMMIT, mode: USAGE.mode, methodology: 'Gold Standard SDWS v2.0 annual usage survey (SDWS 26, SDWS 25, SDWS 22); VPA-DD B.7.2: 90/10, at least 100 households and 8 clusters per scenario; SOP-MAD-SDWS26 v0.4 (usage survey), section 4.2 (zones)',
       record_id: recordId({ roundName: p.roundName, stratum: p.stratum, seed: p.seed }), timestamp: p.timestamp || new Date().toISOString(), drawn_by: p.drawnBy || null,
       seed: p.seed, seed_word_uint32: rng.seedWord, algorithm: USAGE_ALGORITHM,
       input: { source: p.source || 'csv', frame_sha256: p.frameHash || null, frame_file: p.frameFile || null, fleet: p.fleet || null, counts: p.frameCounts || null, mwater: p.source === 'mwater' ? (p.mwater || null) : null },
-      parameters: { round: p.roundName, scenario: p.stratum, communes: USAGE.communes, fokontany_per_commune: USAGE.fokontanyPerCommune, points_per_fokontany: USAGE.pointsPerFokontany, reserves_per_commune: USAGE.reservesPerCommune, households_per_point: USAGE.households, household_reserves: USAGE.householdReserves, radius_m: USAGE.radiusM, raster_m: USAGE.rasterM, barriers: 'natural=coastline, waterway=river, waterway=canal (waterway=stream is not a barrier); a segment within ' + USAGE.crossingM + ' m of a way tagged bridge=' + USAGE.bridgeValues.join('|') + ' or a node or way tagged ford=' + USAGE.fordValues.join('|') + ' is a crossing; only the fragment of the 1 km circle containing the water point is kept', buildings: USAGE.buildings.name },
-      frame: { points: M, communes: clist.length, fokontany: clist.reduce((a, c) => a + Object.keys(c.fok).length, 0) },
-      stage1: { method: 'systematic PPS on frame points per commune', total_points: sp.total, interval: +sp.interval.toFixed(4), random_start: +sp.start.toFixed(4), certainty_selections: sp.certainty, frame_order: 'commune name' },
-      communes: communesOut,
+      parameters: { round: p.roundName, scenario: p.stratum, zones: USAGE.zones, min_zone_fokontany: USAGE.minZoneFokontany, fokontany_per_zone: USAGE.fokontanyPerZone, points_per_fokontany: USAGE.pointsPerFokontany, reserves_per_zone: USAGE.reservesPerZone, households_per_point: USAGE.households, household_reserves: USAGE.householdReserves, radius_m: USAGE.radiusM, raster_m: USAGE.rasterM, barriers: 'natural=coastline, waterway=river, waterway=canal (waterway=stream is not a barrier); a segment within ' + USAGE.crossingM + ' m of a way tagged bridge=' + USAGE.bridgeValues.join('|') + ' or a node or way tagged ford=' + USAGE.fordValues.join('|') + ' is a crossing; only the fragment of the 1 km circle containing the water point is kept', buildings: USAGE.buildings.name },
+      frame: { points: M, communes: zones.reduce((a, z) => a + z.communes.length, 0), fokontany: zones.reduce((a, z) => a + Object.keys(z.fok).length, 0), zones: zones.length },
+      zones_formed: zonesFormed, zone_merges: merges,
+      stage1: { method: 'systematic PPS on frame points per zone', total_points: sp.total, interval: +sp.interval.toFixed(4), random_start: +sp.start.toFixed(4), certainty_selections: sp.certainty, frame_order: 'zone name' },
+      zones: zonesOut,
       water_points: points.map(auditUsageWp), reserves: reserves.map(auditUsageWp),
       households: null, warnings
     };
-    return { params: p, frame, communes: communesOut, points, reserves, warnings, audit };
+    return { params: p, frame, zones: zonesOut, zonesFormed, merges, points, reserves, warnings, audit };
   }
-  function auditUsageWp(w) { const o = {}; ['order', 'reserve', 'water_point_id', 'alt_id', 'name', 'commune', 'fokontany', 'pi_commune', 'p_fokontany', 'p_point', 'pi', 'weight', 'p_conditional', 'fokontany_points'].forEach(k => { if (w[k] !== undefined) o[k] = w[k]; }); return o; }
+  function auditUsageWp(w) { const o = {}; ['order', 'reserve', 'water_point_id', 'alt_id', 'name', 'zone', 'commune', 'fokontany', 'pi_zone', 'p_fokontany', 'p_point', 'pi', 'weight', 'p_conditional', 'fokontany_points'].forEach(k => { if (w[k] !== undefined) o[k] = w[k]; }); return o; }
 
   /* ---------- service area: barrier clip on a 10 m raster, buildings, household draw ---------- */
   // Overpass query for the barrier network and its crossings around one water point (the report's sdws1_barrier_clip.py rule)
@@ -843,7 +861,7 @@ const Core = (function () {
   // bearing (degrees from north) and distance (m) from the phone to a building
   function bearingTo(a, b) { const toR = Math.PI / 180; const y = Math.sin((b.lon - a.lon) * toR) * Math.cos(b.lat * toR); const x = Math.cos(a.lat * toR) * Math.sin(b.lat * toR) - Math.sin(a.lat * toR) * Math.cos(b.lat * toR) * Math.cos((b.lon - a.lon) * toR); return (Math.atan2(y, x) / toR + 360) % 360; }
 
-  return { USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
+  return { USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
 
@@ -1032,10 +1050,11 @@ const I18N = {
 I18N.en.updf = {
   title: 'Usage survey sampling record (SDWS 26)', record: 'record', h_id: '1. Identification', programme: 'Programme', programme_v: 'SaniTap safe drinking water supply, Madagascar — Gold Standard SDWS methodology v2.0 — annual usage survey (SDWS 26, SDWS 25, SDWS 22)', scenario: 'Scenario', round: 'Round', drawn_at: 'Draw date/time (UTC)', drawn_by: 'Drawn by', record_id: 'Record id', tool: 'Tool',
   h_method: '2. Method', method: [
-    'Three-stage clustered sample per project scenario (VPA-DD B.7.2: 90/10, at least 100 households and 8 clusters per scenario), run to SOP-MAD-SDWS26 (usage survey).',
-    'Stage 1 — communes. The communes holding frame water points are listed in name order with their number of frame points, and 3 are drawn by systematic sampling with probability proportional to that number (one random start). A commune larger than the sampling interval is taken with certainty. A drawn commune with fewer than 4 fokontany is taken whole, and a further commune is drawn in the same way (proportional to size, among the remaining communes) until 12 fokontany are drawn.',
-    'Stage 2 — fokontany. In each drawn commune 4 fokontany are drawn at equal probability among the fokontany holding at least one frame water point.',
-    'Stage 3 — water points. One water point is drawn at equal probability in each drawn fokontany. One reserve water point is drawn per commune, at equal probability among its undrawn points, for use only when a drawn point cannot be surveyed.',
+    'Three-stage clustered sample per project scenario (VPA-DD B.7.2: 90/10, at least 100 households and 8 clusters per scenario), run to SOP-MAD-SDWS26 v0.4 (usage survey), section 4.2.',
+    'Zones. Before the draw, the communes holding frame water points are grouped into zones of neighbouring communes, each holding at least 4 fokontany with frame points. A commune with 4 or more is its own zone; the zone with the fewest joins the zone holding the nearest commune (straight-line distance between commune frame-point centres), repeated until every zone has at least 4. The zones and every join are listed in section 5.',
+    'Stage 1 — zones. The zones are listed in name order with their number of frame points, and 3 are drawn by systematic sampling with probability proportional to that number (one random start). A zone larger than the sampling interval is taken with certainty.',
+    'Stage 2 — fokontany. In each drawn zone 4 fokontany are drawn at equal probability among the fokontany holding at least one frame water point.',
+    'Stage 3 — water points. One water point is drawn at equal probability in each drawn fokontany. One reserve water point is drawn per zone, at equal probability among its undrawn points, for use only when a drawn point cannot be surveyed.',
     'Households. Around each drawn water point the building footprints (Google Open Buildings v3) whose centre lies within 1 km are kept, after removing the part of the circle cut off by an unfordable river, canal or the coast (OpenStreetMap; streams are not barriers; a bridge or ford within 40 m opens the barrier). The kept buildings are sorted and 10 are drawn, plus 5 reserves, in random order from the round seed, the water point id and the building count. Reserves are used strictly in order, each only when a household is closed without an interview (refused, nobody home after 3 visits, not a dwelling, out of area, far side of an unfordable river).',
     'Every selection probability is recorded; the weight of a water point is the inverse of its overall probability (commune x fokontany x point).'],
   h_frame: '3. Sampling frame', frame_rule: 'The frame is the carbon fleet of the scenario: the water points of the MadAvance mWater register that the programme report classifies as in the managed fleet (successfully rehabilitated plus completed new constructions), in the districts of the scenario. Marolinta (Beloha) is outside the carbon fleet. There is no water quality condition: broken pumps stay in the frame.',
@@ -1054,9 +1073,19 @@ I18N.fr.updf = Object.assign({}, I18N.en.updf, {
   h_method: '2. Méthode', h_frame: "3. Base d'échantillonnage", h_random: '4. Aléa et reproductibilité', h_communes: '5. Communes tirées', h_points: "6. Points d'eau tirés", h_reserves: "7. Points d'eau de réserve (un par commune)", h_households: '8. Ménages', h_warnings: "9. Notes de l'outil",
   t_commune: 'Commune', t_points: 'Points de la base', t_fok: 'Fokontany', t_pi: 'Probabilité', t_note: 'Note', drawn: 'tirés', certainty: 'certitude', added: 'ajoutée (une commune avait moins de 4 fokontany)', t_no: 'N°', t_id: "Point d'eau", t_fokontany: 'Fokontany', t_weight: 'Poids', t_circle: 'Bâtiments à 1 km', t_kept: 'Retenus après découpe', t_area: 'Surface retenue', t_barriers: 'Obstacles', t_bsha: 'SHA-256 des bâtiments', page: 'page {x} sur {y}', footer_record: 'Registre', seed: "Chaîne d'amorce", frame_sha: 'SHA-256 de la base'
 });
+Object.assign(I18N.en.updf, {
+  h_zones_formed: '5. Zones, formed from the frame before the draw', zones_rule: 'A zone is a set of neighbouring communes holding at least 4 fokontany with frame points. A commune with 4 or more is its own zone; the zone with the fewest joins the zone holding the nearest commune (straight line between commune frame-point centres), repeated until every zone has at least 4. Fokontany counts in brackets.',
+  t_zone: 'Zone', t_communes: 'Communes (fokontany)', t_merge_zone: 'Joined (fokontany)', t_merge_joined: 'into', t_merge_km: 'km', via: 'nearest commune', c_zones: 'Zones',
+  h_communes: '5b. Drawn zones', points_note: 'Probability = zone x fokontany x point; weight = 1 / probability.', t_pi_parts: 'Zone x fokontany x point', h_reserves: '7. Reserve water points (one per zone)', reserves_note: 'Use a reserve only when a drawn point of the same zone cannot be surveyed; record the reason.', t_pcond: 'Probability (within the zone)'
+});
+Object.assign(I18N.fr.updf, {
+  h_zones_formed: '5. Zones, formées à partir de la base avant le tirage', zones_rule: "Une zone est un ensemble de communes voisines comptant au moins 4 fokontany avec des points de la base. Une commune qui en a 4 ou plus forme sa propre zone ; la zone qui en a le moins rejoint la zone de la commune la plus proche (ligne droite entre les centres des points de chaque commune), jusqu'à ce que chaque zone en ait au moins 4. Nombre de fokontany entre parenthèses.",
+  t_zone: 'Zone', t_communes: 'Communes (fokontany)', t_merge_zone: 'Rattachée (fokontany)', t_merge_joined: 'à', t_merge_km: 'km', via: 'commune la plus proche', c_zones: 'Zones',
+  h_communes: '5b. Zones tirées', points_note: 'Probabilité = zone x fokontany x point ; poids = 1 / probabilité.', t_pi_parts: 'Zone x fokontany x point', h_reserves: "7. Points d'eau de réserve (un par zone)", reserves_note: "N'utiliser une réserve que si un point tiré de la même zone ne peut pas être enquêté ; noter la raison.", t_pcond: 'Probabilité (dans la zone)'
+});
 Object.assign(I18N.en, {
   p_mode: 'Survey', mode_pou: 'SDWS 18 point-of-use (water quality)', mode_usage: 'Usage survey (SDWS 26)',
-  usage_intro: 'Three-stage clustered draw per scenario: 3 communes (probability proportional to frame points), 4 fokontany per commune, 1 water point per fokontany, 1 reserve per commune; then 10 households + 5 reserves per water point from building footprints inside the 1 km service area, clipped at unfordable rivers. Frame: the carbon fleet (no water quality condition; broken pumps stay in).',
+  usage_intro: 'Three-stage clustered draw per scenario (SOP-MAD-SDWS26 v0.4 s.4.2): zones of neighbouring communes are formed from the frame first, each with at least 4 fokontany holding frame points; then 3 zones (probability proportional to frame points), 4 fokontany per zone, 1 water point per fokontany, 1 reserve per zone; then 10 households + 5 reserves per water point from building footprints inside the 1 km service area, clipped at unfordable rivers. Frame: the carbon fleet (no water quality condition; broken pumps stay in).',
   usage_fleet_ok: 'Carbon fleet list: {n} water points (report classification, fetched {t}).', usage_fleet_none: 'The carbon fleet list is fetched from the programme report when you draw (ids only).', usage_fleet_err: 'The carbon fleet list could not be fetched: {e}', usage_csv: 'CSV frame: every water point of the stratum is taken as the frame.',
   usage_preview: 'Frame: {n} water points in {c} communes and {f} fokontany ({s}).', usage_res_title: 'Usage survey draw', u_communes: 'Communes', u_fokontany: 'Fokontany', u_points: 'Water points', u_reserves: 'Reserves', u_households: 'Households', col_pi: 'Probability', col_weight: 'Weight', col_buildings: 'Buildings (kept / 1 km)',
   btn_prepare: 'Prepare households (download buildings for the drawn service areas)', prep_running: 'Preparing {i} of {n}: {id}…', prep_done: 'Households ready for {n} water points; this round now works offline on this device.', prep_err: 'Preparation failed for {id}: {e}', btn_field: 'Open the field view', btn_outcomes: 'Outcome log (CSV)', btn_updf: 'Sampling record (PDF)',
@@ -1066,7 +1095,7 @@ Object.assign(I18N.en, {
 });
 Object.assign(I18N.fr, {
   p_mode: 'Enquête', mode_pou: "SDWS 18 point d'utilisation (qualité de l'eau)", mode_usage: "Enquête d'usage (SDWS 26)",
-  usage_intro: "Tirage en grappes à trois degrés par scénario : 3 communes (proportionnel aux points de la base), 4 fokontany par commune, 1 point d'eau par fokontany, 1 réserve par commune ; puis 10 ménages + 5 réserves par point d'eau parmi les bâtiments situés dans la zone de service de 1 km, découpée aux rivières infranchissables. Base : la flotte carbone (sans condition de qualité ; les pompes en panne restent).",
+  usage_intro: "Tirage en grappes à trois degrés par scénario (SOP-MAD-SDWS26 v0.4 §4.2) : des zones de communes voisines sont d'abord formées à partir de la base, chacune avec au moins 4 fokontany ayant des points ; puis 3 zones (proportionnel aux points de la base), 4 fokontany par zone, 1 point d'eau par fokontany, 1 réserve par zone ; puis 10 ménages + 5 réserves par point d'eau parmi les bâtiments situés dans la zone de service de 1 km, découpée aux rivières infranchissables. Base : la flotte carbone (sans condition de qualité ; les pompes en panne restent).",
   usage_fleet_ok: 'Liste de la flotte carbone : {n} points (classification du rapport, obtenue {t}).', usage_fleet_none: 'La liste de la flotte carbone est obtenue du rapport du programme au moment du tirage (identifiants seulement).', usage_fleet_err: "La liste de la flotte carbone n'a pas pu être obtenue : {e}", usage_csv: "Base CSV : tous les points d'eau de la strate forment la base.",
   usage_preview: "Base : {n} points d'eau dans {c} communes et {f} fokontany ({s}).", usage_res_title: "Tirage de l'enquête d'usage", u_communes: 'Communes', u_fokontany: 'Fokontany', u_points: "Points d'eau", u_reserves: 'Réserves', u_households: 'Ménages', col_pi: 'Probabilité', col_weight: 'Poids', col_buildings: 'Bâtiments (retenus / 1 km)',
   btn_prepare: 'Préparer les ménages (télécharger les bâtiments des zones tirées)', prep_running: 'Préparation {i} sur {n} : {id}…', prep_done: "Ménages prêts pour {n} points d'eau ; la campagne fonctionne maintenant hors ligne sur cet appareil.", prep_err: 'Échec de la préparation pour {id} : {e}', btn_field: 'Ouvrir la vue terrain', btn_outcomes: 'Journal des résultats (CSV)', btn_updf: "Registre d'échantillonnage (PDF)",
@@ -1074,6 +1103,9 @@ Object.assign(I18N.fr, {
   uw_commune_added: "La commune {commune} a été ajoutée : une commune tirée avait moins de 4 fokontany (sa probabilité est la probabilité conditionnelle à ce tirage).", uw_few_fokontany: "La commune {commune} n'a que {fokontany} fokontany avec un point de la flotte : tous ont été pris.", uw_no_reserve: "Commune {commune} : tous les points de la base ont été tirés, il n'y a pas de réserve.", uw_no_coords: "{n} points de la base n'ont pas de coordonnées : ils peuvent être tirés mais leurs bâtiments ne peuvent pas être préparés.",
   o_interviewed: 'Interrogé', o_refused: 'Refus', o_nobody_home: 'Personne', o_not_dwelling: "Pas un logement", o_out_of_area: 'Hors zone', o_far_side: "Autre rive d'une rivière infranchissable", f_log: 'Journal', f_undo: 'Annuler le dernier', u_stop_title: 'Arrêts par commune'
 });
+
+Object.assign(I18N.en, { u_zones_drawn: 'Zones drawn', u_zones_formed: 'All {n} zones formed from the frame, and the joins', u_zones: 'Zones', u_stop_title: 'Stops by zone', uw_few_fokontany: 'Zone {zone} has only {fokontany} fokontany with a fleet point (the whole frame is smaller than a zone): all were taken.', uw_no_reserve: 'Zone {zone}: every frame point was drawn, so it has no reserve.' });
+Object.assign(I18N.fr, { u_zones_drawn: 'Zones tirées', u_zones_formed: 'Les {n} zones formées à partir de la base, et les rattachements', u_zones: 'Zones', u_stop_title: 'Arrêts par zone', uw_few_fokontany: "La zone {zone} n'a que {fokontany} fokontany avec un point de la flotte (la base entière est plus petite qu'une zone) : tous ont été pris.", uw_no_reserve: 'Zone {zone} : tous les points de la base ont été tirés, il n\'y a pas de réserve.' });
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined') (function () {
   const $ = id => document.getElementById(id);
@@ -1457,17 +1489,17 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     const r = state.usage; $('usage-results').classList.toggle('hidden', !r || !isUsage()); if (!r) return;
     const a = r.audit, P = a.parameters, hh = (state.usageRound && state.usageRound.areas) || {};
     $('u-head').innerHTML = `<span class="pill">${esc(P.round)}</span><span class="pill">${esc(P.scenario)}</span><span class="pill">${t('p_seed')}: <b>${esc(a.seed)}</b></span><span class="pill">${esc(a.timestamp)}</span><span class="pill">${t('sha')}: ${esc((a.input.frame_sha256 || '').slice(0, 12))}…</span>`;
-    const fok = a.communes.reduce((x, c) => x + c.fokontany_drawn.length, 0);
-    $('u-stats').innerHTML = [[t('u_communes'), a.communes.length], [t('u_fokontany'), fok], [t('u_points'), a.water_points.length], [t('u_reserves'), a.reserves.length], [t('u_households'), a.water_points.length * Core.USAGE.households + ' + ' + a.water_points.length * Core.USAGE.householdReserves]].map(x => `<div><b>${x[1]}</b><span>${x[0]}</span></div>`).join('');
+    const fok = a.zones.reduce((x, c) => x + c.fokontany_drawn.length, 0);
+    $('u-stats').innerHTML = [[t('u_zones'), a.zones.length], [t('u_fokontany'), fok], [t('u_points'), a.water_points.length], [t('u_reserves'), a.reserves.length], [t('u_households'), a.water_points.length * Core.USAGE.households + ' + ' + a.water_points.length * Core.USAGE.householdReserves]].map(x => `<div><b>${x[1]}</b><span>${x[0]}</span></div>`).join('');
     $('u-warn').innerHTML = r.warnings.map(w => `<div class="msg warn">${esc(t('uw_' + w.code) === 'uw_' + w.code ? JSON.stringify(w) : t('uw_' + w.code, w))}</div>`).join('');
-    const colour = {}; a.communes.forEach((c, i) => { colour[c.name] = PALETTE[i % PALETTE.length]; });
-    $('u-communes').innerHTML = `<table><tr><th>${esc(I18N[state.lang].updf.t_commune)}</th><th>${esc(I18N[state.lang].updf.t_points)}</th><th>${esc(I18N[state.lang].updf.t_fok)}</th><th>${t('col_pi')}</th></tr>` + a.communes.map(c => `<tr><td><span class="chip" style="background:${colour[c.name]}"></span>${esc(c.name)}${c.certainty ? ' <span class="pill">' + esc(I18N[state.lang].updf.certainty) + '</span>' : ''}${c.added ? ' <span class="pill">' + esc(I18N[state.lang].updf.added) + '</span>' : ''}</td><td>${c.points}</td><td>${c.fokontany_drawn.map(f => esc(f.name)).join(', ')} <small class="muted">(${c.fokontany_drawn.length}/${c.fokontany_in_frame})</small></td><td>${fmt(c.pi, 4)}</td></tr>`).join('') + '</table>';
+    const colour = {}; a.zones.forEach((c, i) => { colour[c.name] = PALETTE[i % PALETTE.length]; });
+    $('u-communes').innerHTML = `<table><tr><th>${esc(I18N[state.lang].updf.t_zone)}</th><th>${esc(I18N[state.lang].updf.t_points)}</th><th>${esc(I18N[state.lang].updf.t_fok)}</th><th>${t('col_pi')}</th></tr>` + a.zones.map(c => `<tr><td><span class="chip" style="background:${colour[c.name]}"></span>${esc(c.name)}${c.certainty ? ' <span class="pill">' + esc(I18N[state.lang].updf.certainty) + '</span>' : ''}</td><td>${c.points}</td><td>${c.fokontany_drawn.map(f => esc(f.name) + (c.communes.length > 1 ? ' <small class="muted">(' + esc(f.commune) + ')</small>' : '')).join(', ')} <small class="muted">(${c.fokontany_drawn.length}/${c.fokontany_in_frame})</small></td><td>${fmt(c.pi, 4)}</td></tr>`).join('') + '</table>' + `<details><summary>${esc(t('u_zones_formed', { n: a.zones_formed.length }))}</summary><p class="muted">${esc(I18N[state.lang].updf.zones_rule)}</p><ul>${a.zones_formed.map(z => `<li><b>${esc(z.name)}</b>: ${z.points} · ${z.communes.map(c => esc(c.name) + ' (' + c.fokontany + ')').join(', ')}</li>`).join('')}</ul>${a.zone_merges.map(m => `<div class="muted"><small>${esc(m.zone)} (${m.fokontany}) → ${esc(m.joined)} · ${esc(m.nearest_commune)} · ${m.km == null ? '—' : fmt(m.km, 1) + ' km'}</small></div>`).join('')}</details>`;
     const bcell = w => { const sa = hh[w.water_point_id]; return sa ? `${sa.buildings_kept} / ${sa.buildings_in_circle}${sa.short ? ' ⚠' : ''}` : '—'; };
     const rows = [];
-    a.communes.forEach(c => {
+    a.zones.forEach(c => {
       rows.push(`<tr class="comm-head"><td colspan="7"><span class="chip" style="background:${colour[c.name]}"></span>${esc(c.name)}</td></tr>`);
-      a.water_points.filter(w => w.commune === c.name).forEach(w => rows.push(`<tr><td><b>${w.order}</b></td><td><b>${esc(w.water_point_id)}</b><br><small>${esc(w.alt_id || '')} ${esc(w.name || '')}</small></td><td>${esc(w.fokontany)}</td><td>${fmt(w.pi, 5)}<br><small class="muted">${fmt(w.pi_commune, 4)} × ${fmt(w.p_fokontany, 3)} × ${fmt(w.p_point, 3)}</small></td><td>${fmt(w.weight, 1)}</td><td>${bcell(w)}</td></tr>`));
-      a.reserves.filter(w => w.commune === c.name).forEach(w => rows.push(`<tr class="rep"><td>R${w.order}</td><td>${esc(w.water_point_id)}<br><small>${esc(w.alt_id || '')} ${esc(w.name || '')}</small></td><td>${esc(w.fokontany)}</td><td colspan="2"><small class="muted">${esc(t('rep_wp'))} · p = ${fmt(w.p_conditional, 4)}</small></td><td>${bcell(w)}</td></tr>`));
+      a.water_points.filter(w => w.zone === c.name).forEach(w => rows.push(`<tr><td><b>${w.order}</b></td><td><b>${esc(w.water_point_id)}</b><br><small>${esc(w.alt_id || '')} ${esc(w.name || '')}</small></td><td>${esc(w.fokontany)}<br><small class="muted">${esc(w.commune)}</small></td><td>${fmt(w.pi, 5)}<br><small class="muted">${fmt(w.pi_zone, 4)} × ${fmt(w.p_fokontany, 3)} × ${fmt(w.p_point, 3)}</small></td><td>${fmt(w.weight, 1)}</td><td>${bcell(w)}</td></tr>`));
+      a.reserves.filter(w => w.zone === c.name).forEach(w => rows.push(`<tr class="rep"><td>R${w.order}</td><td>${esc(w.water_point_id)}<br><small>${esc(w.alt_id || '')} ${esc(w.name || '')}</small></td><td>${esc(w.fokontany)}</td><td colspan="2"><small class="muted">${esc(t('rep_wp'))} · p = ${fmt(w.p_conditional, 4)}</small></td><td>${bcell(w)}</td></tr>`));
     });
     $('u-points').innerHTML = `<table><tr><th>#</th><th>${t('col_id')}</th><th>${t('col_fokontany')}</th><th>${t('col_pi')}</th><th>${t('col_weight')}</th><th>${t('col_buildings')}</th></tr>${rows.join('')}</table>`;
   }
@@ -1530,16 +1562,16 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   /* ---------- usage map: colour by commune, stop list grouped by commune ---------- */
   function renderUsageMap() {
     const Ly = state.layers; const r = state.usage; const bounds = []; if (!r) { $('map-msg').textContent = t('map_no_draw'); return; }
-    const colour = {}; r.communes.forEach((c, i) => { colour[c.name] = PALETTE[i % PALETTE.length]; });
-    r.points.concat(r.reserves).forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(L.marker([w.lat, w.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon${w.reserve ? ' rep' : ''}" style="${w.reserve ? 'border-color:' : 'background:'}${colour[w.commune]}">${w.reserve ? 'R' + w.order : w.order}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }) }).bindPopup(`<b>${w.reserve ? 'R' : ''}${w.order}. ${esc(w.water_point_id)}</b><br>${esc(w.commune)} / ${esc(w.fokontany)}`)); });
+    const colour = {}; r.zones.forEach((c, i) => { colour[c.name] = PALETTE[i % PALETTE.length]; });
+    r.points.concat(r.reserves).forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(L.marker([w.lat, w.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon${w.reserve ? ' rep' : ''}" style="${w.reserve ? 'border-color:' : 'background:'}${colour[w.zone]}">${w.reserve ? 'R' + w.order : w.order}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }) }).bindPopup(`<b>${w.reserve ? 'R' : ''}${w.order}. ${esc(w.water_point_id)}</b><br>${esc(w.commune)} / ${esc(w.fokontany)}`)); });
     communeLabels(r.points);
     if (bounds.length) state.map.fitBounds(bounds, { padding: [30, 30] });
     $('map-msg').textContent = '';
   }
   function renderUsageMapList() {
     const r = state.usage; const el = $('map-list'); if (!r) { el.innerHTML = `<p class="muted">${t('map_no_draw')}</p>`; return; }
-    const colour = {}; r.communes.forEach((c, i) => { colour[c.name] = PALETTE[i % PALETTE.length]; });
-    el.innerHTML = `<h3>${t('u_stop_title')}</h3>` + r.communes.map(c => `<h4><span class="chip" style="background:${colour[c.name]}"></span>${esc(c.name)}</h4><div class="tablewrap"><table><tr><th>#</th><th>${t('col_id')}</th><th>${t('col_fokontany')}</th><th>${t('col_name')}</th></tr>` + r.points.filter(w => w.commune === c.name).map(w => `<tr><td><b>${w.order}</b></td><td><b>${esc(w.water_point_id)}</b></td><td>${esc(w.fokontany)}</td><td>${esc(w.name)}</td></tr>`).join('') + r.reserves.filter(w => w.commune === c.name).map(w => `<tr class="rep"><td>R${w.order}</td><td>${esc(w.water_point_id)}</td><td>${esc(w.fokontany)}</td><td>${esc(w.name)}</td></tr>`).join('') + '</table></div>').join('');
+    const colour = {}; r.zones.forEach((c, i) => { colour[c.name] = PALETTE[i % PALETTE.length]; });
+    el.innerHTML = `<h3>${t('u_stop_title')}</h3>` + r.zones.map(c => `<h4><span class="chip" style="background:${colour[c.name]}"></span>${esc(c.name)}</h4><div class="tablewrap"><table><tr><th>#</th><th>${t('col_id')}</th><th>${t('col_fokontany')}</th><th>${t('col_name')}</th></tr>` + r.points.filter(w => w.zone === c.name).map(w => `<tr><td><b>${w.order}</b></td><td><b>${esc(w.water_point_id)}</b></td><td>${esc(w.fokontany)}<br><small class="muted">${esc(w.commune)}</small></td><td>${esc(w.name)}</td></tr>`).join('') + r.reserves.filter(w => w.zone === c.name).map(w => `<tr class="rep"><td>R${w.order}</td><td>${esc(w.water_point_id)}</td><td>${esc(w.fokontany)}<br><small class="muted">${esc(w.commune)}</small></td><td>${esc(w.name)}</td></tr>`).join('') + '</table></div>').join('');
   }
 
   /* ---------- field view (phone): next building, GPS, outcomes; offline once prepared ---------- */
