@@ -7,7 +7,8 @@ const SHELL = [
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+  'https://cdn.jsdelivr.net/npm/flatgeobuf@3.38.0/dist/flatgeobuf-geojson.min.js'
 ];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(async c => {
@@ -28,12 +29,13 @@ self.addEventListener('fetch', e => {
   if (url.origin === location.origin && url.pathname.endsWith('/reset.html')) return; // always from the network
   if (url.hostname.endsWith('openstreetmap.org')) return; // tiles: network only, never cached
   if (url.hostname === 'api.mwater.co') return; // mWater API: network only, never cached (URLs carry the client token)
+  if (url.hostname === 'data.source.coop' || url.hostname.endsWith('overpass-api.de')) return; // building footprints and barriers: network only; the prepared round is kept in IndexedDB on the device
   // index.html and app.js: network first so a new deploy is picked up, cache fallback offline
   const isShell = url.origin === location.origin && (e.request.mode === 'navigate' || /\/(index\.html)?$/.test(url.pathname) || url.pathname.endsWith('/app.js'));
   if (isShell) { e.respondWith(fetch(new Request(url.href, { cache: 'no-cache', credentials: 'same-origin' })).then(resp => { if (resp && resp.ok) { const copy = resp.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); } return resp; }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(hit => hit || caches.match('./index.html')))); return; }
   // Leaflet, pdf-lib and data: cache first, then network (and store)
   e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(hit => hit || fetch(e.request).then(resp => {
-    if (resp && resp.ok && (url.origin === location.origin || url.hostname === 'cdnjs.cloudflare.com')) {
+    if (resp && resp.ok && (url.origin === location.origin || url.hostname === 'cdnjs.cloudflare.com' || (url.hostname === 'cdn.jsdelivr.net' && url.pathname.indexOf('/npm/flatgeobuf@') === 0))) {
       const copy = resp.clone(); caches.open(CACHE).then(c => c.put(e.request, copy));
     }
     return resp;

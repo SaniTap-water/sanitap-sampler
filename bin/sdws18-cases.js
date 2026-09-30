@@ -2,7 +2,7 @@
 const fs = require('fs'); const path = require('path');
 function frames(C) {
   const sample = C.normaliseWaterPoints(C.parseCsv(fs.readFileSync(path.join(__dirname, '..', 'data', 'sample-water-points.csv'), 'utf8')).records).points;
-  const shape = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'mwater-shape.json'), 'utf8'));
+  const shape = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'test', 'fixtures', 'mwater-shape.json'), 'utf8'));
   let mw = null;
   try {
     const m = C.mapMwaterEntities(shape.entities || [], { passing: C.sdws3PassingPoints(shape.sdws3 || [], C.MWATER.forms.sdws3), latest: C.mwaterLatestStatus(shape.maintenance || [], C.MWATER.forms.maintenance), roofs: C.mwaterRoofs(shape.beneficiaries || [], C.MWATER.forms.beneficiaries), regionsById: shape.regions || shape.regionsById || {} });

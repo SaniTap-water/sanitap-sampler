@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
 const APP_URL = 'https://sanitap-water.github.io/sanitap-sampler/';
@@ -564,6 +564,65 @@ const Core = (function () {
     return doc.save({ useObjectStreams: false, addDefaultPage: false, updateFieldAppearances: false });
   }
 
+  // Usage-survey sampling record (SDWS 26): same page furniture as the SDWS 18 record, its own content. Deterministic; no coordinates.
+  async function buildUsageRecordPdf(ctx) {
+    const { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PageSizes, AFRelationship } = ctx.PDFLib;
+    const a = ctx.audit; const lang = ctx.lang === 'fr' ? 'fr' : 'en'; const T = (I18N[lang] && I18N[lang].updf) || I18N.en.updf; const P = a.parameters;
+    const rid = a.record_id;
+    const doc = await PDFDocument.create({ updateMetadata: false });
+    const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const W = 595.28, H = 841.89, M = 50, CW = W - 2 * M; let page = null, y = 0;
+    const newPage = () => { page = doc.addPage(PageSizes && PageSizes.A4 ? PageSizes.A4 : [W, H]); y = H - M; };
+    const ensure = h => { if (!page || y - h < M + 22) newPage(); };
+    const wrap = (text, f, size, width) => { const out = []; String(text).split(/\n/).forEach(par => { const words = par.split(/\s+/); let line = ''; words.forEach(wd => { const cand = line ? line + ' ' + wd : wd; if (f.widthOfTextAtSize(cand, size) <= width) line = cand; else { if (line) out.push(line); line = wd; while (f.widthOfTextAtSize(line, size) > width && line.length > 1) { let cut = line.length - 1; while (cut > 1 && f.widthOfTextAtSize(line.slice(0, cut), size) > width) cut--; out.push(line.slice(0, cut)); line = line.slice(cut); } } }); out.push(line); }); return out; };
+    const para = (text, o) => { o = o || {}; const f = o.bold ? bold : font, size = o.size || 9.5, lh = size * 1.35; wrap(pdfSafe(text), f, size, CW - (o.indent || 0)).forEach(l => { ensure(lh); page.drawText(l, { x: M + (o.indent || 0), y: y - size, size, font: f, color: rgb(0.1, 0.1, 0.1) }); y -= lh; }); y -= 4; };
+    const heading = text => { ensure(30); y -= 6; page.drawText(pdfSafe(text), { x: M, y: y - 12, size: 12.5, font: bold, color: rgb(0.04, 0.37, 0.54) }); y -= 18; page.drawLine({ start: { x: M, y }, end: { x: M + CW, y }, thickness: 0.6, color: rgb(0.04, 0.37, 0.54) }); y -= 6; };
+    const kvRow = (label, value) => { const size = 9.5, lw = 150; const lines = wrap(pdfSafe(value), font, size, CW - lw - 6); const h = Math.max(1, lines.length) * size * 1.35; ensure(h); page.drawText(pdfSafe(label), { x: M, y: y - size, size, font: bold }); lines.forEach((l, i) => page.drawText(l, { x: M + lw, y: y - size - i * size * 1.35, size, font })); y -= h + 2; };
+    const table = (headers, rows, widths) => {
+      const size = 8.5, lh = size * 1.3, pad = 3; const drawHead = () => { ensure(lh + 2 * pad + 10); page.drawRectangle({ x: M, y: y - lh - 2 * pad, width: CW, height: lh + 2 * pad, color: rgb(0.93, 0.95, 0.97) }); let x = M; headers.forEach((h, i) => { page.drawText(pdfSafe(h), { x: x + pad, y: y - pad - size, size, font: bold }); x += widths[i]; }); y -= lh + 2 * pad; };
+      drawHead();
+      rows.forEach(r => { const cells = r.map((c, i) => wrap(pdfSafe(c), font, size, widths[i] - 2 * pad)); const n = Math.max.apply(null, cells.map(c => c.length)); const h = n * lh + 2 * pad; if (y - h < M + 22) { newPage(); drawHead(); } let x = M; cells.forEach((lines, i) => { lines.forEach((l, j) => page.drawText(l, { x: x + pad, y: y - pad - size - j * lh, size, font })); x += widths[i]; }); y -= h; page.drawLine({ start: { x: M, y }, end: { x: M + CW, y }, thickness: 0.3, color: rgb(0.8, 0.82, 0.85) }); });
+      y -= 6;
+    };
+    const num = (v, d) => (v === undefined || v === null || v === '' || isNaN(v)) ? '—' : Number(v).toFixed(d === undefined ? 0 : d);
+    newPage();
+    page.drawText(pdfSafe(T.title), { x: M, y: y - 18, size: 18, font: bold, color: rgb(0.04, 0.37, 0.54) }); y -= 26;
+    page.drawText(pdfSafe(P.round + ' / ' + P.scenario + ' — ' + T.record + ' ' + rid), { x: M, y: y - 11, size: 11, font }); y -= 22;
+    heading(T.h_id);
+    kvRow(T.programme, T.programme_v); kvRow(T.scenario, P.scenario + (MWATER.strata[P.scenario] ? ' — ' + MWATER.strata[P.scenario].label : '')); kvRow(T.round, P.round); kvRow(T.drawn_at, a.timestamp); kvRow(T.drawn_by, a.drawn_by || '—'); kvRow(T.record_id, rid); kvRow(T.tool, 'SaniTap Sampler v' + a.version + ' (' + (a.commit || 'dev') + ') — ' + (ctx.url || APP_URL));
+    heading(T.h_method); T.method.forEach(t => para(t));
+    heading(T.h_frame); para(T.frame_rule);
+    const inp = a.input || {}; const fc = inp.counts || {}; const fl = inp.fleet || {};
+    kvRow(T.frame_source, inp.source === 'mwater' ? T.frame_source_mwater : T.frame_source_csv);
+    if (fl.url) { kvRow(T.fleet_url, fl.url); kvRow(T.fleet_sha, fl.sha256 || '—'); kvRow(T.fleet_fetched, fl.fetched_at || '—'); }
+    table([T.c_item, T.c_value], [[T.c_group, num(fc.group_points)], [T.c_fleet, num(fc.fleet_in_group)], [T.c_scenario, num(fc.in_scenario)], [T.c_notfleet, num(fc.not_in_fleet)], [T.c_frame, num(fc.frame)], [T.c_communes, num((a.frame || {}).communes)], [T.c_fokontany, num((a.frame || {}).fokontany)]].filter(r => r[1] !== '—'), [CW - 120, 120]);
+    kvRow(T.frame_sha, inp.frame_sha256 || '—');
+    heading(T.h_random);
+    kvRow(T.seed, a.seed); kvRow(T.seed_word, String(a.seed_word_uint32)); kvRow(T.frame_sha, inp.frame_sha256 || '—');
+    kvRow(T.stage1, T.stage1_v.replace('{tot}', num(a.stage1.total_points)).replace('{int}', num(a.stage1.interval, 4)).replace('{start}', num(a.stage1.random_start, 4)).replace('{cert}', num(a.stage1.certainty_selections)));
+    para(T.reproducible);
+    heading(T.h_communes);
+    table([T.t_commune, T.t_points, T.t_fok, T.t_pi, T.t_note], a.communes.map(c => [c.name, num(c.points), num(c.fokontany_in_frame) + ' / ' + T.drawn + ' ' + c.fokontany_drawn.length, num(c.pi, 4), c.certainty ? T.certainty : c.added ? T.added : '']), [140, 60, 110, 70, CW - 380]);
+    heading(T.h_points); para(T.points_note);
+    table([T.t_no, T.t_id, T.t_commune + ' / ' + T.t_fokontany, T.t_pi_parts, T.t_pi, T.t_weight], a.water_points.map(w => [String(w.order), w.water_point_id + (w.alt_id ? ' / ' + w.alt_id : ''), w.commune + ' / ' + w.fokontany, num(w.pi_commune, 4) + ' x ' + num(w.p_fokontany, 3) + ' x ' + num(w.p_point, 3), num(w.pi, 5), num(w.weight, 1)]), [30, 85, 150, 110, 60, CW - 435]);
+    heading(T.h_reserves); para(T.reserves_note);
+    table([T.t_no, T.t_id, T.t_commune + ' / ' + T.t_fokontany, T.t_pcond], a.reserves.map(w => ['R' + w.order, w.water_point_id + (w.alt_id ? ' / ' + w.alt_id : ''), w.commune + ' / ' + w.fokontany, num(w.p_conditional, 4)]), [30, 110, 220, CW - 360]);
+    heading(T.h_households); para(T.households_rule);
+    const hh = a.households;
+    if (hh && hh.service_areas && hh.service_areas.length) {
+      kvRow(T.hh_dataset, (hh.dataset || '') + (hh.version ? ' — ' + hh.version : ''));
+      table([T.t_id, T.t_circle, T.t_kept, T.t_area, T.t_barriers, T.t_bsha], hh.service_areas.map(sa => [sa.water_point_id, num(sa.buildings_in_circle), num(sa.buildings_kept) + (sa.short ? ' ' + T.short : ''), num(sa.area_kept_pct, 1) + ' %', Object.keys(sa.barrier_ways || {}).map(k => k + ' ' + sa.barrier_ways[k]).join(', ') + (sa.crossings ? ' · ' + T.crossings + ' ' + sa.crossings : ''), String(sa.buildings_sha256 || '').slice(0, 16)]), [85, 60, 70, 55, 125, CW - 395]);
+    } else para(T.hh_not_prepared);
+    if (a.warnings && a.warnings.length) { heading(T.h_warnings); a.warnings.forEach(wn => para('- ' + JSON.stringify(wn))); }
+    const pages = doc.getPages(); const n = pages.length;
+    pages.forEach((pg, i) => { const left = pdfSafe(T.footer_record + ' ' + rid + ' · ' + T.footer_sha + ' ' + (ctx.auditSha || '')); const right = pdfSafe('SaniTap Sampler v' + a.version + ' (' + (a.commit || 'dev') + ') · ' + T.page.replace('{x}', i + 1).replace('{y}', n)); pg.drawLine({ start: { x: M, y: M - 8 }, end: { x: W - M, y: M - 8 }, thickness: 0.4, color: rgb(0.7, 0.7, 0.7) }); pg.drawText(left, { x: M, y: M - 18, size: 6.5, font, color: rgb(0.35, 0.35, 0.35) }); pg.drawText(right, { x: W - M - font.widthOfTextAtSize(right, 6.5), y: M - 28, size: 6.5, font, color: rgb(0.35, 0.35, 0.35) }); });
+    const when = new Date(a.timestamp);
+    doc.setTitle(pdfSafe(T.title + ' ' + rid)); doc.setAuthor(pdfSafe(a.drawn_by || 'SaniTap Sampler')); doc.setSubject(rid); doc.setKeywords(['record:' + rid, 'audit-sha256:' + (ctx.auditSha || ''), 'mode:' + USAGE.mode]); doc.setProducer('SaniTap Sampler v' + a.version); doc.setCreator('SaniTap Sampler v' + a.version); doc.setCreationDate(when); doc.setModificationDate(when);
+    const info = doc.context.lookup(doc.context.trailerInfo.Info); if (info && info.set) { info.set(PDFName.of('RecordId'), PDFString.of(rid)); info.set(PDFName.of('AuditSHA256'), PDFString.of(ctx.auditSha || '')); info.set(PDFName.of('FrameSHA256'), PDFString.of(inp.frame_sha256 || '')); info.set(PDFName.of('Seed'), PDFString.of(String(a.seed))); info.set(PDFName.of('Mode'), PDFString.of(USAGE.mode)); }
+    if (ctx.auditText) { const bytes = utf8Bytes(ctx.auditText); await doc.attach(bytes, 'audit.json', { mimeType: 'application/json', description: 'SaniTap Sampler usage-survey audit record ' + rid, creationDate: when, modificationDate: when, afRelationship: AFRelationship ? AFRelationship.Data : undefined }); }
+    return doc.save({ useObjectStreams: false, addDefaultPage: false, updateFieldAppearances: false });
+  }
+
   // Excel workbook (array-of-arrays per sheet) from the audit record: selected sources, replacements, parameters. No coordinates.
   function selectionWorkbook(audit, kValues, lang) {
     const T = (I18N[lang] && I18N[lang].xlsx) || I18N.en.xlsx; const P = audit.parameters, st = audit.statistics; const kv = kValues || {};
@@ -582,7 +641,202 @@ const Core = (function () {
     return toCsv({ params: { roundName: audit.parameters.round, stratum: audit.parameters.stratum, seed: audit.seed }, selected: audit.water_points, replacements: audit.replacements }, kv);
   }
 
-  return { selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
+  /* =====================================================================
+   *  USAGE SURVEY (SDWS 26, with SDWS 25 and SDWS 22) — v2.3.0
+   *  Three-stage clustered draw of water points from the carbon fleet, then a
+   *  rooftop draw of households from building footprints inside the 1 km
+   *  service area clipped at unfordable rivers. The SDWS 18 point-of-use draw
+   *  above is untouched (test/sdws18-regression.test.js).
+   * ===================================================================*/
+  const USAGE = {
+    mode: 'usage_sdws26',
+    communes: 3, fokontanyPerCommune: 4, pointsPerFokontany: 1, reservesPerCommune: 1,
+    households: 10, householdReserves: 5,
+    radiusM: 1000, rasterM: 10, crossingM: 40,
+    barrierKinds: ['river', 'canal', 'coastline'], // waterway=stream is not a barrier (sdws1_barrier_clip.py)
+    // the carbon fleet: the report's register classification (ids and classes only, no coordinates)
+    fleetUrl: 'https://sanitap-water.github.io/sanitap-water-report/data/register_classification.json',
+    fleetClasses: ['in_fleet', 'joins'],
+    buildings: { name: 'Google Open Buildings v3 (the Google layer of the VIDA Google-Microsoft combined FlatGeobuf, Source Cooperative)', url: 'https://data.source.coop/vida/google-microsoft-open-buildings/flatgeobuf/by_country/country_iso=MDG/MDG.fgb', source: 'google' },
+    overpass: 'https://overpass-api.de/api/interpreter'
+  };
+  const USAGE_ALGORITHM = 'seed string <round>-<scenario>-U -> xmur3 -> mulberry32; stage 1: 3 communes by systematic PPS on the number of frame points (communes in name order), a commune with fewer than 4 fokontany is taken whole and a further commune is drawn by sequential PPS among the rest until 12 fokontany are drawn; stage 2: 4 fokontany per commune by simple random sampling among fokontany with at least 1 frame point (name order); stage 3: 1 water point per fokontany at equal probability (id order); 1 reserve water point per commune at equal probability among its undrawn points; households: building footprints (Google Open Buildings v3) whose centroid lies inside the 1 km service area after the barrier clip, sorted by key, 10 + 5 reserves drawn in random order with mulberry32 seeded by seed|water_point_id|B=<count>';
+  // the frame: fleet members of the scenario; no SDWS 3 eligibility filter, broken pumps stay in. A CSV frame (demo/offline) is used as it is.
+  function usageFrame(points, scenario, fleet) {
+    const inScenario = points.filter(p => String(p.stratum) === String(scenario));
+    if (!fleet) return { points: inScenario.slice().sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id))), counts: { source: 'csv', in_scenario: inScenario.length, frame: inScenario.length } };
+    const cls = fleet.records || {}; const keep = new Set(USAGE.fleetClasses);
+    const fleetIds = new Set(Object.keys(cls).filter(k => keep.has(cls[k])));
+    const byStratum = {}; points.forEach(p => { if (fleetIds.has(String(p.water_point_id))) byStratum[p.stratum] = (byStratum[p.stratum] || 0) + 1; });
+    const frame = inScenario.filter(p => fleetIds.has(String(p.water_point_id))).sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id)));
+    return { points: frame, counts: { source: 'mwater+fleet', group_points: points.length, fleet_size: fleetIds.size, fleet_in_group: Object.values(byStratum).reduce((a, b) => a + b, 0), fleet_by_stratum: byStratum, in_scenario: inScenario.length, frame: frame.length, not_in_fleet: inScenario.length - frame.length } };
+  }
+  function srsWithoutReplacement(rng, items, k) { const pool = items.slice(); const out = []; while (out.length < k && pool.length) out.push(pool.splice(randInt(rng, pool.length), 1)[0]); return out; }
+  function drawUsage(params, framePoints) {
+    const p = Object.assign({}, params); const warnings = [];
+    const rng = makeRng(p.seed);
+    const frame = framePoints.slice().sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id)));
+    if (!frame.length) return { error: 'no_eligible', warnings };
+    const noCoords = frame.filter(pt => !isFinite(pt.lat) || !isFinite(pt.lon)).length; if (noCoords) warnings.push({ code: 'no_coords', n: noCoords });
+    const commKey = pt => pt.commune || '(no commune)', fokKey = pt => pt.fokontany || '(no fokontany)';
+    const communes = {}; frame.forEach(pt => { const c = communes[commKey(pt)] = communes[commKey(pt)] || { name: commKey(pt), points: [], fok: {} }; c.points.push(pt); (c.fok[fokKey(pt)] = c.fok[fokKey(pt)] || []).push(pt); });
+    const clist = Object.keys(communes).sort().map(k => communes[k]);
+    const M = frame.length, need = USAGE.communes * USAGE.fokontanyPerCommune;
+    // stage 1: systematic PPS on the number of frame points
+    const sp = systematicPps(clist, clist.map(c => c.points.length), Math.min(USAGE.communes, clist.length), rng);
+    const drawn = sp.selected.map(x => ({ c: x.f, pi: x.certainty ? 1 : x.w / sp.interval, certainty: !!x.certainty, added: false, hit: x.hit }));
+    const fokCount = d => Math.min(USAGE.fokontanyPerCommune, Object.keys(d.c.fok).length);
+    // a commune with fewer than 4 fokontany is taken whole; further communes by sequential PPS among the rest until 12 fokontany
+    let rest = clist.filter(c => !drawn.some(d => d.c === c));
+    while (drawn.reduce((a, d) => a + fokCount(d), 0) < need && rest.length) {
+      const tot = rest.reduce((a, c) => a + c.points.length, 0); let u = rng.next() * tot, i = 0;
+      for (; i < rest.length; i++) { u -= rest[i].points.length; if (u < 0) break; } if (i >= rest.length) i = rest.length - 1;
+      const c = rest.splice(i, 1)[0]; drawn.push({ c, pi: c.points.length / tot, certainty: false, added: true, conditional: true });
+      warnings.push({ code: 'commune_added', commune: c.name });
+    }
+    drawn.forEach(d => { if (Object.keys(d.c.fok).length < USAGE.fokontanyPerCommune) warnings.push({ code: 'few_fokontany', commune: d.c.name, fokontany: Object.keys(d.c.fok).length }); });
+    // stage 2: fokontany, simple random sampling within each drawn commune (in draw order: stage-1 communes in name order, then additions)
+    const stage2 = drawn.map(d => { const names = Object.keys(d.c.fok).sort(); const k = Math.min(USAGE.fokontanyPerCommune, names.length); return { d, names, picked: srsWithoutReplacement(rng, names, k).sort(), p: k / names.length }; });
+    // stage 3: one water point per fokontany at equal probability
+    const points = []; let order = 0;
+    stage2.forEach(s => s.picked.forEach(fn => { const pts = s.d.c.fok[fn].slice().sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id))); const w = pts[randInt(rng, pts.length)]; const pw = 1 / pts.length; const pi = s.d.pi * s.p * pw; points.push({ order: ++order, reserve: false, water_point_id: String(w.water_point_id), alt_id: w.alt_id || '', name: w.name || '', commune: s.d.c.name, fokontany: fn, lat: w.lat, lon: w.lon, pi_commune: +s.d.pi.toFixed(6), p_fokontany: +s.p.toFixed(6), p_point: +pw.toFixed(6), pi: +pi.toFixed(6), weight: +(1 / pi).toFixed(3), fokontany_points: pts.length }); }));
+    // reserves: one per drawn commune, equal probability among its undrawn frame points
+    const reserves = []; let rorder = 0;
+    stage2.forEach(s => { const taken = new Set(points.filter(x => x.commune === s.d.c.name).map(x => x.water_point_id)); const pool = s.d.c.points.filter(pt => !taken.has(String(pt.water_point_id))).sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id))); if (!pool.length) { warnings.push({ code: 'no_reserve', commune: s.d.c.name }); return; } const w = pool[randInt(rng, pool.length)]; reserves.push({ order: ++rorder, reserve: true, water_point_id: String(w.water_point_id), alt_id: w.alt_id || '', name: w.name || '', commune: s.d.c.name, fokontany: fokKey(w), lat: w.lat, lon: w.lon, p_conditional: +(1 / pool.length).toFixed(6) }); });
+    const communesOut = stage2.map(s => ({ name: s.d.c.name, points: s.d.c.points.length, fokontany_in_frame: s.names.length, pi: +s.d.pi.toFixed(6), certainty: s.d.certainty || undefined, added: s.d.added || undefined, fokontany_drawn: s.picked.map(fn => ({ name: fn, points: s.d.c.fok[fn].length })), p_fokontany: +s.p.toFixed(6) }));
+    const audit = {
+      tool: 'SaniTap Sampler', version: APP_VERSION, commit: APP_COMMIT, mode: USAGE.mode, methodology: 'Gold Standard SDWS v2.0 annual usage survey (SDWS 26, SDWS 25, SDWS 22); VPA-DD B.7.2: 90/10, at least 100 households and 8 clusters per scenario; SOP-MAD-SDWS26 (usage survey)',
+      record_id: recordId({ roundName: p.roundName, stratum: p.stratum, seed: p.seed }), timestamp: p.timestamp || new Date().toISOString(), drawn_by: p.drawnBy || null,
+      seed: p.seed, seed_word_uint32: rng.seedWord, algorithm: USAGE_ALGORITHM,
+      input: { source: p.source || 'csv', frame_sha256: p.frameHash || null, frame_file: p.frameFile || null, fleet: p.fleet || null, counts: p.frameCounts || null, mwater: p.source === 'mwater' ? (p.mwater || null) : null },
+      parameters: { round: p.roundName, scenario: p.stratum, communes: USAGE.communes, fokontany_per_commune: USAGE.fokontanyPerCommune, points_per_fokontany: USAGE.pointsPerFokontany, reserves_per_commune: USAGE.reservesPerCommune, households_per_point: USAGE.households, household_reserves: USAGE.householdReserves, radius_m: USAGE.radiusM, raster_m: USAGE.rasterM, barriers: 'natural=coastline, waterway=river, waterway=canal (waterway=stream is not a barrier); a segment within ' + USAGE.crossingM + ' m of bridge=* or ford=* is a crossing', buildings: USAGE.buildings.name },
+      frame: { points: M, communes: clist.length, fokontany: clist.reduce((a, c) => a + Object.keys(c.fok).length, 0) },
+      stage1: { method: 'systematic PPS on frame points per commune', total_points: sp.total, interval: +sp.interval.toFixed(4), random_start: +sp.start.toFixed(4), certainty_selections: sp.certainty, frame_order: 'commune name' },
+      communes: communesOut,
+      water_points: points.map(auditUsageWp), reserves: reserves.map(auditUsageWp),
+      households: null, warnings
+    };
+    return { params: p, frame, communes: communesOut, points, reserves, warnings, audit };
+  }
+  function auditUsageWp(w) { const o = {}; ['order', 'reserve', 'water_point_id', 'alt_id', 'name', 'commune', 'fokontany', 'pi_commune', 'p_fokontany', 'p_point', 'pi', 'weight', 'p_conditional', 'fokontany_points'].forEach(k => { if (w[k] !== undefined) o[k] = w[k]; }); return o; }
+
+  /* ---------- service area: barrier clip on a 10 m raster, buildings, household draw ---------- */
+  // Overpass query for the barrier network and its crossings around one water point (the report's sdws1_barrier_clip.py rule)
+  function overpassQuery(lat, lon, radiusM) {
+    const r = (radiusM || USAGE.radiusM) + 150; const dLat = r / 110574, dLon = r / (111320 * Math.cos(lat * Math.PI / 180));
+    const bb = [lat - dLat, lon - dLon, lat + dLat, lon + dLon].map(v => v.toFixed(6)).join(',');
+    return `[out:json][timeout:60];(way["waterway"~"^(river|canal)$"](${bb});way["natural"="coastline"](${bb});way["bridge"](${bb});way["ford"](${bb});node["ford"](${bb}););out geom;`;
+  }
+  function parseOverpass(json) {
+    const barriers = [], crossings = [];
+    ((json && json.elements) || []).forEach(el => {
+      const tg = el.tags || {};
+      if (el.type === 'node' && tg.ford) { crossings.push({ kind: 'ford', pts: [[el.lat, el.lon]] }); return; }
+      const g = (el.geometry || []).map(q => [q.lat, q.lon]); if (g.length < 2) return;
+      if (tg.bridge) crossings.push({ kind: 'bridge', pts: g });
+      if (tg.ford) crossings.push({ kind: 'ford', pts: g });
+      const kind = tg.natural === 'coastline' ? 'coastline' : tg.waterway;
+      if (USAGE.barrierKinds.includes(kind)) barriers.push({ kind, pts: g });
+    });
+    return { barriers, crossings };
+  }
+  function segDist(px, py, ax, ay, bx, by) { const dx = bx - ax, dy = by - ay; const l = dx * dx + dy * dy; let t = l ? ((px - ax) * dx + (py - ay) * dy) / l : 0; t = Math.max(0, Math.min(1, t)); const x = ax + t * dx - px, y = ay + t * dy - py; return Math.sqrt(x * x + y * y); }
+  // the fragment of the disc that contains the water point after cutting it with the barrier lines (4-connected flood fill on a raster)
+  function serviceAreaMask(wp, net, opts) {
+    const o = Object.assign({ radiusM: USAGE.radiusM, cellM: USAGE.rasterM, crossingM: USAGE.crossingM }, opts || {});
+    const lat0 = wp.lat, lon0 = wp.lon, kx = 111320 * Math.cos(lat0 * Math.PI / 180), ky = 110574;
+    const xy = (lat, lon) => [(lon - lon0) * kx, (lat - lat0) * ky];
+    const R = o.radiusM, c = o.cellM, N = Math.round(2 * R / c) + 1, half = (N - 1) / 2;
+    const cell = (x, y) => [Math.round(x / c) + half, Math.round(y / c) + half];
+    const wall = new Uint8Array(N * N);
+    const cross = (net.crossings || []).map(cr => cr.pts.map(q => xy(q[0], q[1])));
+    const nearCrossing = (x, y) => cross.some(ptsXY => ptsXY.length === 1 ? Math.hypot(x - ptsXY[0][0], y - ptsXY[0][1]) <= o.crossingM : ptsXY.slice(1).some((b, i) => segDist(x, y, ptsXY[i][0], ptsXY[i][1], b[0], b[1]) <= o.crossingM));
+    let wallCells = 0, openedM = 0;
+    const counts = {};
+    (net.barriers || []).forEach(br => {
+      const ptsXY = br.pts.map(q => xy(q[0], q[1])); let prev = null; let used = false;
+      for (let i = 1; i < ptsXY.length; i++) {
+        const [ax, ay] = ptsXY[i - 1], [bx, by] = ptsXY[i]; const len = Math.hypot(bx - ax, by - ay); const steps = Math.max(1, Math.ceil(len / (c / 3)));
+        for (let s = 0; s <= steps; s++) {
+          const x = ax + (bx - ax) * s / steps, y = ay + (by - ay) * s / steps;
+          if (Math.abs(x) > R + c || Math.abs(y) > R + c) { prev = null; continue; }
+          if (nearCrossing(x, y)) { openedM += len / steps; prev = null; continue; }
+          const [ci, cj] = cell(x, y); if (ci < 0 || cj < 0 || ci >= N || cj >= N) { prev = null; continue; }
+          if (!wall[cj * N + ci]) { wall[cj * N + ci] = 1; wallCells++; used = true; }
+          if (prev && Math.abs(prev[0] - ci) === 1 && Math.abs(prev[1] - cj) === 1 && !wall[prev[1] * N + ci]) { wall[prev[1] * N + ci] = 1; wallCells++; } // no diagonal leak
+          prev = [ci, cj];
+        }
+      }
+      if (used) counts[br.kind] = (counts[br.kind] || 0) + 1;
+    });
+    const inDisc = (i, j) => { const x = (i - half) * c, y = (j - half) * c; return x * x + y * y <= R * R; };
+    const keep = new Uint8Array(N * N); const q = []; const s0 = cell(0, 0); wall[s0[1] * N + s0[0]] = 0; keep[s0[1] * N + s0[0]] = 1; q.push(s0);
+    let discCells = 0; for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) if (inDisc(i, j)) discCells++;
+    let kept = 1;
+    while (q.length) { const [i, j] = q.pop(); [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([di, dj]) => { const a = i + di, b = j + dj; if (a < 0 || b < 0 || a >= N || b >= N) return; const k = b * N + a; if (keep[k] || wall[k] || !inDisc(a, b)) return; keep[k] = 1; kept++; q.push([a, b]); }); }
+    return {
+      inside(lat, lon) { const [x, y] = xy(lat, lon); if (x * x + y * y > R * R) return false; const [i, j] = cell(x, y); if (i < 0 || j < 0 || i >= N || j >= N) return false; if (keep[j * N + i]) return true; if (!wall[j * N + i]) return false; return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([di, dj]) => { const a = i + di, b = j + dj; return a >= 0 && b >= 0 && a < N && b < N && keep[b * N + a]; }); },
+      inDiscM(lat, lon) { const [x, y] = xy(lat, lon); return x * x + y * y <= R * R; },
+      area_kept_pct: +(100 * kept / discCells).toFixed(1), barrier_ways: counts, crossings: (net.crossings || []).length, wall_cells: wallCells, opened_m: Math.round(openedM)
+    };
+  }
+  function footprintCentroid(geom) {
+    const ring = geom.type === 'Polygon' ? geom.coordinates[0] : geom.type === 'MultiPolygon' ? geom.coordinates[0][0] : null; if (!ring || !ring.length) return null;
+    const pts = ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? ring.slice(0, -1) : ring;
+    let x = 0, y = 0; pts.forEach(p => { x += p[0]; y += p[1]; }); return { lon: x / pts.length, lat: y / pts.length, ring };
+  }
+  // households: 10 + 5 reserves in random order from the sorted buildings of the service area
+  function householdDraw(seed, wpId, keys, n, extra) {
+    n = n === undefined ? USAGE.households : n; extra = extra === undefined ? USAGE.householdReserves : extra;
+    const rng = makeRng(seed + '|' + wpId + '|B=' + keys.length);
+    const pool = keys.map((k, i) => i); const out = [];
+    while (out.length < n + extra && pool.length) out.push(pool.splice(randInt(rng, pool.length), 1)[0]);
+    return out.map((idx, i) => ({ position: i + 1, reserve: i >= n, index: idx, key: keys[idx] }));
+  }
+  // one service area: buildings (GeoJSON features from the FlatGeobuf read) and the Overpass barrier network -> kept buildings and the household draw
+  function prepareServiceArea(ctx) {
+    const wp = ctx.wp; const mask = serviceAreaMask(wp, parseOverpass(ctx.osm || { elements: [] }));
+    const seen = new Set(); let inCircle = 0; const kept = [];
+    (ctx.features || []).forEach(f => {
+      if (((f.properties || {}).bf_source || USAGE.buildings.source) !== USAGE.buildings.source) return;
+      const cen = footprintCentroid(f.geometry || {}); if (!cen) return;
+      const key = cen.lat.toFixed(6) + ',' + cen.lon.toFixed(6); if (seen.has(key)) return; seen.add(key);
+      if (!mask.inDiscM(cen.lat, cen.lon)) return; inCircle++;
+      if (mask.inside(cen.lat, cen.lon)) kept.push({ key, lat: cen.lat, lon: cen.lon, ring: cen.ring });
+    });
+    kept.sort((a, b) => a.key.localeCompare(b.key));
+    const drawIdx = householdDraw(ctx.seed, wp.water_point_id, kept.map(b => b.key));
+    const draw = drawIdx.map(d => Object.assign({ position: d.position, reserve: d.reserve }, kept[d.index]));
+    return { water_point_id: wp.water_point_id, buildings_in_circle: inCircle, buildings_kept: kept.length, area_kept_pct: mask.area_kept_pct, barrier_ways: mask.barrier_ways, crossings: mask.crossings, buildings_sha256: sha256Sync(kept.map(b => b.key).join('\n')), draw, short: kept.length < USAGE.households + USAGE.householdReserves };
+  }
+  // what the published record carries about a service area: counts and hashes, never positions
+  function auditServiceArea(sa, meta) { return { water_point_id: sa.water_point_id, buildings_in_circle: sa.buildings_in_circle, buildings_kept: sa.buildings_kept, area_kept_pct: sa.area_kept_pct, barrier_ways: sa.barrier_ways, crossings: sa.crossings, buildings_sha256: sa.buildings_sha256, drawn: sa.draw.length, short: sa.short || undefined, dataset: meta && meta.dataset, dataset_version: meta && meta.version, fetched_at: meta && meta.fetchedAt }; }
+
+  /* ---------- field outcomes ---------- */
+  const OUTCOMES = ['interviewed', 'refused', 'nobody_home', 'not_dwelling', 'out_of_area', 'far_side'];
+  // slot state for one water point: primaries first; each closed non-interview opens the next reserve, strictly in order
+  function fieldSlots(draw, log) {
+    const byPos = {}; (log || []).forEach(e => { const s = byPos[e.position] = byPos[e.position] || { visits: 0, outcome: null, entries: [] }; s.entries.push(e); if (e.outcome === 'nobody_home') { s.visits++; if (s.visits >= 3) s.outcome = 'nobody_home'; } else s.outcome = e.outcome; });
+    const slots = draw.map(d => Object.assign({}, d, byPos[d.position] || { visits: 0, outcome: null, entries: [] }));
+    const primaries = slots.filter(s => !s.reserve), reserves = slots.filter(s => s.reserve);
+    const failed = slots.filter(s => s.outcome && s.outcome !== 'interviewed').length;
+    const opened = reserves.slice(0, Math.min(reserves.length, failed));
+    opened.forEach(s => { s.open = true; }); primaries.forEach(s => { s.open = true; });
+    const active = slots.filter(s => s.open);
+    const interviewed = slots.filter(s => s.outcome === 'interviewed').length;
+    const pending = active.filter(s => !s.outcome);
+    const next = interviewed >= USAGE.households ? null : (pending.find(s => s.visits === 0) || pending[0] || null);
+    return { slots, active, interviewed, next, done: interviewed >= USAGE.households, exhausted: !next && interviewed < USAGE.households };
+  }
+  function outcomeLogCsv(recordIdStr, entries) {
+    const rows = [['record_id', 'water_point_id', 'draw_position', 'role', 'outcome', 'visit', 'recorded_at', 'team']];
+    entries.slice().sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id)) || a.position - b.position || String(a.at).localeCompare(String(b.at))).forEach(e => rows.push([recordIdStr, e.water_point_id, e.position, e.position > USAGE.households ? 'reserve R' + (e.position - USAGE.households) : 'primary', e.outcome, e.visit || '', e.at, e.team || '']));
+    return rows.map(r => r.map(csvEscape).join(',')).join('\r\n') + '\r\n';
+  }
+  // bearing (degrees from north) and distance (m) from the phone to a building
+  function bearingTo(a, b) { const toR = Math.PI / 180; const y = Math.sin((b.lon - a.lon) * toR) * Math.cos(b.lat * toR); const x = Math.cos(a.lat * toR) * Math.sin(b.lat * toR) - Math.sin(a.lat * toR) * Math.cos(b.lat * toR) * Math.cos((b.lon - a.lon) * toR); return (Math.atan2(y, x) / toR + 360) % 360; }
+
+  return { USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
 
@@ -767,10 +1021,57 @@ const I18N = {
 /* =====================================================================
  *  UI (browser only)
  * ===================================================================*/
+/* ---------- usage-survey mode (v2.3.0): labels ---------- */
+I18N.en.updf = {
+  title: 'Usage survey sampling record (SDWS 26)', record: 'record', h_id: '1. Identification', programme: 'Programme', programme_v: 'SaniTap safe drinking water supply, Madagascar — Gold Standard SDWS methodology v2.0 — annual usage survey (SDWS 26, SDWS 25, SDWS 22)', scenario: 'Scenario', round: 'Round', drawn_at: 'Draw date/time (UTC)', drawn_by: 'Drawn by', record_id: 'Record id', tool: 'Tool',
+  h_method: '2. Method', method: [
+    'Three-stage clustered sample per project scenario (VPA-DD B.7.2: 90/10, at least 100 households and 8 clusters per scenario), run to SOP-MAD-SDWS26 (usage survey).',
+    'Stage 1 — communes. The communes holding frame water points are listed in name order with their number of frame points, and 3 are drawn by systematic sampling with probability proportional to that number (one random start). A commune larger than the sampling interval is taken with certainty. A drawn commune with fewer than 4 fokontany is taken whole, and a further commune is drawn in the same way (proportional to size, among the remaining communes) until 12 fokontany are drawn.',
+    'Stage 2 — fokontany. In each drawn commune 4 fokontany are drawn at equal probability among the fokontany holding at least one frame water point.',
+    'Stage 3 — water points. One water point is drawn at equal probability in each drawn fokontany. One reserve water point is drawn per commune, at equal probability among its undrawn points, for use only when a drawn point cannot be surveyed.',
+    'Households. Around each drawn water point the building footprints (Google Open Buildings v3) whose centre lies within 1 km are kept, after removing the part of the circle cut off by an unfordable river, canal or the coast (OpenStreetMap; streams are not barriers; a bridge or ford within 40 m opens the barrier). The kept buildings are sorted and 10 are drawn, plus 5 reserves, in random order from the round seed, the water point id and the building count. Reserves are used strictly in order, each only when a household is closed without an interview (refused, nobody home after 3 visits, not a dwelling, out of area, far side of an unfordable river).',
+    'Every selection probability is recorded; the weight of a water point is the inverse of its overall probability (commune x fokontany x point).'],
+  h_frame: '3. Sampling frame', frame_rule: 'The frame is the carbon fleet of the scenario: the water points of the MadAvance mWater register that the programme report classifies as in the managed fleet (successfully rehabilitated plus completed new constructions), in the districts of the scenario. Marolinta (Beloha) is outside the carbon fleet. There is no water quality condition: broken pumps stay in the frame.',
+  frame_source: 'Source of the frame', frame_source_mwater: 'mWater register fetched live by the tool, joined with the report\'s fleet classification', frame_source_csv: 'CSV file loaded into the tool', fleet_url: 'Fleet classification', fleet_sha: 'Fleet file SHA-256', fleet_fetched: 'Fleet file fetched (UTC)', frame_sha: 'Frame SHA-256',
+  c_item: 'Item', c_value: 'Value', c_group: 'Water points in the MadAvance group', c_fleet: 'of which in the carbon fleet (all scenarios)', c_scenario: 'in the districts of this scenario', c_notfleet: 'excluded: not in the fleet', c_frame: 'frame (fleet, this scenario)', c_communes: 'communes in the frame', c_fokontany: 'fokontany in the frame',
+  h_random: '4. Randomness and reproducibility', seed: 'Seed string', seed_word: 'Seed word (xmur3, uint32)', stage1: 'Stage 1 numbers', stage1_v: 'frame points {tot}; interval {int}; random start {start}; certainty selections {cert}',
+  reproducible: 'The same seed string and the same frame (identified by its SHA-256) reproduce exactly the same communes, fokontany, water points and reserves on any device; the household draw is reproduced from the same seed and the same building list (identified by its SHA-256 per service area).',
+  h_communes: '5. Drawn communes', t_commune: 'Commune', t_points: 'Frame points', t_fok: 'Fokontany', t_pi: 'Probability', t_note: 'Note', drawn: 'drawn', certainty: 'certainty', added: 'added (a commune had fewer than 4 fokontany)',
+  h_points: '6. Drawn water points', points_note: 'Probability = commune x fokontany x point; weight = 1 / probability.', t_no: 'No.', t_id: 'Water point', t_fokontany: 'Fokontany', t_pi_parts: 'Commune x fokontany x point', t_weight: 'Weight',
+  h_reserves: '7. Reserve water points (one per commune)', reserves_note: 'Use a reserve only when a drawn point of the same commune cannot be surveyed; record the reason.', t_pcond: 'Probability (within the commune)',
+  h_households: '8. Households', households_rule: 'Buildings are counted per service area; their positions are never published. The building list of each service area is identified by its SHA-256.', hh_dataset: 'Building data', t_circle: 'Buildings within 1 km', t_kept: 'Kept after the barrier clip', t_area: 'Area kept', t_barriers: 'Barriers', t_bsha: 'Buildings SHA-256', short: '(fewer than 15)', crossings: 'crossings', hh_not_prepared: 'The household draw has not been prepared yet (it needs the building footprints of each service area).',
+  h_warnings: '9. Notes generated by the tool', footer_record: 'Record', footer_sha: 'audit JSON SHA-256', page: 'page {x} of {y}'
+};
+I18N.fr.updf = Object.assign({}, I18N.en.updf, {
+  title: "Registre d'échantillonnage — enquête d'usage (SDWS 26)", record: 'registre', h_id: '1. Identification', programme: 'Programme', scenario: 'Scénario', round: 'Campagne', drawn_at: 'Date/heure du tirage (UTC)', drawn_by: 'Tiré par', record_id: 'Identifiant du registre', tool: 'Outil',
+  h_method: '2. Méthode', h_frame: "3. Base d'échantillonnage", h_random: '4. Aléa et reproductibilité', h_communes: '5. Communes tirées', h_points: "6. Points d'eau tirés", h_reserves: "7. Points d'eau de réserve (un par commune)", h_households: '8. Ménages', h_warnings: "9. Notes de l'outil",
+  t_commune: 'Commune', t_points: 'Points de la base', t_fok: 'Fokontany', t_pi: 'Probabilité', t_note: 'Note', drawn: 'tirés', certainty: 'certitude', added: 'ajoutée (une commune avait moins de 4 fokontany)', t_no: 'N°', t_id: "Point d'eau", t_fokontany: 'Fokontany', t_weight: 'Poids', t_circle: 'Bâtiments à 1 km', t_kept: 'Retenus après découpe', t_area: 'Surface retenue', t_barriers: 'Obstacles', t_bsha: 'SHA-256 des bâtiments', page: 'page {x} sur {y}', footer_record: 'Registre', seed: "Chaîne d'amorce", frame_sha: 'SHA-256 de la base'
+});
+Object.assign(I18N.en, {
+  p_mode: 'Survey', mode_pou: 'SDWS 18 point-of-use (water quality)', mode_usage: 'Usage survey (SDWS 26)',
+  usage_intro: 'Three-stage clustered draw per scenario: 3 communes (probability proportional to frame points), 4 fokontany per commune, 1 water point per fokontany, 1 reserve per commune; then 10 households + 5 reserves per water point from building footprints inside the 1 km service area, clipped at unfordable rivers. Frame: the carbon fleet (no water quality condition; broken pumps stay in).',
+  usage_fleet_ok: 'Carbon fleet list: {n} water points (report classification, fetched {t}).', usage_fleet_none: 'The carbon fleet list is fetched from the programme report when you draw (ids only).', usage_fleet_err: 'The carbon fleet list could not be fetched: {e}', usage_csv: 'CSV frame: every water point of the stratum is taken as the frame.',
+  usage_preview: 'Frame: {n} water points in {c} communes and {f} fokontany ({s}).', usage_res_title: 'Usage survey draw', u_communes: 'Communes', u_fokontany: 'Fokontany', u_points: 'Water points', u_reserves: 'Reserves', u_households: 'Households', col_pi: 'Probability', col_weight: 'Weight', col_buildings: 'Buildings (kept / 1 km)',
+  btn_prepare: 'Prepare households (download buildings for the drawn service areas)', prep_running: 'Preparing {i} of {n}: {id}…', prep_done: 'Households ready for {n} water points; this round now works offline on this device.', prep_err: 'Preparation failed for {id}: {e}', btn_field: 'Open the field view', btn_outcomes: 'Outcome log (CSV)', btn_updf: 'Sampling record (PDF)',
+  tab_field: 'Field', f_choose: 'Water point', f_next: 'Next household', f_none: 'Prepare the households on the Draw tab first (needs a connection once).', f_done: 'Ten households interviewed at this water point.', f_exhausted: 'No household left: all reserves are used. Record the reason and move on.', f_position: 'Draw position', f_enter: 'enter this number on the mWater response', f_dist: '{d} m, bearing {b}° ({c})', f_nogps: 'waiting for GPS…', f_visits: 'visit {v} of 3', f_reserve: 'reserve R{r}',
+  uw_commune_added: 'Commune {commune} was added: a drawn commune had fewer than 4 fokontany (its probability is recorded as the conditional probability at that draw).', uw_few_fokontany: 'Commune {commune} has only {fokontany} fokontany with a fleet point: all were taken.', uw_no_reserve: 'Commune {commune}: every frame point was drawn, so it has no reserve.', uw_no_coords: '{n} frame points have no coordinates: they can be drawn but their buildings cannot be prepared.',
+  o_interviewed: 'Interviewed', o_refused: 'Refused', o_nobody_home: 'Nobody home', o_not_dwelling: 'Not a dwelling', o_out_of_area: 'Out of area', o_far_side: 'Far side of an unfordable river', f_log: 'Outcome log', f_undo: 'Undo last', u_stop_title: 'Stops by commune'
+});
+Object.assign(I18N.fr, {
+  p_mode: 'Enquête', mode_pou: "SDWS 18 point d'utilisation (qualité de l'eau)", mode_usage: "Enquête d'usage (SDWS 26)",
+  usage_intro: "Tirage en grappes à trois degrés par scénario : 3 communes (proportionnel aux points de la base), 4 fokontany par commune, 1 point d'eau par fokontany, 1 réserve par commune ; puis 10 ménages + 5 réserves par point d'eau parmi les bâtiments situés dans la zone de service de 1 km, découpée aux rivières infranchissables. Base : la flotte carbone (sans condition de qualité ; les pompes en panne restent).",
+  usage_fleet_ok: 'Liste de la flotte carbone : {n} points (classification du rapport, obtenue {t}).', usage_fleet_none: 'La liste de la flotte carbone est obtenue du rapport du programme au moment du tirage (identifiants seulement).', usage_fleet_err: "La liste de la flotte carbone n'a pas pu être obtenue : {e}", usage_csv: "Base CSV : tous les points d'eau de la strate forment la base.",
+  usage_preview: "Base : {n} points d'eau dans {c} communes et {f} fokontany ({s}).", usage_res_title: "Tirage de l'enquête d'usage", u_communes: 'Communes', u_fokontany: 'Fokontany', u_points: "Points d'eau", u_reserves: 'Réserves', u_households: 'Ménages', col_pi: 'Probabilité', col_weight: 'Poids', col_buildings: 'Bâtiments (retenus / 1 km)',
+  btn_prepare: 'Préparer les ménages (télécharger les bâtiments des zones tirées)', prep_running: 'Préparation {i} sur {n} : {id}…', prep_done: "Ménages prêts pour {n} points d'eau ; la campagne fonctionne maintenant hors ligne sur cet appareil.", prep_err: 'Échec de la préparation pour {id} : {e}', btn_field: 'Ouvrir la vue terrain', btn_outcomes: 'Journal des résultats (CSV)', btn_updf: "Registre d'échantillonnage (PDF)",
+  tab_field: 'Terrain', f_choose: "Point d'eau", f_next: 'Ménage suivant', f_none: "Préparez d'abord les ménages dans l'onglet Tirage (connexion nécessaire une fois).", f_done: "Dix ménages interrogés à ce point d'eau.", f_exhausted: 'Plus de ménage : toutes les réserves sont utilisées. Notez la raison et continuez.', f_position: 'Position de tirage', f_enter: 'à saisir sur la réponse mWater', f_dist: '{d} m, cap {b}° ({c})', f_nogps: 'en attente du GPS…', f_visits: 'visite {v} sur 3', f_reserve: 'réserve R{r}',
+  uw_commune_added: "La commune {commune} a été ajoutée : une commune tirée avait moins de 4 fokontany (sa probabilité est la probabilité conditionnelle à ce tirage).", uw_few_fokontany: "La commune {commune} n'a que {fokontany} fokontany avec un point de la flotte : tous ont été pris.", uw_no_reserve: "Commune {commune} : tous les points de la base ont été tirés, il n'y a pas de réserve.", uw_no_coords: "{n} points de la base n'ont pas de coordonnées : ils peuvent être tirés mais leurs bâtiments ne peuvent pas être préparés.",
+  o_interviewed: 'Interrogé', o_refused: 'Refus', o_nobody_home: 'Personne', o_not_dwelling: "Pas un logement", o_out_of_area: 'Hors zone', o_far_side: "Autre rive d'une rivière infranchissable", f_log: 'Journal', f_undo: 'Annuler le dernier', u_stop_title: 'Arrêts par commune'
+});
+
 if (typeof window !== 'undefined' && typeof document !== 'undefined') (function () {
   const $ = id => document.getElementById(id);
   const LS = { get(k, d) { try { const v = localStorage.getItem('sanitap.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem('sanitap.' + k, JSON.stringify(v)); } catch (e) { console.warn('localStorage', e); } }, del(k) { try { localStorage.removeItem('sanitap.' + k); } catch (e) {} } };
-  const state = { mw: LS.get('mw', null), lang: LS.get('lang', (navigator.language || '').startsWith('fr') ? 'fr' : 'en'), wp: LS.get('wp', null), points: [], result: null, kValues: LS.get('k', {}), map: null, layers: {} };
+  const state = { mode: LS.get('mode', 'pou'), fleet: LS.get('fleet', null), usage: null, usageRound: null, mw: LS.get('mw', null), lang: LS.get('lang', (navigator.language || '').startsWith('fr') ? 'fr' : 'en'), wp: LS.get('wp', null), points: [], result: null, kValues: LS.get('k', {}), map: null, layers: {} };
   const t = (k, v) => { let s = (I18N[state.lang] && I18N[state.lang][k]) || I18N.en[k] || k; if (v) for (const x in v) s = s.split('{' + x + '}').join(v[x]); return s; };
   const esc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = (n, d) => (n === undefined || n === null || isNaN(n)) ? '' : Number(n).toFixed(d === undefined ? 1 : d);
@@ -783,12 +1084,14 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     $('howto').innerHTML = t('howto_html');
     $('ver').textContent = 'v' + APP_VERSION + (APP_COMMIT && APP_COMMIT.indexOf('__') !== 0 ? ' (' + APP_COMMIT + ')' : ' (dev)');
     renderData(); renderPreview(); renderResults(); renderSheet(); renderMapList(); renderLegend(); renderMw(); renderBacklog(); updateSteps();
+    if (typeof setMode === 'function' && $('usage-intro')) { $('usage-intro').innerHTML = state.mode === 'usage' ? esc(t('usage_intro')) + '<br><small>' + fleetLine() + '</small>' : ''; if (state.usage) renderField(); }
   }
   $('lang-toggle').onclick = () => { state.lang = state.lang === 'en' ? 'fr' : 'en'; LS.set('lang', state.lang); applyLang(); };
 
   /* ---------- tabs ---------- */
   function updateSteps() {
-    const done = { data: !!state.wp, backlog: !!state.wp, params: !!state.result, results: !!state.result, map: !!state.result, sheet: false, how: false };
+    const drawn = state.mode === 'usage' ? !!state.usage : !!state.result;
+    const done = { data: !!state.wp, backlog: !!state.wp, params: drawn, results: drawn, map: drawn, sheet: false, field: !!state.usageRound, how: false };
     document.querySelectorAll('nav button').forEach(b => { const tab = b.dataset.tab; b.classList.toggle('done', !!done[tab] && !b.classList.contains('active')); b.classList.toggle('pending', !done[tab] && !b.classList.contains('active')); b.title = t(b.classList.contains('active') ? 'step_current' : done[tab] ? 'step_done' : 'step_pending'); });
   }
   function showTab(name) {
@@ -796,6 +1099,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     updateSteps();
     document.querySelectorAll('section.tab').forEach(s => s.classList.toggle('active', s.id === 'tab-' + name));
     if (name === 'map') { initMap(); if (state.map) setTimeout(() => { state.map.invalidateSize(); renderMap(); }, 50); }
+    if (name === 'field') { startGps(); setTimeout(() => renderFieldNext(true), 50); }
     try { window.scrollTo(0, 0); } catch (e) {}
   }
   document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
@@ -915,7 +1219,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
 
   /* ---------- parameters ---------- */
   function computedSeed() { return ($('p-round').value.replace(/\s+/g, '') || 'round') + '-' + ($('p-stratum').value || 'stratum'); }
-  function updateSeed() { $('p-stratum-text').textContent = $('p-stratum').value || '—'; $('p-repro').textContent = t('repro_line', { seed: computedSeed() }); }
+  function updateSeed() { $('p-stratum-text').textContent = $('p-stratum').value || '—'; $('p-repro').textContent = t('repro_line', { seed: computedSeed() + (state.mode === 'usage' ? '-U' : '') }); }
   ['p-round', 'p-stratum', 'data-stratum'].forEach(id => $(id).addEventListener('input', () => { if (id === 'data-stratum') $('p-stratum').value = $('data-stratum').value; updateSeed(); renderPreview(); renderBacklog(); }));
   ['p-target', 'p-hh', 'p-icc', 'p-pass', 'p-conf', 'p-prectype'].forEach(id => $(id).addEventListener('input', renderPreview));
   $('p-drawn-by').addEventListener('input', () => LS.set('drawnBy', $('p-drawn-by').value));
@@ -931,6 +1235,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   }
   function renderPreview() {
     const el = $('params-preview'); if (!state.points.length) { el.textContent = t('err_nodata'); return; }
+    if (state.mode === 'usage') { const uf = Core.usageFrame(state.points, $('p-stratum').value, state.wp && state.wp.source === 'mwater' ? state.fleet : null); const c = new Set(uf.points.map(x => x.commune)), f = new Set(uf.points.map(x => x.commune + '|' + x.fokontany)); el.textContent = t('usage_preview', { n: uf.points.length, c: c.size, f: f.size, s: $('p-stratum').value }); return; }
     const p = readParams();
     const elig = state.points.filter(x => x.active && String(x.stratum) === String(p.stratum));
     const st = Core.stats(p); const nRep = Math.ceil(st.nWp * p.replacementFraction);
@@ -939,6 +1244,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   $('btn-draw').onclick = () => {
     const msg = $('params-msg'); msg.innerHTML = '';
     if (!state.points.length) { msg.innerHTML = `<div class="msg err">${t('err_nodata')}</div>`; return; }
+    if (state.mode === 'usage') { runUsageDraw(usageParams(), true); return; }
     const p = readParams();
     runDraw(p, true);
   };
@@ -972,6 +1278,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     return s;
   }
   function renderResults() {
+    if (state.mode === 'usage') { $('results').classList.add('hidden'); $('results-empty').classList.toggle('hidden', !!state.usage); renderUsageResults(); return; }
+    $('usage-results').classList.add('hidden');
     const r = state.result; $('results-empty').classList.toggle('hidden', !!r); $('results').classList.toggle('hidden', !r);
     if (!r) return;
     const p = r.params, st = r.stats, cPct = Math.round(parseFloat(p.confidence) * 100), pPct = 10;
@@ -1061,6 +1369,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   function renderMap() {
     if (!state.map) return; const Ly = state.layers; Object.values(Ly).forEach(l => l.clearLayers());
     if ($('map-mode').value === 'backlog') return renderBacklogMap();
+    if (state.mode === 'usage') return renderUsageMap();
     const r = state.result; const bounds = [];
     if (!r) { $('map-msg').textContent = t('map_no_draw'); return; }
     const far = farSet();
@@ -1071,6 +1380,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     $('map-msg').textContent = '';
   }
   function renderMapList() {
+    if (state.mode === 'usage' && $('map-mode').value !== 'backlog') return renderUsageMapList();
     const el = $('map-list'); const r = state.result;
     if ($('map-mode').value === 'backlog') { const list = backlogList(); el.innerHTML = list.length ? `<h3>${t('tab_backlog')}</h3><div class="tablewrap"><table><tr><th>#</th><th>${t('col_id')}</th><th>${t('col_name')}</th><th>${t('col_cluster')} / ${t('col_fokontany')}</th><th>${t('col_hh')}</th></tr>${list.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.water_point_id)}<br><small>${esc(p.alt_id || '')}</small></td><td>${esc(p.name)}<br><small>${esc(p.group)}</small></td><td>${esc(p.commune)}<br><small>${esc(p.fokontany)}</small></td><td>${p.households_served || ''}</td></tr>`).join('')}</table></div>` : `<p class="muted">${t('bl_none')}</p>`; return; }
     if (!r) { el.innerHTML = `<p class="muted">${t('map_no_draw')}</p>`; return; }
@@ -1091,6 +1401,182 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   $('map-mode').onchange = () => { renderMap(); renderMapList(); };
   $('btn-fit').onclick = () => renderMap();
 
+  /* =====================================================================
+   *  USAGE SURVEY MODE (v2.3.0)
+   * ===================================================================*/
+  const isUsage = () => state.mode === 'usage';
+  const PALETTE = ['#0b5e8a', '#b45309', '#157347', '#7c3aed', '#be185d', '#0f766e', '#a16207', '#4338ca'];
+  // IndexedDB: the prepared round (with coordinates, on this device only) and the outcome log
+  const IDB = {
+    db: null,
+    open() { if (this.db) return Promise.resolve(this.db); return new Promise((res, rej) => { if (!window.indexedDB) return rej(new Error('IndexedDB unavailable')); const r = indexedDB.open('sanitap-sampler', 1); r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('rounds')) d.createObjectStore('rounds'); if (!d.objectStoreNames.contains('outcomes')) d.createObjectStore('outcomes'); if (!d.objectStoreNames.contains('buildings')) d.createObjectStore('buildings'); }; r.onsuccess = () => { this.db = r.result; res(this.db); }; r.onerror = () => rej(r.error); }); },
+    async get(store, key) { const d = await this.open(); return new Promise((res, rej) => { const q = d.transaction(store).objectStore(store).get(key); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); },
+    async put(store, key, val) { const d = await this.open(); return new Promise((res, rej) => { const tx = d.transaction(store, 'readwrite'); tx.objectStore(store).put(val, key); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+  };
+  function setMode(m) {
+    state.mode = m === 'usage' ? 'usage' : 'pou'; LS.set('mode', state.mode); $('p-mode').value = state.mode;
+    document.querySelectorAll('.pou-only').forEach(el => el.classList.toggle('hidden-mode', isUsage()));
+    document.querySelectorAll('.usage-only').forEach(el => el.classList.toggle('hidden', !isUsage()));
+    $('usage-intro').innerHTML = isUsage() ? esc(t('usage_intro')) + '<br><small>' + fleetLine() + '</small>' : '';
+    updateSeed(); renderPreview(); renderResults(); renderMapList(); if (state.map) renderMap(); updateSteps();
+  }
+  function fleetLine() { if (state.wp && state.wp.source !== 'mwater') return esc(t('usage_csv')); const f = state.fleet; return f ? esc(t('usage_fleet_ok', { n: Object.values(f.records).filter(c => Core.USAGE.fleetClasses.includes(c)).length, t: f.fetched_at })) : esc(t('usage_fleet_none')); }
+  async function getFleet() {
+    try { const r = await fetch(Core.USAGE.fleetUrl, { cache: 'no-cache' }); if (!r.ok) throw new Error('HTTP ' + r.status); const text = await r.text(); const j = JSON.parse(text); state.fleet = { url: Core.USAGE.fleetUrl, sha256: await Core.sha256(text), fetched_at: new Date().toISOString(), records: j.records || {} }; LS.set('fleet', state.fleet); }
+    catch (e) { if (!state.fleet) throw e; } // offline: the cached list (its hash and fetch time stay in the record)
+    return state.fleet;
+  }
+  function usageParams() {
+    const src = (state.wp && state.wp.source) || 'csv';
+    return { roundName: $('p-round').value.trim(), stratum: $('p-stratum').value, drawnBy: $('p-drawn-by').value.trim(), seed: computedSeed() + '-U', source: src, frameFile: state.wp && state.wp.name, mwater: src === 'mwater' ? state.wp.mwater : null };
+  }
+  async function runUsageDraw(p, fresh) {
+    const msg = $('params-msg');
+    if (fresh) p.timestamp = new Date().toISOString();
+    let fleet = null;
+    if (p.source === 'mwater') { try { fleet = await getFleet(); } catch (e) { msg.innerHTML = `<div class="msg err">${esc(t('usage_fleet_err', { e: e.message }))}</div>`; return; } }
+    const uf = Core.usageFrame(state.points, p.stratum, fleet);
+    p.frameHash = await Core.sha256(Core.frameToCsv(uf.points)); p.frameCounts = uf.counts;
+    p.fleet = fleet ? { url: fleet.url, sha256: fleet.sha256, fetched_at: fleet.fetched_at, classes: Core.USAGE.fleetClasses } : null;
+    const r = Core.drawUsage(p, uf.points);
+    if (r.error) { msg.innerHTML = `<div class="msg err">${t('err_noeligible')}</div>`; return; }
+    state.usage = r; state.usageRound = null; LS.set('ulast', Object.assign({}, p, { frameCounts: undefined }));
+    try { state.usageRound = await IDB.get('rounds', r.audit.record_id) || null; } catch (e) { state.usageRound = null; }
+    if (state.usageRound) r.audit.households = state.usageRound.households;
+    renderResults(); renderMapList(); if (state.map) renderMap(); renderField(); updateSteps();
+    if (fresh) showTab('results');
+  }
+  function renderUsageResults() {
+    const r = state.usage; $('usage-results').classList.toggle('hidden', !r || !isUsage()); if (!r) return;
+    const a = r.audit, P = a.parameters, hh = (state.usageRound && state.usageRound.areas) || {};
+    $('u-head').innerHTML = `<span class="pill">${esc(P.round)}</span><span class="pill">${esc(P.scenario)}</span><span class="pill">${t('p_seed')}: <b>${esc(a.seed)}</b></span><span class="pill">${esc(a.timestamp)}</span><span class="pill">${t('sha')}: ${esc((a.input.frame_sha256 || '').slice(0, 12))}…</span>`;
+    const fok = a.communes.reduce((x, c) => x + c.fokontany_drawn.length, 0);
+    $('u-stats').innerHTML = [[t('u_communes'), a.communes.length], [t('u_fokontany'), fok], [t('u_points'), a.water_points.length], [t('u_reserves'), a.reserves.length], [t('u_households'), a.water_points.length * Core.USAGE.households + ' + ' + a.water_points.length * Core.USAGE.householdReserves]].map(x => `<div><b>${x[1]}</b><span>${x[0]}</span></div>`).join('');
+    $('u-warn').innerHTML = r.warnings.map(w => `<div class="msg warn">${esc(t('uw_' + w.code) === 'uw_' + w.code ? JSON.stringify(w) : t('uw_' + w.code, w))}</div>`).join('');
+    const colour = {}; a.communes.forEach((c, i) => { colour[c.name] = PALETTE[i % PALETTE.length]; });
+    $('u-communes').innerHTML = `<table><tr><th>${esc(I18N[state.lang].updf.t_commune)}</th><th>${esc(I18N[state.lang].updf.t_points)}</th><th>${esc(I18N[state.lang].updf.t_fok)}</th><th>${t('col_pi')}</th></tr>` + a.communes.map(c => `<tr><td><span class="chip" style="background:${colour[c.name]}"></span>${esc(c.name)}${c.certainty ? ' <span class="pill">' + esc(I18N[state.lang].updf.certainty) + '</span>' : ''}${c.added ? ' <span class="pill">' + esc(I18N[state.lang].updf.added) + '</span>' : ''}</td><td>${c.points}</td><td>${c.fokontany_drawn.map(f => esc(f.name)).join(', ')} <small class="muted">(${c.fokontany_drawn.length}/${c.fokontany_in_frame})</small></td><td>${fmt(c.pi, 4)}</td></tr>`).join('') + '</table>';
+    const bcell = w => { const sa = hh[w.water_point_id]; return sa ? `${sa.buildings_kept} / ${sa.buildings_in_circle}${sa.short ? ' ⚠' : ''}` : '—'; };
+    const rows = [];
+    a.communes.forEach(c => {
+      rows.push(`<tr class="comm-head"><td colspan="7"><span class="chip" style="background:${colour[c.name]}"></span>${esc(c.name)}</td></tr>`);
+      a.water_points.filter(w => w.commune === c.name).forEach(w => rows.push(`<tr><td><b>${w.order}</b></td><td><b>${esc(w.water_point_id)}</b><br><small>${esc(w.alt_id || '')} ${esc(w.name || '')}</small></td><td>${esc(w.fokontany)}</td><td>${fmt(w.pi, 5)}<br><small class="muted">${fmt(w.pi_commune, 4)} × ${fmt(w.p_fokontany, 3)} × ${fmt(w.p_point, 3)}</small></td><td>${fmt(w.weight, 1)}</td><td>${bcell(w)}</td></tr>`));
+      a.reserves.filter(w => w.commune === c.name).forEach(w => rows.push(`<tr class="rep"><td>R${w.order}</td><td>${esc(w.water_point_id)}<br><small>${esc(w.alt_id || '')} ${esc(w.name || '')}</small></td><td>${esc(w.fokontany)}</td><td colspan="2"><small class="muted">${esc(t('rep_wp'))} · p = ${fmt(w.p_conditional, 4)}</small></td><td>${bcell(w)}</td></tr>`));
+    });
+    $('u-points').innerHTML = `<table><tr><th>#</th><th>${t('col_id')}</th><th>${t('col_fokontany')}</th><th>${t('col_pi')}</th><th>${t('col_weight')}</th><th>${t('col_buildings')}</th></tr>${rows.join('')}</table>`;
+  }
+  // buildings for one service area: the FlatGeobuf file is read by HTTP range requests for this box only
+  async function fetchBuildings(lat, lon) {
+    if (window.SAMPLER_TEST && window.SAMPLER_TEST.buildings) return window.SAMPLER_TEST.buildings(lat, lon);
+    if (typeof flatgeobuf === 'undefined') throw new Error('FlatGeobuf library not loaded (needs one online visit first)');
+    const R = Core.USAGE.radiusM + 30, dLat = R / 110574, dLon = R / (111320 * Math.cos(lat * Math.PI / 180)); const out = [];
+    for await (const f of flatgeobuf.deserialize(Core.USAGE.buildings.url, { minX: lon - dLon, minY: lat - dLat, maxX: lon + dLon, maxY: lat + dLat })) out.push({ geometry: f.geometry, properties: { bf_source: f.properties && f.properties.bf_source } });
+    return out;
+  }
+  async function fetchBarriers(lat, lon) {
+    if (window.SAMPLER_TEST && window.SAMPLER_TEST.overpass) return window.SAMPLER_TEST.overpass(lat, lon);
+    // Overpass is often busy (429/504): retry with backoff before giving up
+    for (let attempt = 0; ; attempt++) {
+      const r = await fetch(Core.USAGE.overpass, { method: 'POST', body: 'data=' + encodeURIComponent(Core.overpassQuery(lat, lon)), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+      if (r.ok) return r.json();
+      if (attempt >= 4 || ![429, 502, 503, 504].includes(r.status)) throw new Error('Overpass HTTP ' + r.status);
+      await new Promise(res => setTimeout(res, 3000 * (attempt + 1)));
+    }
+  }
+  async function datasetVersion() {
+    if (window.SAMPLER_TEST) return 'test';
+    try { const r = await fetch(Core.USAGE.buildings.url, { method: 'HEAD' }); return [r.headers.get('last-modified'), r.headers.get('etag')].filter(Boolean).join(' · ') || null; } catch (e) { return null; }
+  }
+  $('btn-prepare').onclick = async () => {
+    const r = state.usage; if (!r) return; const msg = $('u-msg'); const all = r.points.concat(r.reserves); const areas = {};
+    const version = await datasetVersion();
+    for (let i = 0; i < all.length; i++) {
+      const w = all[i]; msg.innerHTML = `<div class="msg">${esc(t('prep_running', { i: i + 1, n: all.length, id: w.water_point_id }))}</div>`;
+      if (!isFinite(w.lat) || !isFinite(w.lon)) { areas[w.water_point_id] = null; continue; }
+      try {
+        const [features, osm] = await Promise.all([fetchBuildings(w.lat, w.lon), fetchBarriers(w.lat, w.lon)]);
+        areas[w.water_point_id] = Core.prepareServiceArea({ seed: r.audit.seed, wp: w, features, osm });
+      } catch (e) { msg.innerHTML = `<div class="msg err">${esc(t('prep_err', { id: w.water_point_id, e: e.message }))}</div>`; return; }
+    }
+    const households = { dataset: Core.USAGE.buildings.name, version, fetched_at: new Date().toISOString(), service_areas: all.map(w => areas[w.water_point_id] && Core.auditServiceArea(areas[w.water_point_id])).filter(Boolean) };
+    state.usageRound = { record_id: r.audit.record_id, params: r.params, points: r.points, reserves: r.reserves, areas, households };
+    r.audit.households = households;
+    try { await IDB.put('rounds', r.audit.record_id, state.usageRound); LS.set('uround', r.audit.record_id); } catch (e) { console.warn('IndexedDB', e); }
+    msg.innerHTML = `<div class="msg ok">${esc(t('prep_done', { n: all.length }))}</div>`;
+    renderUsageResults(); renderField();
+  };
+  $('btn-updf').onclick = async () => {
+    const r = state.usage; if (!r) return; const msg = $('u-msg');
+    if (typeof PDFLib === 'undefined') { msg.innerHTML = `<div class="msg err">${t('pdf_err')}</div>`; return; }
+    try {
+      const auditText = JSON.stringify(r.audit, null, 2); const auditSha = await Core.sha256(auditText);
+      if (Core.hasCoordinateKeys(JSON.parse(auditText))) throw new Error('coordinates in the audit');
+      const bytes = await Core.buildUsageRecordPdf({ PDFLib, audit: JSON.parse(auditText), auditText, auditSha, lang: state.lang, url: Core.APP_URL });
+      download(`sanitap-${(r.params.roundName || 'round').replace(/\s+/g, '')}-${r.params.stratum}-usage-record.pdf`, bytes, 'application/pdf');
+      msg.innerHTML = `<div class="msg ok">${esc(r.audit.record_id)} · ${t('sha')} ${auditSha}</div>`;
+    } catch (e) { msg.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+  };
+  $('btn-ufield').onclick = () => showTab('field');
+  async function outcomeLog() { const rid = state.usage && state.usage.audit.record_id; if (!rid) return []; try { return (await IDB.get('outcomes', rid)) || []; } catch (e) { return LS.get('outcomes:' + rid, []); } }
+  async function saveLog(list) { const rid = state.usage.audit.record_id; try { await IDB.put('outcomes', rid, list); } catch (e) { LS.set('outcomes:' + rid, list); } }
+  $('btn-outcomes').onclick = async () => { const r = state.usage; if (!r) return; download(`sanitap-${(r.params.roundName || 'round').replace(/\s+/g, '')}-${r.params.stratum}-outcomes.csv`, Core.outcomeLogCsv(r.audit.record_id, await outcomeLog()), 'text/csv'); };
+
+  /* ---------- usage map: colour by commune, stop list grouped by commune ---------- */
+  function renderUsageMap() {
+    const Ly = state.layers; const r = state.usage; const bounds = []; if (!r) { $('map-msg').textContent = t('map_no_draw'); return; }
+    const colour = {}; r.communes.forEach((c, i) => { colour[c.name] = PALETTE[i % PALETTE.length]; });
+    r.points.concat(r.reserves).forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(L.marker([w.lat, w.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon${w.reserve ? ' rep' : ''}" style="${w.reserve ? 'border-color:' : 'background:'}${colour[w.commune]}">${w.reserve ? 'R' + w.order : w.order}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }) }).bindPopup(`<b>${w.reserve ? 'R' : ''}${w.order}. ${esc(w.water_point_id)}</b><br>${esc(w.commune)} / ${esc(w.fokontany)}`)); });
+    communeLabels(r.points);
+    if (bounds.length) state.map.fitBounds(bounds, { padding: [30, 30] });
+    $('map-msg').textContent = '';
+  }
+  function renderUsageMapList() {
+    const r = state.usage; const el = $('map-list'); if (!r) { el.innerHTML = `<p class="muted">${t('map_no_draw')}</p>`; return; }
+    const colour = {}; r.communes.forEach((c, i) => { colour[c.name] = PALETTE[i % PALETTE.length]; });
+    el.innerHTML = `<h3>${t('u_stop_title')}</h3>` + r.communes.map(c => `<h4><span class="chip" style="background:${colour[c.name]}"></span>${esc(c.name)}</h4><div class="tablewrap"><table><tr><th>#</th><th>${t('col_id')}</th><th>${t('col_fokontany')}</th><th>${t('col_name')}</th></tr>` + r.points.filter(w => w.commune === c.name).map(w => `<tr><td><b>${w.order}</b></td><td><b>${esc(w.water_point_id)}</b></td><td>${esc(w.fokontany)}</td><td>${esc(w.name)}</td></tr>`).join('') + r.reserves.filter(w => w.commune === c.name).map(w => `<tr class="rep"><td>R${w.order}</td><td>${esc(w.water_point_id)}</td><td>${esc(w.fokontany)}</td><td>${esc(w.name)}</td></tr>`).join('') + '</table></div>').join('');
+  }
+
+  /* ---------- field view (phone): next building, GPS, outcomes; offline once prepared ---------- */
+  const F = { map: null, layers: null, pos: null, watch: null };
+  function compass(b) { return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(b / 45) % 8]; }
+  function startGps() { if (F.watch !== null || !navigator.geolocation) return; F.watch = navigator.geolocation.watchPosition(p => { F.pos = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy }; renderFieldNext(); }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 }); }
+  async function renderField() {
+    const sel = $('f-wp'); const round = state.usageRound;
+    if (!round || !state.usage) { sel.innerHTML = ''; $('f-status').textContent = ''; $('f-next').innerHTML = `<p class="muted">${esc(t('f_none'))}</p>`; $('f-buttons').innerHTML = ''; $('f-log').innerHTML = ''; return; }
+    const cur = sel.value || LS.get('fwp', ''); const list = round.points.concat(round.reserves);
+    sel.innerHTML = list.map(w => `<option value="${esc(w.water_point_id)}">${w.reserve ? 'R' : ''}${w.order} · ${esc(w.water_point_id)} · ${esc(w.commune)} / ${esc(w.fokontany)}</option>`).join('');
+    sel.value = list.some(w => w.water_point_id === cur) ? cur : list[0].water_point_id;
+    await renderFieldNext();
+  }
+  $('f-wp').onchange = () => { LS.set('fwp', $('f-wp').value); renderFieldNext(true); };
+  async function renderFieldNext(refit) {
+    const round = state.usageRound; if (!round) return; const id = $('f-wp').value; const sa = round.areas[id]; const w = round.points.concat(round.reserves).find(x => x.water_point_id === id);
+    if (!sa || !w) { $('f-next').innerHTML = `<p class="muted">${esc(t('f_none'))}</p>`; return; }
+    const log = (await outcomeLog()).filter(e => e.water_point_id === id);
+    const st = Core.fieldSlots(sa.draw, log);
+    $('f-status').textContent = `${st.interviewed} / ${Core.USAGE.households} · ${sa.buildings_kept} buildings`;
+    const n = st.next;
+    if (!n) $('f-next').innerHTML = `<div class="msg ${st.done ? 'ok' : 'warn'}">${esc(t(st.done ? 'f_done' : 'f_exhausted'))}</div>`;
+    else {
+      const here = F.pos; const dist = here ? Core.haversineKm(here, n) * 1000 : null; const b = here ? Core.bearingTo(here, n) : null;
+      $('f-next').innerHTML = `<div class="fnext"><div><div class="muted">${esc(t('f_position'))}</div><div class="fbig">${n.position}</div><small class="muted">${esc(t('f_enter'))}</small></div><div><b>${esc(t('f_next'))}</b>${n.reserve ? ' · <span class="pill">' + esc(t('f_reserve', { r: n.position - Core.USAGE.households })) + '</span>' : ''}${n.visits ? ' · ' + esc(t('f_visits', { v: n.visits + 1 })) : ''}<br>${here ? esc(t('f_dist', { d: Math.round(dist), b: Math.round(b), c: compass(b) })) : esc(t('f_nogps'))}</div></div>`;
+    }
+    $('f-buttons').innerHTML = n ? `<div class="obtn">${Core.OUTCOMES.map(o => `<button class="btn${o === 'interviewed' ? ' ok' : ' secondary'}" type="button" data-o="${o}">${esc(t('o_' + o))}</button>`).join('')}</div><div class="btnrow"><button class="btn small secondary" type="button" id="f-undo">${esc(t('f_undo'))}</button></div>` : `<div class="btnrow"><button class="btn small secondary" type="button" id="f-undo">${esc(t('f_undo'))}</button></div>`;
+    $('f-buttons').querySelectorAll('button[data-o]').forEach(bt => bt.onclick = async () => { const all = await outcomeLog(); all.push({ water_point_id: id, position: n.position, outcome: bt.dataset.o, visit: bt.dataset.o === 'nobody_home' ? n.visits + 1 : '', at: new Date().toISOString(), team: LS.get('drawnBy', '') }); await saveLog(all); renderFieldNext(true); });
+    const undo = $('f-undo'); if (undo) undo.onclick = async () => { const all = await outcomeLog(); for (let i = all.length - 1; i >= 0; i--) if (all[i].water_point_id === id) { all.splice(i, 1); break; } await saveLog(all); renderFieldNext(true); };
+    $('f-log').innerHTML = `<h3>${esc(t('f_log'))}</h3>` + (log.length ? `<table><tr><th>#</th><th></th><th></th></tr>${log.slice().reverse().map(e => `<tr><td>${e.position}</td><td>${esc(t('o_' + e.outcome))}${e.visit ? ' (' + e.visit + ')' : ''}</td><td><small>${esc(String(e.at).slice(11, 16))}</small></td></tr>`).join('')}</table>` : '<p class="muted">—</p>');
+    // map: the service area, the drawn buildings (next one highlighted), the phone
+    if (typeof L !== 'undefined' && document.getElementById('fmap').offsetParent) {
+      if (!F.map) { F.map = L.map('fmap', { zoomControl: true }); L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(F.map); F.layers = L.layerGroup().addTo(F.map); }
+      F.layers.clearLayers();
+      L.circle([w.lat, w.lon], { radius: Core.USAGE.radiusM, color: '#0b5e8a', weight: 1, fill: false }).addTo(F.layers);
+      L.marker([w.lat, w.lon], { icon: L.divIcon({ className: '', html: '<div class="num-icon start">◉</div>', iconSize: [28, 28], iconAnchor: [14, 14] }) }).addTo(F.layers);
+      st.slots.filter(s => s.open).forEach(s => { const isNext = n && s.position === n.position; const colour = s.outcome === 'interviewed' ? '#157347' : s.outcome ? '#9aa3ad' : isNext ? '#e07b00' : '#0b5e8a'; if (s.ring) L.polygon(s.ring.map(q => [q[1], q[0]]), { color: colour, weight: isNext ? 3 : 1, fillOpacity: .5 }).addTo(F.layers); L.marker([s.lat, s.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon" style="background:${colour};width:22px;height:22px;line-height:18px;font-size:.7rem">${s.position}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) }).addTo(F.layers); });
+      if (F.pos) L.circleMarker([F.pos.lat, F.pos.lon], { radius: 7, color: '#fff', weight: 2, fillColor: '#2563eb', fillOpacity: 1 }).addTo(F.layers);
+      if (refit || !F.fitted) { F.map.fitBounds(n ? [[w.lat, w.lon], [n.lat, n.lon]] : [[w.lat, w.lon]], { padding: [40, 40], maxZoom: 17 }); F.fitted = true; }
+      setTimeout(() => F.map.invalidateSize(), 50);
+    }
+  }
+
   /* ---------- offline / service worker ---------- */
   function onlineBadge() { $('offline-badge').textContent = navigator.onLine ? t('online') : '⚠ ' + t('offline'); }
   window.addEventListener('online', onlineBadge); window.addEventListener('offline', onlineBadge);
@@ -1110,6 +1596,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   }
 
   /* ---------- boot ---------- */
+  $('p-mode').onchange = () => setMode($('p-mode').value);
   applyWp(); applyLang(); onlineBadge(); renderMw(); $('p-drawn-by').value = LS.get('drawnBy', ''); setSource(LS.get('src', (state.wp && state.wp.source === 'csv') ? 'csv' : 'mwater'));
   const last = LS.get('last', null);
   if (last && state.points.length) {
@@ -1118,5 +1605,8 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     $('p-icc').value = last.icc; $('p-pass').value = last.expectedPass; $('p-conf').value = last.confidence; $('p-prectype').value = last.precisionType;
     runDraw(last, false);
   }
+  setMode(state.mode);
+  const ulast = LS.get('ulast', null);
+  if (state.mode === 'usage' && ulast && state.points.length) { $('p-round').value = ulast.roundName; $('p-stratum').value = ulast.stratum; $('data-stratum').value = ulast.stratum; updateSeed(); runUsageDraw(ulast, false); }
   renderPreview(); renderBacklog(); renderMapList(); updateSteps();
 })();

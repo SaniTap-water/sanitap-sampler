@@ -1,6 +1,9 @@
 # SaniTap Sampler
 
-A static, offline-capable web tool that draws **statistically valid, logistics-aware water quality monitoring samples** for the SaniTap programme under the Gold Standard *Safe Drinking Water Supply* (SDWS) methodology v2.0.
+A static, offline-capable web tool that draws **statistically valid, logistics-aware samples** for the SaniTap programme under the Gold Standard *Safe Drinking Water Supply* (SDWS) methodology v2.0, in two modes chosen on the Parameters tab:
+
+- **SDWS 18 point-of-use (water quality)** — the original mode, unchanged since v2.2.0 (a regression test proves its draws and records reproduce byte for byte);
+- **Usage survey (SDWS 26)** — v2.3.0: a three-stage clustered draw of water points from the carbon fleet and a rooftop draw of households from building footprints, with an offline phone field view. See [Usage survey mode](#usage-survey-mode-sdws-26).
 
 **Live tool:** https://sanitap-water.github.io/sanitap-sampler/ (deployed from `main` by GitHub Actions; works offline after the first load).
 
@@ -14,6 +17,11 @@ data/sample-water-points.csv   60 fake points, 3 strata, 4 inactive (CSV-source 
 bin/file-round.js              files a drawn round under records/ (append-only) and pushes
 records/                       filed sampling records, served by Pages (records/index.md is the register)
 test/mapper.test.js            Node tests (frame rule, PPS draw, audit, PDF determinism)
+test/sdws18-regression.test.js the SDWS 18 mode reproduces every v2.2.0 draw and PDF (test/fixtures/sdws18-baseline.json)
+test/usage.test.js             usage-survey mode: reproducibility, stages, probabilities, barrier clip, households, field slots, record
+test/screens.py                screenshots of the usage mode (fake frame, synthetic footprints) into docs/screens/
+bin/usage-dry-run.js           live dry run of the usage mode for both scenarios (prints counts, no coordinates)
+bin/make-sdws18-baseline.js    writes the SDWS 18 baseline; run only to re-baseline on purpose
 docs/protocol-annex.md         one-page annex for the SaniTap Water Quality Testing Protocol
 .github/workflows/deploy.yml   GitHub Pages deployment; bakes the git commit hash into app.js
 ```
@@ -88,6 +96,38 @@ Implemented in `Core.draw()` in `app.js`; also shown in the app under *How it wo
 
 **Record.** Each draw produces the sampling record (PDF) described under Outputs; the complete machine-readable audit (seed and its 32-bit word, algorithm, tool version and commit, frame source and SHA-256, eligibility counts, parameters, stage-1 numbers, statistics, communes, sources with weights and hit positions, replacements, reach check, field rule, warnings and the field-rule numbers generated with K) is attached inside the PDF as `audit.json`, and its SHA-256 is printed in the PDF footer. It is the evidence of random selection retained for the VVB.
 
+## Usage survey mode (SDWS 26)
+
+Choose **Usage survey (SDWS 26)** under *Survey* on the Parameters tab. It samples households for the annual usage survey (SDWS 26, with SDWS 25 and SDWS 22) to VPA-DD B.7.2 (90/10, at least 100 households and 8 clusters per scenario) and is run to SOP-MAD-SDWS26 (usage survey).
+
+**Frame.** The carbon fleet of each scenario — HP-FD (Taolagnaro and Amboasary-Atsimo) and HP-MA (Maroantsetra). The mWater register is fetched as for the SDWS 18 mode, behind the user's own mWater login, and joined with the programme report's register classification (`register_classification.json` on the report site: water point ids and classes only, no coordinates); the fleet is the points classed *in_fleet* or *joins* (successfully rehabilitated plus completed new constructions). Marolinta (Beloha) is outside it. There is **no SDWS 3 eligibility filter**: broken pumps stay in the frame. A CSV frame is used as it is (demo/offline). The frame is serialised and hashed (SHA-256); the fleet file's own hash and fetch time go into the record.
+
+**Draw** (`Core.drawUsage`), seeded `<round>-<scenario>-U` (xmur3 → mulberry32), reproducible from seed + frame hash:
+
+1. **Communes**: 3, by systematic PPS on the number of frame points per commune (communes in name order, one random start; a commune larger than the interval is taken with certainty). A drawn commune with fewer than 4 fokontany is taken whole, and a further commune is drawn by sequential PPS among the remaining communes, until 12 fokontany are drawn; its recorded probability is the conditional probability at that draw.
+2. **Fokontany**: 4 per drawn commune, simple random sampling among fokontany with at least 1 frame point.
+3. **Water points**: 1 per fokontany at equal probability; 1 **reserve** per drawn commune at equal probability among its undrawn points.
+
+Each point's overall probability (commune × fokontany × point) and inverse-probability weight are recorded. The map colours the points by commune; the stop list is grouped by commune.
+
+**Households.** For every drawn and reserve water point, *Prepare households* reads the building footprints within 1 km and the barrier network, and keeps the buildings whose centre lies in the service area:
+
+- **Barriers** follow the report's `sdws1_barrier_clip.py` rule: OpenStreetMap `natural=coastline`, `waterway=river` and `waterway=canal` are barriers; `waterway=stream` is not; a barrier segment within 40 m of `bridge=*` or `ford=*` is a crossing. The circle is cut on a 10 m raster and flood-filled from the water point, so exactly the fragment containing it is kept (the Python clip's "polygon fragment that contains the water point").
+- **Buildings**: the report has no footprint dataset (its roof-count census is the field count "Nombre de toits" on the beneficiaries form), so the source is **Google Open Buildings v3**: the Google layer (`bf_source = google`) of VIDA's Google–Microsoft combined dataset, served as one FlatGeobuf file per country on Source Cooperative (`…/by_country/country_iso=MDG/MDG.fgb`, CORS open, spatially indexed).
+- **Draw**: the kept buildings are sorted by a stable key and 10 are drawn, plus 5 reserves, in random order from `seed|water_point_id|B=<count>`.
+
+**How footprints reach the phone, and why this is private.** The browser reads the FlatGeobuf file with HTTP range requests for the bounding box of each drawn service area only (a few hundred kilobytes each), and asks Overpass for the barriers in the same box. The result — the round with its water point positions and drawn buildings — is stored in **IndexedDB on that device only**. Nothing is committed to this repository or served from GitHub Pages; the service worker never caches those requests. This is the simplest compliant route: no server of ours, no extract to host, and the public source is only ever asked about the areas actually drawn. Once a round is prepared the field view works offline (map tiles when online; footprints, positions and the outcome log from IndexedDB). Prepare the round on the phone that goes to the field (or on each phone), while online.
+
+**Field view** (tab *Field*, phone): choose the water point; the next building is shown on the map with its distance and bearing from the phone's GPS, and its **draw position** (1–15), which is entered on the mWater response. Buttons: *Interviewed*, *Refused*, *Nobody home* (the building closes after 3 visits), *Not a dwelling*, *Out of area*, *Far side of an unfordable river*. Every closed non-interview opens the next reserve, strictly in order; the water point is done at 10 interviews. *Outcome log (CSV)* exports every entry (record id, water point, draw position, primary/reserve, outcome, visit, time, team) for filing — no coordinates.
+
+**Record.** *Sampling record (PDF)* carries the seed and frame hash, the fleet file hash, the stage-1 numbers, the drawn communes, fokontany and water points with probabilities and weights, the reserves, and, once prepared, the building count per service area (within 1 km, kept after the clip, area kept, barriers, and the SHA-256 of the building list). The full audit is attached as `audit.json`. Like the SDWS 18 record it is byte-reproducible and carries **no coordinates** (tested).
+
+**Dry run.** `FGB_DIR=<folder with node_modules/flatgeobuf> node bin/usage-dry-run.js --env ~/mwater-mcp/.env --round 2026-DRY` draws both scenarios on the live frame, prepares every service area as the phone does, and prints ids, probabilities, weights and building counts only.
+
+![Usage survey draw, laptop](docs/screens/usage-laptop-draw-1440.png)
+
+Screenshots (`python3 test/screens.py`) use the fake sample frame and synthetic footprints: [laptop draw](docs/screens/usage-laptop-draw-1440.png), [laptop map](docs/screens/usage-laptop-map-1440.png), [phone field view](docs/screens/usage-phone-field-390x844.png).
+
 ## Outputs
 
 - **Map**: selected sources numbered in draw order, replacements grey (`R1…`), commune labels, OSM tiles, a *Fit* button and a *Show on map: draw / Test A backlog* toggle; a stop list under the map with the same numbers (id, pump no., name, commune, fokontany, households, reach distances).
@@ -108,10 +148,10 @@ The programme frame is the MadAvance group in mWater (about 900 private `water_p
 Mapper, draw, record and export tests (Node 18+, no dependencies):
 
 ```bash
-node --test test/mapper.test.js
+node --test test/*.test.js
 ```
 
-Set `PDFLIB_DIR` to a folder containing `node_modules/pdf-lib` to include the PDF determinism test.
+Set `PDFLIB_DIR` to a folder containing `node_modules/pdf-lib` (1.17.1) to include the PDF tests. `test/sdws18-regression.test.js` compares every SDWS 18 draw (18 on the sample frame, 4 on the mWater-shape fixture) and six record PDFs with the baseline that v2.2.0 wrote before the usage mode existed; a change that moves any of them fails.
 
 ## Filing a round
 

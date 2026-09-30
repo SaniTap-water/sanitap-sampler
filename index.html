@@ -104,6 +104,18 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
   .sheet{border:0;border-radius:0;padding:0;margin:0}
   @page{margin:12mm}
 }
+/* usage-survey mode (v2.3.0) */
+.hidden-mode{display:none!important}
+#fmap{height:46vh;min-height:260px;margin:.5rem 0;border-radius:8px}
+.field-top select{width:100%}
+.fbig{font-size:2.4rem;font-weight:800;line-height:1;color:var(--blue)}
+.fnext{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+.obtn{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.obtn button{min-height:3rem;font-size:1rem}
+.obtn .ok{background:#157347}
+.comm-head td{background:#eef3f7;font-weight:700}
+.chip{display:inline-block;width:.9rem;height:.9rem;border-radius:50%;vertical-align:middle;margin-right:.3rem;border:1px solid #fff;box-shadow:0 0 0 1px #0003}
+@media (max-width:600px){.obtn{grid-template-columns:1fr}.fbig{font-size:2rem}}
 </style>
 </head>
 <body>
@@ -120,6 +132,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
   <button data-tab="results" data-i18n="tab_results">3 Draw</button>
   <button data-tab="map" data-i18n="tab_map">4 Map</button>
   <button data-tab="sheet" data-i18n="tab_sheet">5 Field sheet</button>
+  <button data-tab="field" data-i18n="tab_field" class="usage-only hidden">Field</button>
   <button data-tab="how" data-i18n="tab_how">How it works</button>
 </nav>
 <main>
@@ -189,15 +202,17 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
   <div class="card">
     <h2 data-i18n="params_title">Round parameters</h2>
     <div class="grid">
+      <div><label data-i18n="p_mode">Survey</label><select id="p-mode"><option value="pou" data-i18n="mode_pou">SDWS 18 point-of-use (water quality)</option><option value="usage" data-i18n="mode_usage">Usage survey (SDWS 26)</option></select></div>
       <div><label data-i18n="p_round">Round name</label><input type="text" id="p-round" value="2026 R1"></div>
       <div><label data-i18n="p_drawn_by">Drawn by (name, role)</label><input type="text" id="p-drawn-by" autocomplete="name"></div>
-      <div><label data-i18n="p_target">Target PoU samples</label><input type="number" id="p-target" value="58" min="1"></div>
-      <div><label data-i18n="p_hh">Households per source</label><input type="number" id="p-hh" value="5" min="1"></div>
+      <div class="pou-only"><label data-i18n="p_target">Target PoU samples</label><input type="number" id="p-target" value="58" min="1"></div>
+      <div class="pou-only"><label data-i18n="p_hh">Households per source</label><input type="number" id="p-hh" value="5" min="1"></div>
     </div>
     <p style="margin:.6rem 0 .2rem"><b data-i18n="p_stratum_loaded">Stratum (loaded on the Data tab)</b>: <span id="p-stratum-text" class="pill">—</span><select id="p-stratum" class="hidden"></select></p>
+    <div id="usage-intro" class="msg usage-only hidden"></div>
     <p class="muted" id="p-repro"></p>
     <div id="params-preview" class="muted"></div>
-    <details id="adv-stats" style="margin-top:.6rem">
+    <details id="adv-stats" class="pou-only" style="margin-top:.6rem">
       <summary class="btn small secondary" data-i18n="adv_title">Advanced: statistical check</summary>
       <div class="grid">
         <div><label data-i18n="p_icc">Intra-cluster correlation (ICC)</label><input type="number" id="p-icc" value="0.1" step="0.01" min="0" max="1"></div>
@@ -216,6 +231,23 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
 <!-- ============ RESULTS ============ -->
 <section class="tab" id="tab-results">
   <div id="results-empty" class="card"><p class="muted" data-i18n="res_empty">No draw yet. Load data and set parameters first.</p></div>
+  <div id="usage-results" class="hidden">
+    <div class="card">
+      <h2 data-i18n="usage_res_title">Usage survey draw</h2>
+      <div id="u-head" class="muted"></div>
+      <div class="stat" id="u-stats"></div>
+      <div id="u-warn"></div>
+      <div class="btnrow" style="margin-top:.6rem">
+        <button class="btn" id="btn-updf" type="button" data-i18n="btn_updf">Sampling record (PDF)</button>
+        <button class="btn" id="btn-prepare" type="button" data-i18n="btn_prepare">Prepare households</button>
+        <button class="btn secondary" id="btn-ufield" type="button" data-i18n="btn_field">Open the field view</button>
+        <button class="btn secondary" id="btn-outcomes" type="button" data-i18n="btn_outcomes">Outcome log (CSV)</button>
+      </div>
+      <div id="u-msg"></div>
+    </div>
+    <div class="card"><h2 data-i18n="u_communes">Communes</h2><div class="tablewrap" id="u-communes"></div></div>
+    <div class="card"><h2 data-i18n="u_points">Water points</h2><div class="tablewrap" id="u-points"></div></div>
+  </div>
   <div id="results" class="hidden">
     <div class="card">
       <h2 data-i18n="res_title">Draw result</h2>
@@ -261,6 +293,15 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
   <div id="fieldsheet"></div>
 </section>
 
+<!-- ============ FIELD (usage survey, phone) ============ -->
+<section class="tab" id="tab-field">
+  <div class="card field-top"><label for="f-wp" data-i18n="f_choose">Water point</label><select id="f-wp"></select><div id="f-status" class="muted"></div></div>
+  <div class="card" id="f-next"></div>
+  <div id="fmap"></div>
+  <div class="card" id="f-buttons"></div>
+  <div class="card" id="f-log"></div>
+</section>
+
 <!-- ============ HOW ============ -->
 <section class="tab" id="tab-how">
   <div class="card howto" id="howto"></div>
@@ -270,6 +311,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin=""></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js" crossorigin=""></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin=""></script>
+<script src="https://cdn.jsdelivr.net/npm/flatgeobuf@3.38.0/dist/flatgeobuf-geojson.min.js" crossorigin=""></script>
 <script src="app.js?v=__GIT_COMMIT__"></script>
 </body>
 </html>
