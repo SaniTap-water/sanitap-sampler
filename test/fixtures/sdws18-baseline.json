@@ -1,0 +1,3369 @@
+{
+ "note": "SDWS 18 (point-of-use) draws of SaniTap Sampler v2.2.0 (commit 2b56e5a) for fixed frames and seeds; the regression test requires every later version to reproduce them exactly.",
+ "draws": {
+  "sample|2026R1-FD|20": {
+   "selected": [
+    "WP-FD-005",
+    "WP-FD-010",
+    "WP-FD-011",
+    "WP-FD-015"
+   ],
+   "replacements": [
+    "WP-FD-006"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 18,
+    "total_households": 729,
+    "imputed_weight": 44,
+    "imputed_count": 0,
+    "interval": 182.25,
+    "random_start": 162.8258,
+    "certainty_selections": 0,
+    "communes_covered": 3,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      16,
+      2,
+      9,
+      17,
+      8
+     ],
+     "replacements": [
+      14,
+      6
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      10,
+      13,
+      12,
+      6,
+      8
+     ],
+     "replacements": [
+      1,
+      14
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      9,
+      17,
+      16,
+      15,
+      11
+     ],
+     "replacements": [
+      4,
+      14
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      11,
+      14,
+      12,
+      2,
+      3
+     ],
+     "replacements": [
+      9,
+      10
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      7,
+      8,
+      3,
+      2,
+      5
+     ],
+     "replacements": [
+      16,
+      6
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "268cb7ff59796db2b96e53815823b07f6282ba653dd9b3a183038330aa829ee6"
+  },
+  "sample|2026R1-FD|58": {
+   "selected": [
+    "WP-FD-002",
+    "WP-FD-004",
+    "WP-FD-005",
+    "WP-FD-008",
+    "WP-FD-009",
+    "WP-FD-016",
+    "WP-FD-017",
+    "WP-FD-020",
+    "WP-FD-012",
+    "WP-FD-013",
+    "WP-FD-014",
+    "WP-FD-015"
+   ],
+   "replacements": [
+    "WP-FD-003",
+    "WP-FD-010",
+    "WP-FD-006"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 18,
+    "total_households": 729,
+    "imputed_weight": 44,
+    "imputed_count": 0,
+    "interval": 60.75,
+    "random_start": 54.2753,
+    "certainty_selections": 0,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      7,
+      16,
+      5,
+      10,
+      17
+     ],
+     "replacements": [
+      4,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      5,
+      14,
+      17,
+      3,
+      2
+     ],
+     "replacements": [
+      8,
+      6
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      2,
+      9,
+      17,
+      8
+     ],
+     "replacements": [
+      14,
+      6
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      13,
+      11,
+      2,
+      8
+     ],
+     "replacements": [
+      7,
+      3
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      15,
+      1,
+      10,
+      6,
+      8
+     ],
+     "replacements": [
+      9,
+      4
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      1,
+      2,
+      15,
+      11,
+      9
+     ],
+     "replacements": [
+      4,
+      8
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      5,
+      6,
+      3,
+      12,
+      7
+     ],
+     "replacements": [
+      16,
+      14
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      8,
+      15,
+      14,
+      9,
+      12
+     ],
+     "replacements": [
+      6,
+      11
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      3,
+      17,
+      4,
+      7,
+      1
+     ],
+     "replacements": [
+      15,
+      9
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      8,
+      2,
+      16,
+      11,
+      10
+     ],
+     "replacements": [
+      4,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      10,
+      9,
+      7,
+      12
+     ],
+     "replacements": [
+      11,
+      17
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      11,
+      14,
+      12,
+      2,
+      3
+     ],
+     "replacements": [
+      9,
+      10
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      14,
+      9,
+      11,
+      16,
+      5
+     ],
+     "replacements": [
+      12,
+      10
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      10,
+      13,
+      12,
+      6,
+      8
+     ],
+     "replacements": [
+      1,
+      14
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      7,
+      8,
+      3,
+      2,
+      5
+     ],
+     "replacements": [
+      16,
+      6
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "e4545b7feac06348cb3f7e71f50fdd000a6311eabdb4c969fc9a144daedfdde2"
+  },
+  "sample|2026R2-FD|20": {
+   "selected": [
+    "WP-FD-005",
+    "WP-FD-010",
+    "WP-FD-011",
+    "WP-FD-015"
+   ],
+   "replacements": [
+    "WP-FD-012"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 18,
+    "total_households": 729,
+    "imputed_weight": 44,
+    "imputed_count": 0,
+    "interval": 182.25,
+    "random_start": 160.2199,
+    "certainty_selections": 0,
+    "communes_covered": 3,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      6,
+      17,
+      14,
+      10,
+      3
+     ],
+     "replacements": [
+      5,
+      12
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      2,
+      9,
+      1,
+      15,
+      6
+     ],
+     "replacements": [
+      14,
+      17
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      2,
+      3,
+      8,
+      15
+     ],
+     "replacements": [
+      10,
+      11
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      1,
+      9,
+      6,
+      17,
+      7
+     ],
+     "replacements": [
+      4,
+      3
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      15,
+      10,
+      2,
+      5
+     ],
+     "replacements": [
+      8,
+      1
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "8d577c2f9ed0bc32775d29931f2a8fa74f89914250521117b2fc2fe6fd1a2a03"
+  },
+  "sample|2026R2-FD|58": {
+   "selected": [
+    "WP-FD-002",
+    "WP-FD-004",
+    "WP-FD-005",
+    "WP-FD-008",
+    "WP-FD-009",
+    "WP-FD-016",
+    "WP-FD-017",
+    "WP-FD-020",
+    "WP-FD-012",
+    "WP-FD-013",
+    "WP-FD-014",
+    "WP-FD-015"
+   ],
+   "replacements": [
+    "WP-FD-011",
+    "WP-FD-003",
+    "WP-FD-010"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 18,
+    "total_households": 729,
+    "imputed_weight": 44,
+    "imputed_count": 0,
+    "interval": 60.75,
+    "random_start": 53.4066,
+    "certainty_selections": 0,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      9,
+      11,
+      17,
+      16,
+      8
+     ],
+     "replacements": [
+      6,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      9,
+      8,
+      15,
+      7,
+      11
+     ],
+     "replacements": [
+      1,
+      6
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      6,
+      17,
+      14,
+      10,
+      3
+     ],
+     "replacements": [
+      5,
+      12
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      15,
+      2,
+      8,
+      7
+     ],
+     "replacements": [
+      14,
+      16
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      2,
+      17,
+      11,
+      12,
+      15
+     ],
+     "replacements": [
+      14,
+      13
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      9,
+      4,
+      15,
+      6,
+      12
+     ],
+     "replacements": [
+      5,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      6,
+      5,
+      12,
+      14,
+      13
+     ],
+     "replacements": [
+      2,
+      8
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      10,
+      16,
+      2,
+      12
+     ],
+     "replacements": [
+      7,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      15,
+      10,
+      2,
+      5
+     ],
+     "replacements": [
+      8,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      17,
+      7,
+      2,
+      9,
+      3
+     ],
+     "replacements": [
+      5,
+      15
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      15,
+      6,
+      11,
+      4,
+      8
+     ],
+     "replacements": [
+      13,
+      3
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      1,
+      9,
+      6,
+      17,
+      7
+     ],
+     "replacements": [
+      4,
+      3
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      2,
+      3,
+      8,
+      15
+     ],
+     "replacements": [
+      10,
+      11
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      6,
+      3,
+      17,
+      14,
+      9
+     ],
+     "replacements": [
+      11,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      2,
+      9,
+      1,
+      15,
+      6
+     ],
+     "replacements": [
+      14,
+      17
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "7019f48f74ac9e29cc7f7d824e95b7631fbfc7238126aee9ffdd6a3db554896a"
+  },
+  "sample|TEST-FD|20": {
+   "selected": [
+    "WP-FD-002",
+    "WP-FD-006",
+    "WP-FD-017",
+    "WP-FD-012"
+   ],
+   "replacements": [
+    "WP-FD-015"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 18,
+    "total_households": 729,
+    "imputed_weight": 44,
+    "imputed_count": 0,
+    "interval": 182.25,
+    "random_start": 28.4107,
+    "certainty_selections": 0,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      10,
+      2,
+      6,
+      7,
+      13
+     ],
+     "replacements": [
+      14,
+      12
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      6,
+      8,
+      9,
+      17,
+      14
+     ],
+     "replacements": [
+      1,
+      12
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      2,
+      3,
+      5,
+      10
+     ],
+     "replacements": [
+      17,
+      8
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      3,
+      13,
+      4,
+      17,
+      1
+     ],
+     "replacements": [
+      7,
+      2
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      2,
+      4,
+      14,
+      17,
+      16
+     ],
+     "replacements": [
+      7,
+      12
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "b7057a61ca319043fc2c0162468cc5a01718cea92a9beddc51cfca237213f704"
+  },
+  "sample|TEST-FD|58": {
+   "selected": [
+    "WP-FD-001",
+    "WP-FD-003",
+    "WP-FD-004",
+    "WP-FD-005",
+    "WP-FD-008",
+    "WP-FD-010",
+    "WP-FD-016",
+    "WP-FD-017",
+    "WP-FD-011",
+    "WP-FD-012",
+    "WP-FD-013",
+    "WP-FD-015"
+   ],
+   "replacements": [
+    "WP-FD-014",
+    "WP-FD-009",
+    "WP-FD-002"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 18,
+    "total_households": 729,
+    "imputed_weight": 44,
+    "imputed_count": 0,
+    "interval": 60.75,
+    "random_start": 9.4702,
+    "certainty_selections": 0,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      16,
+      14,
+      7,
+      17,
+      5
+     ],
+     "replacements": [
+      4,
+      10
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      17,
+      1,
+      7,
+      13,
+      9
+     ],
+     "replacements": [
+      16,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      5,
+      11,
+      8,
+      15,
+      2
+     ],
+     "replacements": [
+      9,
+      10
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      1,
+      17,
+      3,
+      13,
+      8
+     ],
+     "replacements": [
+      12,
+      16
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      10,
+      12,
+      4,
+      14
+     ],
+     "replacements": [
+      15,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      12,
+      2,
+      10,
+      9,
+      6
+     ],
+     "replacements": [
+      3,
+      7
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      1,
+      14,
+      17,
+      13,
+      3
+     ],
+     "replacements": [
+      6,
+      11
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      2,
+      3,
+      5,
+      10
+     ],
+     "replacements": [
+      17,
+      8
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      14,
+      3,
+      8,
+      13,
+      11
+     ],
+     "replacements": [
+      1,
+      10
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      3,
+      13,
+      4,
+      17,
+      1
+     ],
+     "replacements": [
+      7,
+      2
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      5,
+      15,
+      14,
+      4,
+      16
+     ],
+     "replacements": [
+      11,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      2,
+      4,
+      14,
+      17,
+      16
+     ],
+     "replacements": [
+      7,
+      12
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      14,
+      13,
+      11,
+      12
+     ],
+     "replacements": [
+      5,
+      17
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      12,
+      8,
+      15,
+      16,
+      2
+     ],
+     "replacements": [
+      1,
+      6
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      10,
+      2,
+      6,
+      7,
+      13
+     ],
+     "replacements": [
+      14,
+      12
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "2c0b4b3a4b587bd8b89663c15aa787ecaea4972917544710a9283d51f49c15d8"
+  },
+  "sample|2026R1-MA|20": {
+   "selected": [
+    "WP-MA-029",
+    "WP-MA-034",
+    "WP-MA-036",
+    "WP-MA-039"
+   ],
+   "replacements": [
+    "WP-MA-038"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 19,
+    "total_households": 658,
+    "imputed_weight": 34,
+    "imputed_count": 0,
+    "interval": 164.5,
+    "random_start": 129.4965,
+    "certainty_selections": 0,
+    "communes_covered": 3,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      13,
+      12,
+      7,
+      6,
+      3
+     ],
+     "replacements": [
+      16,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      7,
+      2,
+      10,
+      8,
+      3
+     ],
+     "replacements": [
+      17,
+      4
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      1,
+      10,
+      8,
+      15,
+      16
+     ],
+     "replacements": [
+      14,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      11,
+      17,
+      5,
+      3
+     ],
+     "replacements": [
+      7,
+      14
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      11,
+      5,
+      9,
+      12,
+      10
+     ],
+     "replacements": [
+      8,
+      14
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "1fd0bf7bce76ca84c2fba0cf69ab33c7242a411a775eaad834a253a43332b780"
+  },
+  "sample|2026R1-MA|58": {
+   "selected": [
+    "WP-MA-027",
+    "WP-MA-029",
+    "WP-MA-030",
+    "WP-MA-031",
+    "WP-MA-032",
+    "WP-MA-035",
+    "WP-MA-022",
+    "WP-MA-023",
+    "WP-MA-036",
+    "WP-MA-038",
+    "WP-MA-039",
+    "WP-MA-040"
+   ],
+   "replacements": [
+    "WP-MA-037",
+    "WP-MA-021",
+    "WP-MA-028"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 19,
+    "total_households": 598,
+    "imputed_weight": 34,
+    "imputed_count": 0,
+    "interval": 54.3636,
+    "random_start": 42.7957,
+    "certainty_selections": 1,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      14,
+      9,
+      3,
+      1,
+      2
+     ],
+     "replacements": [
+      8,
+      16
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      12,
+      7,
+      6,
+      3
+     ],
+     "replacements": [
+      16,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      1,
+      16,
+      14,
+      9,
+      4
+     ],
+     "replacements": [
+      11,
+      7
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      8,
+      6,
+      4,
+      3,
+      13
+     ],
+     "replacements": [
+      16,
+      2
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      6,
+      10,
+      9,
+      11
+     ],
+     "replacements": [
+      1,
+      15
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      1,
+      10,
+      6,
+      5
+     ],
+     "replacements": [
+      9,
+      16
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      14,
+      2,
+      3,
+      8,
+      17
+     ],
+     "replacements": [
+      13,
+      7
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      9,
+      5,
+      14,
+      13,
+      6
+     ],
+     "replacements": [
+      17,
+      4
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      1,
+      10,
+      8,
+      15,
+      16
+     ],
+     "replacements": [
+      14,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      11,
+      5,
+      9,
+      12,
+      10
+     ],
+     "replacements": [
+      8,
+      14
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      11,
+      17,
+      5,
+      3
+     ],
+     "replacements": [
+      7,
+      14
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      1,
+      8,
+      12,
+      14,
+      16
+     ],
+     "replacements": [
+      10,
+      11
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      1,
+      7,
+      17,
+      9,
+      13
+     ],
+     "replacements": [
+      10,
+      6
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      8,
+      2,
+      6,
+      13,
+      11
+     ],
+     "replacements": [
+      16,
+      7
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      10,
+      14,
+      7,
+      2,
+      12
+     ],
+     "replacements": [
+      4,
+      9
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "c5694e9fc00d4cc3c4dc6e8b3d5a9ac9f2e8e557201ea8f4d85ce37be548f1c1"
+  },
+  "sample|2026R2-MA|20": {
+   "selected": [
+    "WP-MA-026",
+    "WP-MA-030",
+    "WP-MA-035",
+    "WP-MA-036"
+   ],
+   "replacements": [
+    "WP-MA-023"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 19,
+    "total_households": 658,
+    "imputed_weight": 34,
+    "imputed_count": 0,
+    "interval": 164.5,
+    "random_start": 4.7147,
+    "certainty_selections": 0,
+    "communes_covered": 3,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      1,
+      10,
+      6,
+      11,
+      13
+     ],
+     "replacements": [
+      16,
+      9
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      7,
+      9,
+      14,
+      8,
+      1
+     ],
+     "replacements": [
+      17,
+      15
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      17,
+      7,
+      3,
+      16,
+      15
+     ],
+     "replacements": [
+      10,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      17,
+      1,
+      7,
+      16,
+      10
+     ],
+     "replacements": [
+      15,
+      3
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      2,
+      10,
+      13,
+      3,
+      16
+     ],
+     "replacements": [
+      5,
+      9
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "88bbdf54322235fec92a72e252fb704bd774236f9aee92128bb471ca73d3d85e"
+  },
+  "sample|2026R2-MA|58": {
+   "selected": [
+    "WP-MA-026",
+    "WP-MA-027",
+    "WP-MA-029",
+    "WP-MA-030",
+    "WP-MA-031",
+    "WP-MA-032",
+    "WP-MA-035",
+    "WP-MA-022",
+    "WP-MA-024",
+    "WP-MA-036",
+    "WP-MA-038",
+    "WP-MA-039"
+   ],
+   "replacements": [
+    "WP-MA-023",
+    "WP-MA-040",
+    "WP-MA-028"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 19,
+    "total_households": 598,
+    "imputed_weight": 34,
+    "imputed_count": 0,
+    "interval": 54.3636,
+    "random_start": 1.5581,
+    "certainty_selections": 1,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      1,
+      10,
+      6,
+      11,
+      13
+     ],
+     "replacements": [
+      16,
+      9
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      3,
+      4,
+      10,
+      6
+     ],
+     "replacements": [
+      5,
+      11
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      15,
+      7,
+      9,
+      16,
+      5
+     ],
+     "replacements": [
+      8,
+      11
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      7,
+      9,
+      14,
+      8,
+      1
+     ],
+     "replacements": [
+      17,
+      15
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      17,
+      10,
+      16,
+      1
+     ],
+     "replacements": [
+      7,
+      2
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      8,
+      16,
+      3,
+      12,
+      14
+     ],
+     "replacements": [
+      6,
+      15
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      17,
+      7,
+      3,
+      16,
+      15
+     ],
+     "replacements": [
+      10,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      14,
+      10,
+      6,
+      16
+     ],
+     "replacements": [
+      1,
+      8
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      11,
+      17,
+      9,
+      1,
+      14
+     ],
+     "replacements": [
+      15,
+      3
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      17,
+      1,
+      7,
+      16,
+      10
+     ],
+     "replacements": [
+      15,
+      3
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      6,
+      17,
+      16,
+      12,
+      15
+     ],
+     "replacements": [
+      4,
+      7
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      3,
+      9,
+      5,
+      2,
+      10
+     ],
+     "replacements": [
+      12,
+      17
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      2,
+      10,
+      13,
+      3,
+      16
+     ],
+     "replacements": [
+      5,
+      9
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      15,
+      14,
+      17,
+      12
+     ],
+     "replacements": [
+      4,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      7,
+      15,
+      13,
+      2,
+      8
+     ],
+     "replacements": [
+      17,
+      11
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "386f8849055757556368ef196fc1a84f1e2388d6105aa6b4fbac6a34408124d8"
+  },
+  "sample|TEST-MA|20": {
+   "selected": [
+    "WP-MA-027",
+    "WP-MA-031",
+    "WP-MA-022",
+    "WP-MA-038"
+   ],
+   "replacements": [
+    "WP-MA-030"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 19,
+    "total_households": 658,
+    "imputed_weight": 34,
+    "imputed_count": 0,
+    "interval": 164.5,
+    "random_start": 47.2639,
+    "certainty_selections": 0,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      6,
+      2,
+      11,
+      10,
+      5
+     ],
+     "replacements": [
+      14,
+      17
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      15,
+      7,
+      12,
+      13,
+      11
+     ],
+     "replacements": [
+      9,
+      17
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      14,
+      3,
+      7,
+      10,
+      13
+     ],
+     "replacements": [
+      5,
+      15
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      9,
+      2,
+      6,
+      8,
+      17
+     ],
+     "replacements": [
+      10,
+      4
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      5,
+      17,
+      16,
+      1,
+      9
+     ],
+     "replacements": [
+      4,
+      3
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "7b8eddb9d4665c200518f249d902fa4f9906b757d72cecfa61fc02d2a3148c9a"
+  },
+  "sample|TEST-MA|58": {
+   "selected": [
+    "WP-MA-026",
+    "WP-MA-028",
+    "WP-MA-029",
+    "WP-MA-030",
+    "WP-MA-032",
+    "WP-MA-034",
+    "WP-MA-035",
+    "WP-MA-023",
+    "WP-MA-025",
+    "WP-MA-036",
+    "WP-MA-038",
+    "WP-MA-039"
+   ],
+   "replacements": [
+    "WP-MA-031",
+    "WP-MA-022",
+    "WP-MA-027"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 19,
+    "total_households": 598,
+    "imputed_weight": 34,
+    "imputed_count": 0,
+    "interval": 54.3636,
+    "random_start": 15.6197,
+    "certainty_selections": 1,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      8,
+      11,
+      10,
+      6,
+      7
+     ],
+     "replacements": [
+      14,
+      12
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      1,
+      7,
+      4,
+      9,
+      6
+     ],
+     "replacements": [
+      14,
+      15
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      10,
+      1,
+      15,
+      3,
+      5
+     ],
+     "replacements": [
+      17,
+      9
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      5,
+      17,
+      16,
+      1,
+      9
+     ],
+     "replacements": [
+      4,
+      3
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      13,
+      12,
+      10,
+      5
+     ],
+     "replacements": [
+      3,
+      9
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      10,
+      1,
+      13,
+      11
+     ],
+     "replacements": [
+      8,
+      2
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      15,
+      14,
+      13,
+      6,
+      11
+     ],
+     "replacements": [
+      8,
+      10
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      7,
+      5,
+      14,
+      12,
+      17
+     ],
+     "replacements": [
+      16,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      2,
+      17,
+      8,
+      7,
+      14
+     ],
+     "replacements": [
+      6,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      13,
+      14,
+      3,
+      12
+     ],
+     "replacements": [
+      10,
+      15
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      9,
+      2,
+      6,
+      8,
+      17
+     ],
+     "replacements": [
+      10,
+      4
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      12,
+      3,
+      4,
+      8,
+      10
+     ],
+     "replacements": [
+      17,
+      6
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      15,
+      7,
+      12,
+      13,
+      11
+     ],
+     "replacements": [
+      9,
+      17
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      14,
+      3,
+      7,
+      10,
+      13
+     ],
+     "replacements": [
+      5,
+      15
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      6,
+      2,
+      11,
+      10,
+      5
+     ],
+     "replacements": [
+      14,
+      17
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "d4da104279775aa1789f3e218529cfbb0b2c6d48f0e5660dd6203ac02b7d482e"
+  },
+  "sample|2026R1-AM|20": {
+   "selected": [
+    "WP-AM-044",
+    "WP-AM-059",
+    "WP-AM-054",
+    "WP-AM-049"
+   ],
+   "replacements": [
+    "WP-AM-041"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 19,
+    "total_households": 818,
+    "imputed_weight": 46,
+    "imputed_count": 0,
+    "interval": 204.5,
+    "random_start": 158.3888,
+    "certainty_selections": 0,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      10,
+      5,
+      16,
+      1,
+      17
+     ],
+     "replacements": [
+      7,
+      12
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      11,
+      13,
+      9,
+      2,
+      4
+     ],
+     "replacements": [
+      10,
+      15
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      8,
+      3,
+      11,
+      14,
+      9
+     ],
+     "replacements": [
+      1,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      16,
+      9,
+      11,
+      14
+     ],
+     "replacements": [
+      7,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      11,
+      3,
+      12,
+      16,
+      13
+     ],
+     "replacements": [
+      4,
+      7
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "1f15fbdef35ef349b159d09efc87b401d3eb12a7cc9760cffaec54939493ca87"
+  },
+  "sample|2026R1-AM|58": {
+   "selected": [
+    "WP-AM-042",
+    "WP-AM-043",
+    "WP-AM-044",
+    "WP-AM-056",
+    "WP-AM-057",
+    "WP-AM-059",
+    "WP-AM-051",
+    "WP-AM-053",
+    "WP-AM-055",
+    "WP-AM-046",
+    "WP-AM-047",
+    "WP-AM-050"
+   ],
+   "replacements": [
+    "WP-AM-041",
+    "WP-AM-058",
+    "WP-AM-049"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 19,
+    "total_households": 818,
+    "imputed_weight": 46,
+    "imputed_count": 0,
+    "interval": 68.1667,
+    "random_start": 52.7963,
+    "certainty_selections": 0,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      1,
+      7,
+      17,
+      14,
+      8
+     ],
+     "replacements": [
+      10,
+      12
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      7,
+      16,
+      15,
+      2
+     ],
+     "replacements": [
+      10,
+      4
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      10,
+      5,
+      16,
+      1,
+      17
+     ],
+     "replacements": [
+      7,
+      12
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      9,
+      3,
+      10,
+      13,
+      16
+     ],
+     "replacements": [
+      7,
+      14
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      11,
+      5,
+      4,
+      12,
+      1
+     ],
+     "replacements": [
+      15,
+      9
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      11,
+      13,
+      9,
+      2,
+      4
+     ],
+     "replacements": [
+      10,
+      15
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      10,
+      13,
+      14,
+      8,
+      5
+     ],
+     "replacements": [
+      11,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      14,
+      17,
+      10,
+      15,
+      3
+     ],
+     "replacements": [
+      6,
+      2
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      6,
+      10,
+      7,
+      11,
+      9
+     ],
+     "replacements": [
+      2,
+      3
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      11,
+      17,
+      7,
+      1,
+      15
+     ],
+     "replacements": [
+      3,
+      2
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      17,
+      1,
+      5,
+      14,
+      2
+     ],
+     "replacements": [
+      16,
+      3
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      10,
+      17,
+      6,
+      3,
+      5
+     ],
+     "replacements": [
+      12,
+      1
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      11,
+      3,
+      12,
+      16,
+      13
+     ],
+     "replacements": [
+      4,
+      7
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      5,
+      13,
+      8,
+      6,
+      14
+     ],
+     "replacements": [
+      16,
+      11
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      16,
+      9,
+      11,
+      14
+     ],
+     "replacements": [
+      7,
+      5
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "556a0859fef99c7c092a2312604f570fa86eae4e75d0d0fecc2a5f69d118cbed"
+  },
+  "sample|2026R2-AM|20": {
+   "selected": [
+    "WP-AM-044",
+    "WP-AM-059",
+    "WP-AM-054",
+    "WP-AM-049"
+   ],
+   "replacements": [
+    "WP-AM-047"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 19,
+    "total_households": 818,
+    "imputed_weight": 46,
+    "imputed_count": 0,
+    "interval": 204.5,
+    "random_start": 172.5293,
+    "certainty_selections": 0,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      6,
+      16,
+      7,
+      4,
+      8
+     ],
+     "replacements": [
+      12,
+      11
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      2,
+      3,
+      10,
+      8,
+      14
+     ],
+     "replacements": [
+      16,
+      4
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      17,
+      11,
+      14,
+      2,
+      7
+     ],
+     "replacements": [
+      1,
+      4
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      2,
+      10,
+      15,
+      7
+     ],
+     "replacements": [
+      12,
+      16
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      12,
+      3,
+      1,
+      16,
+      14
+     ],
+     "replacements": [
+      4,
+      17
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "6fe78b555bb57accec396680afbd4ac1da9829d82fc94b0a2996f8c8194f3893"
+  },
+  "sample|2026R2-AM|58": {
+   "selected": [
+    "WP-AM-042",
+    "WP-AM-043",
+    "WP-AM-044",
+    "WP-AM-056",
+    "WP-AM-057",
+    "WP-AM-060",
+    "WP-AM-051",
+    "WP-AM-053",
+    "WP-AM-055",
+    "WP-AM-046",
+    "WP-AM-047",
+    "WP-AM-050"
+   ],
+   "replacements": [
+    "WP-AM-049",
+    "WP-AM-052",
+    "WP-AM-041"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 19,
+    "total_households": 818,
+    "imputed_weight": 46,
+    "imputed_count": 0,
+    "interval": 68.1667,
+    "random_start": 57.5098,
+    "certainty_selections": 0,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      6,
+      7,
+      16,
+      1,
+      17
+     ],
+     "replacements": [
+      14,
+      13
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      15,
+      9,
+      1,
+      3,
+      10
+     ],
+     "replacements": [
+      14,
+      17
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      6,
+      16,
+      7,
+      4,
+      8
+     ],
+     "replacements": [
+      12,
+      11
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      10,
+      11,
+      3,
+      17
+     ],
+     "replacements": [
+      15,
+      4
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      8,
+      9,
+      4,
+      6
+     ],
+     "replacements": [
+      14,
+      2
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      15,
+      4,
+      3,
+      8,
+      7
+     ],
+     "replacements": [
+      11,
+      14
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      12,
+      2,
+      14,
+      4,
+      5
+     ],
+     "replacements": [
+      9,
+      13
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      10,
+      16,
+      7,
+      11,
+      6
+     ],
+     "replacements": [
+      13,
+      4
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      9,
+      5,
+      14,
+      17,
+      13
+     ],
+     "replacements": [
+      4,
+      6
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      2,
+      17,
+      4,
+      8,
+      12
+     ],
+     "replacements": [
+      1,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      12,
+      3,
+      1,
+      16,
+      14
+     ],
+     "replacements": [
+      4,
+      17
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      10,
+      1,
+      16,
+      9,
+      4
+     ],
+     "replacements": [
+      3,
+      14
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      2,
+      10,
+      15,
+      7
+     ],
+     "replacements": [
+      12,
+      16
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      2,
+      1,
+      13,
+      12,
+      17
+     ],
+     "replacements": [
+      9,
+      4
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      17,
+      4,
+      9,
+      6,
+      7
+     ],
+     "replacements": [
+      15,
+      1
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "4ae33cb1773cdee5683cf6997b2db5c4d4bb829cac291e18d037e31acf413cc3"
+  },
+  "sample|TEST-AM|20": {
+   "selected": [
+    "WP-AM-042",
+    "WP-AM-056",
+    "WP-AM-051",
+    "WP-AM-046"
+   ],
+   "replacements": [
+    "WP-AM-055"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 19,
+    "total_households": 818,
+    "imputed_weight": 46,
+    "imputed_count": 0,
+    "interval": 204.5,
+    "random_start": 58.8683,
+    "certainty_selections": 0,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      9,
+      1,
+      15,
+      16,
+      3
+     ],
+     "replacements": [
+      2,
+      4
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      17,
+      5,
+      9,
+      2,
+      7
+     ],
+     "replacements": [
+      13,
+      15
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      10,
+      15,
+      14,
+      11
+     ],
+     "replacements": [
+      1,
+      2
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      14,
+      4,
+      12,
+      1,
+      17
+     ],
+     "replacements": [
+      3,
+      8
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      7,
+      6,
+      1,
+      14
+     ],
+     "replacements": [
+      3,
+      2
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "3c6ccc17af35d575e2dc0402007a5005f4aadb0ad409a226f791f9a623ec43f9"
+  },
+  "sample|TEST-AM|58": {
+   "selected": [
+    "WP-AM-041",
+    "WP-AM-043",
+    "WP-AM-044",
+    "WP-AM-045",
+    "WP-AM-057",
+    "WP-AM-059",
+    "WP-AM-051",
+    "WP-AM-052",
+    "WP-AM-053",
+    "WP-AM-055",
+    "WP-AM-047",
+    "WP-AM-049"
+   ],
+   "replacements": [
+    "WP-AM-046",
+    "WP-AM-054",
+    "WP-AM-050"
+   ],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 19,
+    "total_households": 818,
+    "imputed_weight": 46,
+    "imputed_count": 0,
+    "interval": 68.1667,
+    "random_start": 19.6228,
+    "certainty_selections": 0,
+    "communes_covered": 4,
+    "communes_in_frame": 4
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      14,
+      2,
+      4,
+      6,
+      15
+     ],
+     "replacements": [
+      17,
+      7
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      16,
+      7,
+      13,
+      11,
+      3
+     ],
+     "replacements": [
+      10,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      12,
+      13,
+      9,
+      4,
+      1
+     ],
+     "replacements": [
+      14,
+      3
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      9,
+      15,
+      2,
+      8,
+      7
+     ],
+     "replacements": [
+      16,
+      5
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      12,
+      17,
+      3,
+      15
+     ],
+     "replacements": [
+      9,
+      8
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      1,
+      3,
+      10,
+      6,
+      2
+     ],
+     "replacements": [
+      13,
+      12
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      13,
+      10,
+      15,
+      14,
+      11
+     ],
+     "replacements": [
+      1,
+      2
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      8,
+      7,
+      9,
+      16,
+      3
+     ],
+     "replacements": [
+      17,
+      2
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      14,
+      12,
+      13,
+      4,
+      11
+     ],
+     "replacements": [
+      9,
+      8
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      7,
+      6,
+      1,
+      14
+     ],
+     "replacements": [
+      3,
+      2
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      12,
+      13,
+      10,
+      16,
+      8
+     ],
+     "replacements": [
+      4,
+      6
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      14,
+      4,
+      13,
+      12,
+      6
+     ],
+     "replacements": [
+      17,
+      16
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      14,
+      4,
+      12,
+      1,
+      17
+     ],
+     "replacements": [
+      3,
+      8
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      14,
+      4,
+      3,
+      1,
+      5
+     ],
+     "replacements": [
+      6,
+      16
+     ],
+     "short": false
+    },
+    {
+     "K": 17,
+     "primary": [
+      4,
+      10,
+      12,
+      8,
+      17
+     ],
+     "replacements": [
+      15,
+      2
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "c1880f1789e6103969dca733764b1381f0f50fc92d655e5415565da12d2068db"
+  },
+  "mw|2026R1-HP-FD|58": {
+   "selected": [
+    "900001"
+   ],
+   "replacements": [],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 1,
+    "total_households": 0,
+    "imputed_weight": 48,
+    "imputed_count": 0,
+    "interval": 0,
+    "random_start": 0,
+    "certainty_selections": 1,
+    "communes_covered": 1,
+    "communes_in_frame": 1
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      15,
+      9,
+      2,
+      11,
+      8
+     ],
+     "replacements": [
+      14,
+      1
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "3f6d13f109b23d17b04072018cb3b1c1eef536e537cf9312cfc8829f2aec1b8b"
+  },
+  "mw|2026-DRY-HP-FD|58": {
+   "selected": [
+    "900001"
+   ],
+   "replacements": [],
+   "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 1,
+    "total_households": 0,
+    "imputed_weight": 48,
+    "imputed_count": 0,
+    "interval": 0,
+    "random_start": 0,
+    "certainty_selections": 1,
+    "communes_covered": 1,
+    "communes_in_frame": 1
+   },
+   "field": [
+    {
+     "K": 17,
+     "primary": [
+      13,
+      11,
+      7,
+      1,
+      8
+     ],
+     "replacements": [
+      6,
+      5
+     ],
+     "short": false
+    }
+   ],
+   "audit_sha256": "2d8503e8de1394d485dd1cd60fffc7024d93d6da53b7532581c1eea1dbeb682a"
+  },
+  "mw|2026R1-HP-MA|58": {
+   "error": "no_eligible"
+  },
+  "mw|2026-DRY-HP-MA|58": {
+   "error": "no_eligible"
+  }
+ },
+ "pdf": {
+  "FD|en": "5c4faed479b04a3a9e1071f9d3eca04b225488da54737f7e8b9ce9bf0c89c6d3",
+  "FD|fr": "ddbfb3d94f736c65acc543ce1c0f8ce25b40f2fdf533cf8031c6fb4ab2783066",
+  "MA|en": "1bd722c85fc711036d4a5e1654e468097c8b0217eb1a3ea716d91e655fb3ab0d",
+  "MA|fr": "444a1f6c237fb57feb06a3626fb060bbb1862b0473348849ffe03dfa6077e3de",
+  "AM|en": "d95cdf85e9bb83bcce6c4645c490a024a807648ed51aac6243ce6a1d2854802a",
+  "AM|fr": "61996e3e785007579bba6b57ae6aedceade33f92af615fba8a56dd1fd8568181"
+ }
+}
