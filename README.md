@@ -128,6 +128,17 @@ Each point's overall probability (commune × fokontany × point) and inverse-pro
 
 Screenshots (`python3 test/screens.py`) use the fake sample frame and synthetic footprints: [laptop draw](docs/screens/usage-laptop-draw-1440.png), [laptop map](docs/screens/usage-laptop-map-1440.png), [phone field view](docs/screens/usage-phone-field-390x844.png).
 
+### Barrier clip parity
+
+The service-area clip uses the same rules as the report's SDWS 1 people-served method of record (`sdws1_population.py` / `sdws1_barrier_clip.py`, since edition 5, 16 Sep 2026), pinned by `test/barrier-parity.test.js`:
+
+- barriers: `natural=coastline`, `waterway=river`, `waterway=canal`; `waterway=stream` is not a barrier;
+- crossings: ways tagged `bridge=yes|viaduct|boardwalk`, and nodes or ways tagged `ford=yes|stepping_stones|boat`. Any other value (`bridge=no`, `aqueduct`, `culvert`, …) does not open a river. Before v2.3.1 any `bridge=*` or `ford=*` did;
+- a barrier is opened within 40 m of a crossing;
+- only the fragment of the 1 km circle that contains the water point is kept. A barrier line has no width: cells on the line that touch the kept fragment count as kept area (v2.3.1).
+
+Known difference, in the report and not the Sampler (found 30 Sep 2026). The report clips each river line to the circle and then calls shapely `split()`. The clipped line ends miss the circle's boundary by rounding, so on many points the split returns the whole circle, and a river that crosses the circle cuts nothing. Run on the report's own OSM extract for the 31 dry-run service areas, the two agree within about 2 points of area wherever the report's split succeeds. Where it fails they differ by up to 39 points, and extending the report's line ends by 2 m brings it to the Sampler's figure. The Sampler applies the rule as written.
+
 ## Outputs
 
 - **Map**: selected sources numbered in draw order, replacements grey (`R1…`), commune labels, OSM tiles, a *Fit* button and a *Show on map: draw / Test A backlog* toggle; a stop list under the map with the same numbers (id, pump no., name, commune, fokontany, households, reach distances).

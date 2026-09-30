@@ -7,7 +7,8 @@
  *
  * Credentials: MWATER_TOKEN, or MWATER_USERNAME + MWATER_PASSWORD, or --env <file> (e.g. ~/mwater-mcp/.env).
  * The FlatGeobuf reader is loaded from FGB_DIR (a folder with node_modules/flatgeobuf).
- * Usage: FGB_DIR=... node bin/usage-dry-run.js --env ~/mwater-mcp/.env [--round 2026-DRY] [--json out.json] */
+ * Usage: FGB_DIR=... node bin/usage-dry-run.js --env ~/mwater-mcp/.env [--round 2026-DRY] [--json out.json] [--only id,id,...]
+ * --only prepares just the listed service areas (e.g. those whose Overpass fetch failed); the draw is still made in full. */
 const fs = require('fs'); const path = require('path'); const C = require('../app.js');
 const args = {}; process.argv.slice(2).forEach((a, i, all) => { if (a.startsWith('--')) args[a.slice(2)] = all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : true; });
 if (args.env) for (const line of fs.readFileSync(args.env, 'utf8').split(/\r?\n/)) { const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line); if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, ''); }
@@ -29,7 +30,9 @@ const round = args.round || '2026-DRY';
     const r = C.drawUsage(p, uf.points); const again = C.drawUsage(p, uf.points.slice().reverse());
     if (JSON.stringify(r.audit.water_points) !== JSON.stringify(again.audit.water_points)) throw new Error('not reproducible');
     const areas = [];
+    const only = args.only ? new Set(String(args.only).split(',')) : null;
     for (const w of r.points.concat(r.reserves)) {
+      if (only && !only.has(String(w.water_point_id))) continue;
       if (!isFinite(w.lat)) { areas.push({ water_point_id: w.water_point_id, error: 'no coordinates' }); continue; }
       const R = C.USAGE.radiusM + 30, dLat = R / 110574, dLon = R / (111320 * Math.cos(w.lat * Math.PI / 180)); const features = [];
       for (let attempt = 0; ; attempt++) { // transient 'fetch failed' on range requests: retry the whole box

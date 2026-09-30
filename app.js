@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.3.1';
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
 const APP_URL = 'https://sanitap-water.github.io/sanitap-sampler/';
@@ -654,6 +654,9 @@ const Core = (function () {
     households: 10, householdReserves: 5,
     radiusM: 1000, rasterM: 10, crossingM: 40,
     barrierKinds: ['river', 'canal', 'coastline'], // waterway=stream is not a barrier (sdws1_barrier_clip.py)
+    // crossings, exactly the report's tag values (sdws1_population.py / sdws1_barrier_clip.py load_barriers):
+    // bridge ways, and ford nodes or ways; any other value (bridge=no, aqueduct, culvert, ...) does not open a river
+    bridgeValues: ['yes', 'viaduct', 'boardwalk'], fordValues: ['yes', 'stepping_stones', 'boat'],
     // the carbon fleet: the report's register classification (ids and classes only, no coordinates)
     fleetUrl: 'https://sanitap-water.github.io/sanitap-water-report/data/register_classification.json',
     fleetClasses: ['in_fleet', 'joins'],
@@ -709,7 +712,7 @@ const Core = (function () {
       record_id: recordId({ roundName: p.roundName, stratum: p.stratum, seed: p.seed }), timestamp: p.timestamp || new Date().toISOString(), drawn_by: p.drawnBy || null,
       seed: p.seed, seed_word_uint32: rng.seedWord, algorithm: USAGE_ALGORITHM,
       input: { source: p.source || 'csv', frame_sha256: p.frameHash || null, frame_file: p.frameFile || null, fleet: p.fleet || null, counts: p.frameCounts || null, mwater: p.source === 'mwater' ? (p.mwater || null) : null },
-      parameters: { round: p.roundName, scenario: p.stratum, communes: USAGE.communes, fokontany_per_commune: USAGE.fokontanyPerCommune, points_per_fokontany: USAGE.pointsPerFokontany, reserves_per_commune: USAGE.reservesPerCommune, households_per_point: USAGE.households, household_reserves: USAGE.householdReserves, radius_m: USAGE.radiusM, raster_m: USAGE.rasterM, barriers: 'natural=coastline, waterway=river, waterway=canal (waterway=stream is not a barrier); a segment within ' + USAGE.crossingM + ' m of bridge=* or ford=* is a crossing', buildings: USAGE.buildings.name },
+      parameters: { round: p.roundName, scenario: p.stratum, communes: USAGE.communes, fokontany_per_commune: USAGE.fokontanyPerCommune, points_per_fokontany: USAGE.pointsPerFokontany, reserves_per_commune: USAGE.reservesPerCommune, households_per_point: USAGE.households, household_reserves: USAGE.householdReserves, radius_m: USAGE.radiusM, raster_m: USAGE.rasterM, barriers: 'natural=coastline, waterway=river, waterway=canal (waterway=stream is not a barrier); a segment within ' + USAGE.crossingM + ' m of a way tagged bridge=' + USAGE.bridgeValues.join('|') + ' or a node or way tagged ford=' + USAGE.fordValues.join('|') + ' is a crossing; only the fragment of the 1 km circle containing the water point is kept', buildings: USAGE.buildings.name },
       frame: { points: M, communes: clist.length, fokontany: clist.reduce((a, c) => a + Object.keys(c.fok).length, 0) },
       stage1: { method: 'systematic PPS on frame points per commune', total_points: sp.total, interval: +sp.interval.toFixed(4), random_start: +sp.start.toFixed(4), certainty_selections: sp.certainty, frame_order: 'commune name' },
       communes: communesOut,
@@ -725,16 +728,17 @@ const Core = (function () {
   function overpassQuery(lat, lon, radiusM) {
     const r = (radiusM || USAGE.radiusM) + 150; const dLat = r / 110574, dLon = r / (111320 * Math.cos(lat * Math.PI / 180));
     const bb = [lat - dLat, lon - dLon, lat + dLat, lon + dLon].map(v => v.toFixed(6)).join(',');
-    return `[out:json][timeout:60];(way["waterway"~"^(river|canal)$"](${bb});way["natural"="coastline"](${bb});way["bridge"](${bb});way["ford"](${bb});node["ford"](${bb}););out geom;`;
+    return `[out:json][timeout:60];(way["waterway"~"^(river|canal)$"](${bb});way["natural"="coastline"](${bb});way["bridge"~"^(${USAGE.bridgeValues.join('|')})$"](${bb});way["ford"~"^(${USAGE.fordValues.join('|')})$"](${bb});node["ford"~"^(${USAGE.fordValues.join('|')})$"](${bb}););out geom;`;
   }
   function parseOverpass(json) {
     const barriers = [], crossings = [];
     ((json && json.elements) || []).forEach(el => {
       const tg = el.tags || {};
-      if (el.type === 'node' && tg.ford) { crossings.push({ kind: 'ford', pts: [[el.lat, el.lon]] }); return; }
+      const isFord = USAGE.fordValues.includes(tg.ford), isBridge = USAGE.bridgeValues.includes(tg.bridge);
+      if (el.type === 'node') { if (isFord) crossings.push({ kind: 'ford', pts: [[el.lat, el.lon]] }); return; }
       const g = (el.geometry || []).map(q => [q.lat, q.lon]); if (g.length < 2) return;
-      if (tg.bridge) crossings.push({ kind: 'bridge', pts: g });
-      if (tg.ford) crossings.push({ kind: 'ford', pts: g });
+      if (isBridge) crossings.push({ kind: 'bridge', pts: g });
+      if (isFord) crossings.push({ kind: 'ford', pts: g });
       const kind = tg.natural === 'coastline' ? 'coastline' : tg.waterway;
       if (USAGE.barrierKinds.includes(kind)) barriers.push({ kind, pts: g });
     });
@@ -774,6 +778,9 @@ const Core = (function () {
     let discCells = 0; for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) if (inDisc(i, j)) discCells++;
     let kept = 1;
     while (q.length) { const [i, j] = q.pop(); [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([di, dj]) => { const a = i + di, b = j + dj; if (a < 0 || b < 0 || a >= N || b >= N) return; const k = b * N + a; if (keep[k] || wall[k] || !inDisc(a, b)) return; keep[k] = 1; kept++; q.push([a, b]); }); }
+    // the barrier is a line with no width (as in the report's polygon split): a wall cell touching the kept fragment is kept area
+    const touchesKept = (i, j) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([di, dj]) => { const a = i + di, b = j + dj; return a >= 0 && b >= 0 && a < N && b < N && keep[b * N + a]; });
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) if (wall[j * N + i] && inDisc(i, j) && touchesKept(i, j)) kept++;
     return {
       inside(lat, lon) { const [x, y] = xy(lat, lon); if (x * x + y * y > R * R) return false; const [i, j] = cell(x, y); if (i < 0 || j < 0 || i >= N || j >= N) return false; if (keep[j * N + i]) return true; if (!wall[j * N + i]) return false; return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([di, dj]) => { const a = i + di, b = j + dj; return a >= 0 && b >= 0 && a < N && b < N && keep[b * N + a]; }); },
       inDiscM(lat, lon) { const [x, y] = xy(lat, lon); return x * x + y * y <= R * R; },
