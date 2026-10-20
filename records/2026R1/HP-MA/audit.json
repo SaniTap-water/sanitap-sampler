@@ -1,0 +1,840 @@
+{
+  "tool": "SaniTap Sampler",
+  "version": "2.4.1",
+  "commit": "74bd2e4",
+  "methodology": "Gold Standard SDWS v2.0; SaniTap Water Quality Testing Protocol v2.2 section 6.4",
+  "protocol_version": "v2.2",
+  "record_id": "2026R1-HP-MA",
+  "timestamp": "2026-10-20T07:41:49.961Z",
+  "drawn_by": "Adriaan Mol (SaniTap)",
+  "seed": "2026R1-HP-MA",
+  "seed_word_uint32": 3379944857,
+  "algorithm": "seed string -> xmur3 32-bit hash -> mulberry32 PRNG (v1.2.0); stage 1: systematic PPS of sources proportional to households served, frame ordered by commune then water_point_id, one random start, certainty selection for sources larger than the interval; replacements: sequential PPS without replacement in random order; stage 2: households by the field rule (the k-th household walking from the source), numbers from mulberry32 seeded with seed|water_point_id|K",
+  "input": {
+    "source": "mwater",
+    "water_points_file": "mwater:water_point:HP-MA@2026-10-20T07:40:00.000Z",
+    "water_points_sha256": "19b1a0e9fec08d9fa8dca8876e9be0480a3bb4cdfcb57dc3d72381b1bd62275e",
+    "frame_rule": "A source is eligible when it belongs to the MadAvance water point register (mWater group group:aaaf0a14e4ce44eaa7a2bcfd1c74aa56), has at least one final water quality result in the form \"Clean Water || Water Quality Testing_SDWS 3_Result\" that meets the health-based rule (E. coli = 0 CFU/100 mL, arsenic <= 10 µg/L, fluoride <= 1.5 mg/L, and, where measured, nitrate <= 50 mg/L and manganese <= 0.08 mg/L; pH, conductivity, turbidity and iron are recorded but do not exclude), is not abandoned, identified-only, proposed, reported not functional in its latest maintenance record or of a non-hand-pump type, and lies in a district mapped to a stratum (Taolagnaro and Amboasary-Atsimo -> HP-FD, Maroantsetra -> HP-MA); the Marolinta area (Beloha district) is excluded and any other district is unassigned.",
+    "mwater": {
+      "api": "https://api.mwater.co/v3",
+      "group": "group:aaaf0a14e4ce44eaa7a2bcfd1c74aa56",
+      "entity_type": "water_point",
+      "fetched_at": "2026-10-20T07:40:00.000Z",
+      "stratum_filter": "HP-MA",
+      "forms_used": [
+        "7b33c5d7e5074808a94915939a5a0783",
+        "8aa2dd78eb1f460f8f43db7935955846",
+        "86cf66efdd3749dd8a121314bab3675a"
+      ],
+      "counts": {
+        "total_in_group": 910,
+        "sdws3_pass_count": 729,
+        "excluded_no_pass": 181,
+        "excluded_abandoned": 1,
+        "excluded_marolinta": 0,
+        "unassigned": 0,
+        "eligible": 728,
+        "eligible_by_stratum": {
+          "HP-FD": 126,
+          "HP-MA": 602
+        },
+        "fetched": 637,
+        "active": 602
+      },
+      "frame_rule": "A source is eligible when it belongs to the MadAvance water point register (mWater group group:aaaf0a14e4ce44eaa7a2bcfd1c74aa56), has at least one final water quality result in the form \"Clean Water || Water Quality Testing_SDWS 3_Result\" that meets the health-based rule (E. coli = 0 CFU/100 mL, arsenic <= 10 µg/L, fluoride <= 1.5 mg/L, and, where measured, nitrate <= 50 mg/L and manganese <= 0.08 mg/L; pH, conductivity, turbidity and iron are recorded but do not exclude), is not abandoned, identified-only, proposed, reported not functional in its latest maintenance record or of a non-hand-pump type, and lies in a district mapped to a stratum (Taolagnaro and Amboasary-Atsimo -> HP-FD, Maroantsetra -> HP-MA); the Marolinta area (Beloha district) is excluded and any other district is unassigned."
+    }
+  },
+  "parameters": {
+    "round": "2026 R1",
+    "stratum": "HP-MA",
+    "method": "pps_households",
+    "target_samples": 58,
+    "households_per_point": 5,
+    "household_replacements": 2,
+    "replacement_fraction": 0.2,
+    "icc": 0.1,
+    "expected_pass_rate": 0.95,
+    "confidence": "0.90",
+    "precision": 0.1,
+    "precision_type": "relative"
+  },
+  "frame": {
+    "eligible_points": 602,
+    "clusters": [
+      {
+        "name": "Ambinanitelo",
+        "size": 62,
+        "households": 6734,
+        "selected": 1
+      },
+      {
+        "name": "Andranofotsy",
+        "size": 79,
+        "households": 6120,
+        "selected": 1
+      },
+      {
+        "name": "Anjahana",
+        "size": 89,
+        "households": 9349,
+        "selected": 2
+      },
+      {
+        "name": "Anjanazana",
+        "size": 76,
+        "households": 5751,
+        "selected": 2
+      },
+      {
+        "name": "Ankofa",
+        "size": 61,
+        "households": 7517,
+        "selected": 1
+      },
+      {
+        "name": "Ankofabe",
+        "size": 57,
+        "households": 6752,
+        "selected": 2
+      },
+      {
+        "name": "Mahalevona",
+        "size": 47,
+        "households": 5023,
+        "selected": 1
+      },
+      {
+        "name": "Mariarano",
+        "size": 45,
+        "households": 4741,
+        "selected": 1
+      },
+      {
+        "name": "Mariharano",
+        "size": 1,
+        "households": 87,
+        "selected": 0
+      },
+      {
+        "name": "Voloina",
+        "size": 85,
+        "households": 5106,
+        "selected": 1
+      }
+    ]
+  },
+  "stage1": {
+    "method": "pps_households",
+    "frame_order": "commune, water_point_id",
+    "frame_size": 602,
+    "total_households": 57180,
+    "imputed_weight": 87,
+    "imputed_count": 4,
+    "interval": 4765,
+    "random_start": 4067.5742,
+    "certainty_selections": 0,
+    "communes_covered": 9,
+    "communes_in_frame": 10
+  },
+  "statistics": {
+    "m": 5,
+    "icc": 0.1,
+    "deff": 1.4,
+    "nWp": 12,
+    "nActual": 60,
+    "nEff": 42.9,
+    "z": 1.6449,
+    "expectedPass": 0.95,
+    "precision": 0.1,
+    "precisionType": "relative",
+    "d": 0.095,
+    "nReq": 15,
+    "pass": true,
+    "suggestions": []
+  },
+  "selected_clusters": [
+    {
+      "name": "Ambinanitelo",
+      "size": 62,
+      "households": 6734,
+      "selected": 1,
+      "order": 1
+    },
+    {
+      "name": "Andranofotsy",
+      "size": 79,
+      "households": 6120,
+      "selected": 1,
+      "order": 2
+    },
+    {
+      "name": "Anjahana",
+      "size": 89,
+      "households": 9349,
+      "selected": 2,
+      "order": 3
+    },
+    {
+      "name": "Anjanazana",
+      "size": 76,
+      "households": 5751,
+      "selected": 2,
+      "order": 4
+    },
+    {
+      "name": "Ankofa",
+      "size": 61,
+      "households": 7517,
+      "selected": 1,
+      "order": 5
+    },
+    {
+      "name": "Ankofabe",
+      "size": 57,
+      "households": 6752,
+      "selected": 2,
+      "order": 6
+    },
+    {
+      "name": "Mahalevona",
+      "size": 47,
+      "households": 5023,
+      "selected": 1,
+      "order": 7
+    },
+    {
+      "name": "Mariarano",
+      "size": 45,
+      "households": 4741,
+      "selected": 1,
+      "order": 8
+    },
+    {
+      "name": "Voloina",
+      "size": 85,
+      "households": 5106,
+      "selected": 1,
+      "order": 9
+    }
+  ],
+  "water_points": [
+    {
+      "order": 1,
+      "water_point_id": "897922492",
+      "alt_id": "28",
+      "name": "Canzee 28",
+      "cluster": "Ambinanitelo",
+      "commune": "Ambinanitelo",
+      "fokontany": "Ambinanitelo",
+      "households_served": 232,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 232,
+      "hit": 4067.5742,
+      "cum_from": 3870,
+      "cum_to": 4102
+    },
+    {
+      "order": 2,
+      "water_point_id": "742896626",
+      "alt_id": "17",
+      "name": "Canzee 17",
+      "cluster": "Andranofotsy",
+      "commune": "Andranofotsy",
+      "fokontany": "Matsotarihina",
+      "households_served": 51,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 51,
+      "hit": 8832.5742,
+      "cum_from": 8799,
+      "cum_to": 8850
+    },
+    {
+      "order": 3,
+      "water_point_id": "699595845",
+      "alt_id": "02",
+      "name": "Canzee 02",
+      "cluster": "Anjahana",
+      "commune": "Anjahana",
+      "fokontany": "Mahafidina I",
+      "households_served": 103,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 103,
+      "hit": 13597.5742,
+      "cum_from": 13510,
+      "cum_to": 13613
+    },
+    {
+      "order": 4,
+      "water_point_id": "742897476",
+      "alt_id": "13",
+      "name": "Canzee 13",
+      "cluster": "Anjahana",
+      "commune": "Anjahana",
+      "fokontany": "Anjahana",
+      "households_served": 87,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 87,
+      "hit": 18362.5742,
+      "cum_from": 18309,
+      "cum_to": 18396
+    },
+    {
+      "order": 5,
+      "water_point_id": "742895443",
+      "alt_id": "12",
+      "name": "Canzee 12",
+      "cluster": "Anjanazana",
+      "commune": "Anjanazana",
+      "fokontany": "Ambodimandrorofo",
+      "households_served": 88,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 88,
+      "hit": 23127.5742,
+      "cum_from": 23045,
+      "cum_to": 23133
+    },
+    {
+      "order": 6,
+      "water_point_id": "815285539",
+      "alt_id": "04",
+      "name": "Canzee 04",
+      "cluster": "Anjanazana",
+      "commune": "Anjanazana",
+      "fokontany": "Ambodivoanio",
+      "households_served": 68,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 68,
+      "hit": 27892.5742,
+      "cum_from": 27886,
+      "cum_to": 27954
+    },
+    {
+      "order": 7,
+      "water_point_id": "765258746",
+      "alt_id": "16",
+      "name": "Canzee 16",
+      "cluster": "Ankofa",
+      "commune": "Ankofa",
+      "fokontany": "Ankofa",
+      "households_served": 117,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 117,
+      "hit": 32657.5742,
+      "cum_from": 32648,
+      "cum_to": 32765
+    },
+    {
+      "order": 8,
+      "water_point_id": "699596035",
+      "alt_id": "01",
+      "name": "Canzee 01",
+      "cluster": "Ankofabe",
+      "commune": "Ankofabe",
+      "fokontany": "Analalava",
+      "households_served": 186,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 186,
+      "hit": 37422.5742,
+      "cum_from": 37321,
+      "cum_to": 37507
+    },
+    {
+      "order": 9,
+      "water_point_id": "771825925",
+      "alt_id": "02",
+      "name": "Canzee 02",
+      "cluster": "Ankofabe",
+      "commune": "Ankofabe",
+      "fokontany": "Antoraka",
+      "households_served": 67,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 67,
+      "hit": 42187.5742,
+      "cum_from": 42156,
+      "cum_to": 42223
+    },
+    {
+      "order": 10,
+      "water_point_id": "742898099",
+      "alt_id": "06",
+      "name": "Canzee 06",
+      "cluster": "Mahalevona",
+      "commune": "Mahalevona",
+      "fokontany": "Masindrano",
+      "households_served": 94,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 94,
+      "hit": 46952.5742,
+      "cum_from": 46939,
+      "cum_to": 47033
+    },
+    {
+      "order": 11,
+      "water_point_id": "833033064",
+      "alt_id": "01",
+      "name": "Canzee 01",
+      "cluster": "Mariarano",
+      "commune": "Mariarano",
+      "fokontany": "Antanambao Andranasana",
+      "households_served": 93,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 93,
+      "hit": 51717.5742,
+      "cum_from": 51711,
+      "cum_to": 51804
+    },
+    {
+      "order": 12,
+      "water_point_id": "699597012",
+      "alt_id": "10",
+      "name": "Canzee 10",
+      "cluster": "Voloina",
+      "commune": "Voloina",
+      "fokontany": "Nandrasana",
+      "households_served": 77,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 77,
+      "hit": 56482.5742,
+      "cum_from": 56470,
+      "cum_to": 56547
+    }
+  ],
+  "replacements": [
+    {
+      "order": 1,
+      "water_point_id": "771580741",
+      "alt_id": "02",
+      "name": "Canzee 02",
+      "cluster": "Anjahana",
+      "commune": "Anjahana",
+      "fokontany": "Mahafidina II",
+      "households_served": 128,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 128
+    },
+    {
+      "order": 2,
+      "water_point_id": "698771969",
+      "alt_id": "09",
+      "name": "Canzee 09",
+      "cluster": "Voloina",
+      "commune": "Voloina",
+      "fokontany": "Voloina",
+      "households_served": 46,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 46
+    },
+    {
+      "order": 3,
+      "water_point_id": "699597328",
+      "alt_id": "01",
+      "name": "Canzee 01",
+      "cluster": "Ankofabe",
+      "commune": "Ankofabe",
+      "fokontany": "Ankofabe",
+      "households_served": 233,
+      "households": {
+        "mode": "rule",
+        "n": 5,
+        "extra": 2
+      },
+      "weight": 233
+    }
+  ],
+  "reach_check": {
+    "threshold_km": 25,
+    "town": "Maroantsetra",
+    "sources": [
+      {
+        "water_point_id": "897922492",
+        "nearest_km": 6.1,
+        "nearest_id": "833033064",
+        "town_km": 19.9,
+        "far": false
+      },
+      {
+        "water_point_id": "742896626",
+        "nearest_km": 2.7,
+        "nearest_id": "742895443",
+        "town_km": 6.9,
+        "far": false
+      },
+      {
+        "water_point_id": "699595845",
+        "nearest_km": 2.2,
+        "nearest_id": "742897476",
+        "town_km": 16.2,
+        "far": false
+      },
+      {
+        "water_point_id": "742897476",
+        "nearest_km": 2.2,
+        "nearest_id": "699595845",
+        "town_km": 16.5,
+        "far": false
+      },
+      {
+        "water_point_id": "742895443",
+        "nearest_km": 2.7,
+        "nearest_id": "742896626",
+        "town_km": 4.3,
+        "far": false
+      },
+      {
+        "water_point_id": "815285539",
+        "nearest_km": 3.2,
+        "nearest_id": "742896626",
+        "town_km": 6.2,
+        "far": false
+      },
+      {
+        "water_point_id": "765258746",
+        "nearest_km": 6.4,
+        "nearest_id": "833033064",
+        "town_km": 10.4,
+        "far": false
+      },
+      {
+        "water_point_id": "699596035",
+        "nearest_km": 2.5,
+        "nearest_id": "771825925",
+        "town_km": 8.3,
+        "far": false
+      },
+      {
+        "water_point_id": "771825925",
+        "nearest_km": 2.5,
+        "nearest_id": "699596035",
+        "town_km": 8.8,
+        "far": false
+      },
+      {
+        "water_point_id": "742898099",
+        "nearest_km": 4.8,
+        "nearest_id": "742897476",
+        "town_km": 18.5,
+        "far": false
+      },
+      {
+        "water_point_id": "833033064",
+        "nearest_km": 6.1,
+        "nearest_id": "897922492",
+        "town_km": 16.6,
+        "far": false
+      },
+      {
+        "water_point_id": "699597012",
+        "nearest_km": 14.9,
+        "nearest_id": "771825925",
+        "town_km": 22.7,
+        "far": false
+      }
+    ]
+  },
+  "field_rule": "Households are drawn by the field rule: the k-th household walking from the source. Count the households served (K), draw N=5 numbers (+2 replacements) from 1..K with mulberry32 seeded by seed|water_point_id|K=K, and sample the k-th household met when walking from the source.",
+  "warnings": [
+    {
+      "code": "imputed_weights",
+      "n": 4,
+      "value": 87
+    }
+  ],
+  "field_rule_numbers": [
+    {
+      "water_point_id": "698771969",
+      "K": 46,
+      "primary": [
+        30,
+        4,
+        28,
+        2,
+        34
+      ],
+      "replacements": [
+        37,
+        1
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "699595845",
+      "K": 103,
+      "primary": [
+        20,
+        88,
+        48,
+        97,
+        37
+      ],
+      "replacements": [
+        29,
+        77
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "699596035",
+      "K": 186,
+      "primary": [
+        143,
+        60,
+        84,
+        154,
+        57
+      ],
+      "replacements": [
+        50,
+        87
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "699597012",
+      "K": 77,
+      "primary": [
+        26,
+        51,
+        19,
+        1,
+        4
+      ],
+      "replacements": [
+        73,
+        61
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "699597328",
+      "K": 233,
+      "primary": [
+        57,
+        77,
+        181,
+        52,
+        34
+      ],
+      "replacements": [
+        223,
+        110
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "742895443",
+      "K": 88,
+      "primary": [
+        56,
+        37,
+        74,
+        63,
+        44
+      ],
+      "replacements": [
+        6,
+        55
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "742896626",
+      "K": 51,
+      "primary": [
+        30,
+        23,
+        19,
+        15,
+        27
+      ],
+      "replacements": [
+        3,
+        41
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "742897476",
+      "K": 87,
+      "primary": [
+        39,
+        71,
+        16,
+        78,
+        56
+      ],
+      "replacements": [
+        51,
+        81
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "742898099",
+      "K": 94,
+      "primary": [
+        52,
+        3,
+        41,
+        31,
+        69
+      ],
+      "replacements": [
+        67,
+        5
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "765258746",
+      "K": 117,
+      "primary": [
+        46,
+        66,
+        53,
+        97,
+        55
+      ],
+      "replacements": [
+        47,
+        106
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "771580741",
+      "K": 128,
+      "primary": [
+        39,
+        117,
+        95,
+        97,
+        4
+      ],
+      "replacements": [
+        89,
+        71
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "771825925",
+      "K": 67,
+      "primary": [
+        52,
+        35,
+        25,
+        24,
+        23
+      ],
+      "replacements": [
+        44,
+        8
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "815285539",
+      "K": 68,
+      "primary": [
+        62,
+        53,
+        56,
+        34,
+        59
+      ],
+      "replacements": [
+        43,
+        57
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "833033064",
+      "K": 93,
+      "primary": [
+        17,
+        87,
+        11,
+        66,
+        78
+      ],
+      "replacements": [
+        55,
+        2
+      ],
+      "short": false
+    },
+    {
+      "water_point_id": "897922492",
+      "K": 232,
+      "primary": [
+        86,
+        180,
+        36,
+        64,
+        142
+      ],
+      "replacements": [
+        17,
+        149
+      ],
+      "short": false
+    }
+  ]
+}
