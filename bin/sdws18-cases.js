@@ -27,7 +27,7 @@ function summary(C, r) {
 function run(C) {
   const f = frames(C); const draws = {};
   cases(f).forEach(c => { const key = c.frame + '|' + c.p.seed + '|' + c.p.target; draws[key] = summary(C, C.draw(c.p, c.frame === 'sample' ? f.sample : f.mw)); });
-  return { note: 'SDWS 18 (point-of-use) draws of SaniTap Sampler v2.2.0 (commit 2b56e5a) for fixed frames and seeds; the regression test requires every later version to reproduce them exactly.', draws };
+  return { note: 'SDWS 18 (point-of-use) draws for fixed frames and seeds; the regression test requires every later version to reproduce them exactly. Written by v2.2.0 (2b56e5a); re-baselined by v2.4.1: record id no longer repeats the seed and the design check gains the protocol minimum of 12 sources (selections, stage-1 numbers and field numbers verified unchanged against the v2.2.0 baseline; only the audit hashes moved).', draws };
 }
 // PDF bytes for three draws, with the build stamp in the audit pinned so that only the record builder is compared
 async function pdfs(C, PDFLib) {

@@ -50,7 +50,7 @@ test('draw (pps_households): field rule only, communes covered, audit carries st
   assert.equal(a.selected.length, 12); assert.equal(a.replacements.length, 3); assert.equal(a.stats.deff, 1.4);
   assert.ok(a.selected.every(w => w.households.mode === 'rule')); assert.equal(new Set(a.selected.concat(a.replacements).map(w => w.water_point_id)).size, 15);
   assert.equal(a.audit.stage1.method, 'pps_households'); assert.equal(a.audit.stage1.imputed_count, 1); assert.ok(a.audit.stage1.interval > 0); assert.ok(a.audit.selected_clusters.length >= 3);
-  assert.equal(a.audit.record_id, '2026R1-HP-FD-2026R1-HP-FD'); assert.equal(a.audit.drawn_by, 'Tester'); assert.equal(a.audit.protocol_version, C.PROTOCOL_VERSION); assert.match(a.audit.methodology, /Protocol v2\.2 section 6\.4/); assert.equal(a.audit.parameters.method, 'pps_households');
+  assert.equal(a.audit.record_id, '2026R1-HP-FD'); assert.equal(a.audit.drawn_by, 'Tester'); assert.equal(a.audit.protocol_version, C.PROTOCOL_VERSION); assert.match(a.audit.methodology, /Protocol v2\.2 section 6\.4/); assert.equal(a.audit.parameters.method, 'pps_households');
   assert.equal(JSON.stringify(a.audit), JSON.stringify(b.audit)); assert.ok(!C.auditJson(a).includes('SECRET-TOKEN')); assert.ok(!C.toCsv(a).includes('SECRET-TOKEN'));
   assert.equal(a.selected.every(w => w.commune === w.cluster), true);
   assert.equal(C.draw(Object.assign({}, base, { method: 'commune_clusters' }), pts).audit.parameters.method, 'pps_households', 'only one method exists');
@@ -143,4 +143,18 @@ test('mwaterLoadFrame assembles the frame with SDWS 3 pass data and counts', asy
   const r = await C.mwaterLoadFrame('tok', { fetchImpl: async (u) => ({ ok: true, status: 200, json: async () => replies(u) }) });
   assert.deepEqual(r.counts, { total_in_group: 3, sdws3_pass_count: 2, excluded_no_pass: 1, excluded_abandoned: 1, excluded_marolinta: 0, unassigned: 0, eligible: 1, eligible_by_stratum: { 'HP-FD': 1, 'HP-MA': 0 } });
   assert.equal(r.points[0].households_served, 12); assert.equal(r.points[1].stratum, 'HP-MA'); assert.equal(r.points[1].status, 'inactive'); assert.equal(r.formsUsed.length, 3); assert.equal(r.sdws3Responses, 3); assert.ok(!JSON.stringify(r).includes('tok'));
+});
+
+test('record id is round + stratum (seed not repeated); a different seed is kept', () => {
+  assert.equal(C.recordId({ roundName: '2026 R1', stratum: 'HP-FD', seed: '2026R1-HP-FD' }), '2026R1-HP-FD');
+  assert.equal(C.recordId({ roundName: '2026 R1', stratum: 'HP-MA', seed: 'custom' }), '2026R1-HP-MA-custom');
+});
+
+test('design check fails below the protocol minimum of 12 sources even when 90/10 passes (3 x 10 drawn on 17 Oct 2026)', () => {
+  const P = { icc: 0.1, confidence: '0.90', expectedPass: 0.95, precision: 0.1, precisionType: 'relative' };
+  const small = C.stats(Object.assign({ target: 21, hhPerPoint: 10 }, P));
+  assert.equal(small.nWp, 3); assert.ok(small.nEff >= small.nReq, '90/10 alone passes'); assert.equal(small.pass, false); assert.equal(small.protocol_min_sources, 12);
+  assert.deepEqual(small.suggestions[0], { type: 'protocol_min', nWp: 12, nSamples: 120 });
+  const ok = C.stats(Object.assign({ target: 58, hhPerPoint: 5 }, P));
+  assert.equal(ok.nWp, 12); assert.equal(ok.pass, true); assert.equal(ok.protocol_min_sources, undefined);
 });

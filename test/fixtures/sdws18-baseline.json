@@ -1,5 +1,5 @@
 {
- "note": "SDWS 18 (point-of-use) draws of SaniTap Sampler v2.2.0 (commit 2b56e5a) for fixed frames and seeds; the regression test requires every later version to reproduce them exactly.",
+ "note": "SDWS 18 (point-of-use) draws for fixed frames and seeds; the regression test requires every later version to reproduce them exactly. Written by v2.2.0 (2b56e5a); re-baselined by v2.4.1: record id no longer repeats the seed and the design check gains the protocol minimum of 12 sources (selections, stage-1 numbers and field numbers verified unchanged against the v2.2.0 baseline; only the audit hashes moved).",
  "draws": {
   "sample|2026R1-FD|20": {
    "selected": [
@@ -101,7 +101,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "268cb7ff59796db2b96e53815823b07f6282ba653dd9b3a183038330aa829ee6"
+   "audit_sha256": "ab7638aee24681997d7d85b7ea629276bb1af04bad35ee46cb1d012249e7ef20"
   },
   "sample|2026R1-FD|58": {
    "selected": [
@@ -363,7 +363,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "e4545b7feac06348cb3f7e71f50fdd000a6311eabdb4c969fc9a144daedfdde2"
+   "audit_sha256": "4fd7072229e9faeffe753bb8fa2bd0fc71041dcecabd1b78a4b102366a775cd3"
   },
   "sample|2026R2-FD|20": {
    "selected": [
@@ -465,7 +465,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "8d577c2f9ed0bc32775d29931f2a8fa74f89914250521117b2fc2fe6fd1a2a03"
+   "audit_sha256": "0324e3be6b224b39b281aadc5cfbe52f174e64592d04c6eacf5c243e9e62d6f0"
   },
   "sample|2026R2-FD|58": {
    "selected": [
@@ -727,7 +727,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "7019f48f74ac9e29cc7f7d824e95b7631fbfc7238126aee9ffdd6a3db554896a"
+   "audit_sha256": "122da64f788e130f42eaee0db4c155eacdd94b26e744b32a23cd4fb86802d47b"
   },
   "sample|TEST-FD|20": {
    "selected": [
@@ -829,7 +829,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "b7057a61ca319043fc2c0162468cc5a01718cea92a9beddc51cfca237213f704"
+   "audit_sha256": "c7e2abf96885a2e78a58bda7d27053c5f9942eabc4f04fb4a2757ee2e31cebf1"
   },
   "sample|TEST-FD|58": {
    "selected": [
@@ -1091,7 +1091,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "2c0b4b3a4b587bd8b89663c15aa787ecaea4972917544710a9283d51f49c15d8"
+   "audit_sha256": "027e47c668f302f7a9365f66cb3756ac68eae54a9583c829043e95ecd4446961"
   },
   "sample|2026R1-MA|20": {
    "selected": [
@@ -1193,7 +1193,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "1fd0bf7bce76ca84c2fba0cf69ab33c7242a411a775eaad834a253a43332b780"
+   "audit_sha256": "be1e8248887806ac55132be64706cfd8c943bc3304513dbb3d5311843a2478ef"
   },
   "sample|2026R1-MA|58": {
    "selected": [
@@ -1455,7 +1455,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "c5694e9fc00d4cc3c4dc6e8b3d5a9ac9f2e8e557201ea8f4d85ce37be548f1c1"
+   "audit_sha256": "57625ef2b7546b998501bbd24d24bfa41817e9b7bae0d5e93ab0b0ba8e4294bf"
   },
   "sample|2026R2-MA|20": {
    "selected": [
@@ -1557,7 +1557,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "88bbdf54322235fec92a72e252fb704bd774236f9aee92128bb471ca73d3d85e"
+   "audit_sha256": "925dc2ec5963bad45cb3245b76686816c625e4f9edea9533bb43612651a26143"
   },
   "sample|2026R2-MA|58": {
    "selected": [
@@ -1819,7 +1819,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "386f8849055757556368ef196fc1a84f1e2388d6105aa6b4fbac6a34408124d8"
+   "audit_sha256": "85e213d54d7cf4412849beb7453c8ff20de2ed606645a9e6621751639f9e33b5"
   },
   "sample|TEST-MA|20": {
    "selected": [
@@ -1921,7 +1921,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "7b8eddb9d4665c200518f249d902fa4f9906b757d72cecfa61fc02d2a3148c9a"
+   "audit_sha256": "547a70ed656a83a6f3a3811ca0f25d6804e37438bb9b1d6bcb7269eff4bcd301"
   },
   "sample|TEST-MA|58": {
    "selected": [
@@ -2183,7 +2183,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "d4da104279775aa1789f3e218529cfbb0b2c6d48f0e5660dd6203ac02b7d482e"
+   "audit_sha256": "feb5d8df64a2c52b6e869a0bdbc53cbf99eef0cafcb994bca6e13981be715536"
   },
   "sample|2026R1-AM|20": {
    "selected": [
@@ -2285,7 +2285,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "1f15fbdef35ef349b159d09efc87b401d3eb12a7cc9760cffaec54939493ca87"
+   "audit_sha256": "48245f859c932c0b321b881dd2c042bf5f70c994751c3797683f844a65c500ba"
   },
   "sample|2026R1-AM|58": {
    "selected": [
@@ -2547,7 +2547,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "556a0859fef99c7c092a2312604f570fa86eae4e75d0d0fecc2a5f69d118cbed"
+   "audit_sha256": "8041bdca44b6cf99e943b1efe9e6a5c4c1dc623da967c71dfd6263db4205cb9b"
   },
   "sample|2026R2-AM|20": {
    "selected": [
@@ -2649,7 +2649,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "6fe78b555bb57accec396680afbd4ac1da9829d82fc94b0a2996f8c8194f3893"
+   "audit_sha256": "215b24b17f0737e5d433db9ed84e2096cae2663c86d94295fb738d8b121a3f2f"
   },
   "sample|2026R2-AM|58": {
    "selected": [
@@ -2911,7 +2911,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "4ae33cb1773cdee5683cf6997b2db5c4d4bb829cac291e18d037e31acf413cc3"
+   "audit_sha256": "ee7e5256e4cd843feb667510bdf16c63fb399eba491d61319b3c2940eee287bc"
   },
   "sample|TEST-AM|20": {
    "selected": [
@@ -3013,7 +3013,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "3c6ccc17af35d575e2dc0402007a5005f4aadb0ad409a226f791f9a623ec43f9"
+   "audit_sha256": "ca1327722a21061dfaf91900a9c27525b67d0db7f5a994a2bc9f074c48ceb9cf"
   },
   "sample|TEST-AM|58": {
    "selected": [
@@ -3275,7 +3275,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "c1880f1789e6103969dca733764b1381f0f50fc92d655e5415565da12d2068db"
+   "audit_sha256": "40f9f996cf9824ec043f8a18225b525ae3ba6efcae89ec6a1fe1aed6b25f6070"
   },
   "mw|2026R1-HP-FD|58": {
    "selected": [
@@ -3312,7 +3312,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "3f6d13f109b23d17b04072018cb3b1c1eef536e537cf9312cfc8829f2aec1b8b"
+   "audit_sha256": "f4c83f54eab4ed4d6616fb564354cb9541f717b3d8f9019ecc08f56a8ae1ece5"
   },
   "mw|2026-DRY-HP-FD|58": {
    "selected": [
@@ -3349,7 +3349,7 @@
      "short": false
     }
    ],
-   "audit_sha256": "2d8503e8de1394d485dd1cd60fffc7024d93d6da53b7532581c1eea1dbeb682a"
+   "audit_sha256": "f568ac389ee9ecd7411389d8f4a8fea5ca373dfee2bfaac80165ba8e8e3651b4"
   },
   "mw|2026R1-HP-MA|58": {
    "error": "no_eligible"
@@ -3359,11 +3359,11 @@
   }
  },
  "pdf": {
-  "FD|en": "5c4faed479b04a3a9e1071f9d3eca04b225488da54737f7e8b9ce9bf0c89c6d3",
-  "FD|fr": "ddbfb3d94f736c65acc543ce1c0f8ce25b40f2fdf533cf8031c6fb4ab2783066",
-  "MA|en": "1bd722c85fc711036d4a5e1654e468097c8b0217eb1a3ea716d91e655fb3ab0d",
-  "MA|fr": "444a1f6c237fb57feb06a3626fb060bbb1862b0473348849ffe03dfa6077e3de",
-  "AM|en": "d95cdf85e9bb83bcce6c4645c490a024a807648ed51aac6243ce6a1d2854802a",
-  "AM|fr": "61996e3e785007579bba6b57ae6aedceade33f92af615fba8a56dd1fd8568181"
+  "FD|en": "885483096c39c298383d91217fd20ce569a33fa85f3406f3eb363eac1aa16974",
+  "FD|fr": "294c2572442f8dbff70668cab8b3343e3382798ba73065173eae536fc8a50994",
+  "MA|en": "3ee80545a56d5c581dc354a66a708e86ce8dde87acd837250941f7a5910256e0",
+  "MA|fr": "7e454695a42f09c61c7a8271095f70a82584f10ccc2bc4ef96eef164cb3acc7b",
+  "AM|en": "3d1e693def2f495c77fb630143eb0cd4816df8ca281b5a38cf2fd92553f815b3",
+  "AM|fr": "45443c158847464885757249738ec4c049b2ddd66b7eb2698ec81bb53c5fea87"
  }
 }

@@ -2,7 +2,7 @@
 
 A static, offline-capable web tool that draws **statistically valid, logistics-aware samples** for the SaniTap programme under the Gold Standard *Safe Drinking Water Supply* (SDWS) methodology v2.0, in two modes chosen on the Parameters tab:
 
-- **SDWS 18 point-of-use (water quality)** — the original mode, unchanged since v2.2.0 (a regression test proves its draws and records reproduce byte for byte);
+- **SDWS 18 point-of-use (water quality)** — the original mode. Its draws (selections, stage-1 numbers, household numbers) are unchanged since v2.2.0, and a regression test proves it. v2.4.1 changed two things in the record: the record id no longer repeats the seed (`2026R1-HP-FD`, not `2026R1-HP-FD-2026R1-HP-FD`), and the design check fails below the protocol minimum of 12 sources per stratum;
 - **Usage survey (SDWS 26)** — v2.4.0 (zones, SOP-MAD-SDWS26 v0.4 §4.2): a three-stage clustered draw of water points from the carbon fleet and a rooftop draw of households from building footprints, with an offline phone field view. See [Usage survey mode](#usage-survey-mode-sdws-26).
 
 **Live tool:** https://sanitap-water.github.io/sanitap-sampler/ (deployed from `main` by GitHub Actions; works offline after the first load).
@@ -92,7 +92,7 @@ Implemented in `Core.draw()` in `app.js`; also shown in the app under *How it wo
 
 **Reach check.** Each selected source is compared with the nearest other selected source and with the district town (Fort-Dauphin or Maroantsetra). A source farther than 25 km from both is flagged orange on the map, in the stop list, on the field sheet and in the PDF with the text "Far from the rest: replace in the field only if unreachable, and record the reason". The audit record keeps the distances (`reach_check`); nothing is replaced automatically.
 
-**Statistical check.** Design effect `DEFF = 1 + (m − 1) × ICC` (m = households per point). Effective sample size `n_eff = n_wp × m / DEFF`. Required size for a proportion at expected pass rate p under the CDM 90/10 rule: `n_req = z² p(1 − p) / d²`, z = 1.645 (90 %) or 1.96 (95 %), d = 0.1 × p (relative) or 0.10 (absolute). If `n_eff < n_req` the tool warns and suggests (a) fewer households per point and hence more water points/clusters, or (b) more water points at the same m.
+**Statistical check.** Design effect `DEFF = 1 + (m − 1) × ICC` (m = households per point). Effective sample size `n_eff = n_wp × m / DEFF`. Required size for a proportion at expected pass rate p under the CDM 90/10 rule: `n_req = z² p(1 − p) / d²`, z = 1.645 (90 %) or 1.96 (95 %), d = 0.1 × p (relative) or 0.10 (absolute). If `n_eff < n_req` the tool warns and suggests (a) fewer households per point and hence more water points/clusters, or (b) more water points at the same m. **Protocol minimum (v2.4.1):** fewer than 12 sources per stratum (Protocol section 6.4: 12 sources x 5 households) fails the check whatever the 90/10 result, because a few large clusters can pass 90/10 on paper (3 sources x 10 households did on 17 Oct 2026). The default design is 58 target samples and 5 households per source, which gives 12 sources and 60 samples.
 
 **Record.** Each draw produces the sampling record (PDF) described under Outputs; the complete machine-readable audit (seed and its 32-bit word, algorithm, tool version and commit, frame source and SHA-256, eligibility counts, parameters, stage-1 numbers, statistics, communes, sources with weights and hit positions, replacements, reach check, field rule, warnings and the field-rule numbers generated with K) is attached inside the PDF as `audit.json`, and its SHA-256 is printed in the PDF footer. It is the evidence of random selection retained for the VVB.
 
@@ -180,7 +180,7 @@ The script reads the audit attached inside the PDF, checks that its SHA-256 equa
 
 ## Link between mWater and a sampling record
 
-There is no write-back from the tool to mWater. The link from mWater to a sampling record is the **record id** (`<round>-<stratum>-<seed>`, printed on the sampling record and the field sheet) entered on each PoU form response in mWater. Records are published under `records/<round>/<stratum>/` on this site and copied to the monitoring report folder of the round. The `selection.csv` written at filing time is in the mWater import layout for a custom table.
+There is no write-back from the tool to mWater. The link from mWater to a sampling record is the **record id** (`<round>-<stratum>`, e.g. `2026R1-HP-FD`; the seed is appended only when it differs from round + stratum, as in the usage mode; printed on the sampling record and the field sheet) entered on each PoU form response in mWater. Records are published under `records/<round>/<stratum>/` on this site and copied to the monitoring report folder of the round. The `selection.csv` written at filing time is in the mWater import layout for a custom table.
 
 **Published record files carry no coordinates.** The sampling record PDF, the Excel file and the selection CSV contain identifiers, pump names, communes, households served and k-values only. The field sheet (with GPS positions) and the map are downloads for the field team and are never filed; the frame CSV is kept in the private archive (`bin/file-round.js --frame` verifies its hash without publishing it). The test suite fails if any file under `records/` contains a latitude/longitude field.
 
