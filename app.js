@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.4.1';
+const APP_VERSION = '2.5.0';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -364,6 +364,77 @@ const Core = (function () {
     inactiveNames: /ab[ao]ndonn|identifi|drilling|proposal|puits? ouvert/i,
     entityFields: { name: 1, desc: 1, type: 1, code: 1, alt_id: 1, alt_id_org: 1, location: 1, admin_region: 1, admin_div1: 1, admin_div2: 1, admin_div3: 1, admin_div4: 1, admin_div5: 1, _private: 1, _rev: 1, _modified_on: 1 }
   };
+  // SDWS 3 creditable rule (James Walker, Head of Carbon, 20 Oct 2026): a water point that did not pass SDWS 3 is not creditable,
+  // not part of the carbon portfolio, and excluded from survey frames. The text below is data/sdws3_rule.json byte for byte (tested),
+  // the same file as in sanitap-water-report, so both apply one rule and its SHA-256 is the same in both.
+  const SDWS3_RULE_JSON = `{
+ "id": "sdws3-creditable",
+ "version": "1.0",
+ "title": "A water point that did not pass its SDWS 3 commissioning test is not creditable",
+ "decision": {
+  "by": "James Walker, Head of Carbon",
+  "on": "2026-10-20",
+  "where": "comment on the SDWS 3 SOP",
+  "text": "A water point that did not pass SDWS 3 is not creditable, is not part of the carbon portfolio, and is excluded from survey frames."
+ },
+ "homes": [
+  "sanitap-water-report: data/sdws3_rule.json (read by tools/sdws3_creditable.py)",
+  "sanitap-sampler: data/sdws3_rule.json (embedded as Core.SDWS3_RULE in app.js)"
+ ],
+ "form": {
+  "id": "7b33c5d7e5074808a94915939a5a0783",
+  "name": "Clean Water || Water Quality Testing_ SDWS 3__ Result",
+  "status": "final",
+  "site_q": "a3390d2e97494b3da193e5c015a879d1",
+  "date_q": "630ccd46f76f420692572e0db2d86ad8"
+ },
+ "selection": "Per water point, only its latest final result counts, ordered by result date (WS7.10), then by submission time. A later passing retest restores the point.",
+ "fail_if": [
+  {"key": "ecoli", "label": "E. coli", "q": "892f1d81bf1a4c4483e53271dda474a5", "code": "WS7.11", "op": ">", "limit": 0, "unit": "CFU/100 mL"},
+  {"key": "arsenic", "label": "arsenic", "q": "4b86e349e9bc418ea5a4868e7b383604", "code": "WS7.16", "op": ">", "limit": 10, "unit": "ug/L"},
+  {"key": "fluoride", "label": "fluoride", "q": "b4e94c2a5ca4497199bcde2856f2cd0c", "code": "WS7.17", "op": ">=", "limit": 1.5, "unit": "mg/L", "note": "1.5 mg/L is the kit maximum, so a reading of 1.5 means over-range, not a pass"},
+  {"key": "turbidity", "label": "turbidity", "q": "c70eb0f3cf764b04a26a2bc463a8ca2e", "code": "WS7.12", "op": ">", "limit": 5, "unit": "NTU"}
+ ],
+ "blank": "A parameter left blank does not fail the result (all four are required on the form, so a final response carries them).",
+ "no_result": "A water point with no final SDWS 3 result is not touched by this rule and keeps its current treatment.",
+ "exceptions": [
+  {
+   "response": "Cathy_MadAvance-D5V5UQ",
+   "water_point": "742894851",
+   "result_date": "2025-04-26",
+   "ignore": ["turbidity"],
+   "reason": "The turbidity of 11 NTU is a data-entry slip: the team's kit cannot read turbidity that precisely. Turbidity is ignored for this response only."
+  }
+ ]
+}
+`;
+  const SDWS3_RULE = JSON.parse(SDWS3_RULE_JSON);
+  const SDWS3_OPS = { '>': (v, t) => v > t, '>=': (v, t) => v >= t };
+  function sdws3Num(x) { if (x === null || x === undefined || x === '' || typeof x === 'boolean') return null; const v = Number(x); return isNaN(v) ? null : v; }
+  // failing parameters of one response under the rule, after its named exception (if any)
+  function sdws3Judge(r, rule) {
+    const exc = rule.exceptions.find(e => e.response === r.code) || null; const ignore = new Set(exc ? exc.ignore : []); const failing = [], ignored = [];
+    rule.fail_if.forEach(t => { const a = (r.data || {})[t.q]; const v = sdws3Num(a && typeof a === 'object' ? a.value : a); if (v === null || !SDWS3_OPS[t.op](v, t.limit)) return; (ignore.has(t.key) ? ignored : failing).push({ key: t.key, value: v }); });
+    return { failing, ignored, exc };
+  }
+  // per water point with a final result: its latest final result (result date, then submission time) and whether that result is creditable.
+  // A point with no final result gets no verdict: the rule does not touch it.
+  function sdws3Creditable(responses, rule) {
+    rule = rule || SDWS3_RULE; const f = rule.form; const by = {};
+    (responses || []).forEach(r => { if ((r.form && r.form !== f.id) || r.status !== f.status) return; const s = (r.data || {})[f.site_q]; const code = s && s.value && s.value.code; if (!code) return; (by[code] = by[code] || []).push(r); });
+    const key = r => [String(((r.data || {})[f.date_q] || {}).value || ''), String(r.submittedOn || '')];
+    const out = {};
+    Object.keys(by).sort().forEach(wp => {
+      const rs = by[wp].slice().sort((a, b) => { const x = key(a), y = key(b); return x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] < y[1] ? -1 : x[1] > y[1] ? 1 : 0; });
+      const last = rs[rs.length - 1]; const j = sdws3Judge(last, rule);
+      out[wp] = { creditable: j.failing.length === 0, failing: j.failing, ignored: j.ignored, exception: j.exc ? j.exc.reason : null, response: last.code || '', result_date: String(key(last)[0] || last.submittedOn || '').slice(0, 10), results: rs.length };
+    });
+    return out;
+  }
+  const NOT_CREDITABLE = 'not_creditable_sdws3';
+  const isNotCreditable = p => String((p && p.status_reason) || '').indexOf(NOT_CREDITABLE) === 0;
+  const CREDIT_RULE_TEXT = { en: 'Not creditable (James Walker, 20 Oct 2026): a water point whose latest final result on the SDWS 3 results form (by result date) has E. coli above 0 CFU/100 mL, arsenic above 10 µg/L, fluoride at or above 1.5 mg/L (the kit maximum, so over the range) or turbidity above 5 NTU is not creditable and is left out of the frame, whatever its earlier results; a later passing retest restores it. Named exceptions (rule ' + SDWS3_RULE.id + ' v' + SDWS3_RULE.version + '): ' + SDWS3_RULE.exceptions.map(e => e.water_point + ' response ' + e.response + ', ' + e.ignore.join('+') + ' ignored').join('; ') + '.',
+    fr: 'Non créditable (James Walker, 20 oct. 2026) : un point d\'eau dont le dernier résultat final du formulaire SDWS 3 (par date de résultat) a E. coli au-dessus de 0 UFC/100 mL, arsenic au-dessus de 10 µg/L, fluorure égal ou supérieur à 1,5 mg/L (le maximum du kit, donc hors plage) ou turbidité au-dessus de 5 NTU n\'est pas créditable et est exclu de la base, quels que soient ses résultats antérieurs ; un nouveau test conforme le rétablit. Exceptions nommées (règle ' + SDWS3_RULE.id + ' v' + SDWS3_RULE.version + ') : ' + SDWS3_RULE.exceptions.map(e => e.water_point + ' réponse ' + e.response + ', ' + e.ignore.join('+') + ' ignoré').join(' ; ') + '.' };
   const FRAME_COLUMNS = ['water_point_id', 'name', 'stratum', 'commune', 'fokontany', 'village', 'lat', 'lon', 'households_served', 'status', 'mwater_id', 'pump', 'district', 'status_reason', 'sdws3_passes', 'sdws3_results', 'sdws3_last_pass', 'sdws3_last_test', 'sdws3_failing', 'alt_id', 'sdws3_last_result', 'abandoned', 'name_pattern', 'has_rehab_record', 'last_maintenance_visit', 'has_records'];
   // district name from an admin_regions document: full_name is "Fokontany, Commune, District, Region, Country"
   function regionParts(reg) { const p = String((reg && reg.full_name) || '').split(',').map(x => x.trim()); const n = p.length; return { fokontany: n >= 5 ? p[n - 5] : '', commune: n >= 4 ? p[n - 4] : '', district: n >= 3 ? p[n - 3] : '' }; }
@@ -404,9 +475,10 @@ const Core = (function () {
     return out;
   }
   // entities (mWater water_point docs) -> sampler frame rows, applying the eligibility rule in this order:
+  //   0 not creditable (latest SDWS 3 result fails SDWS3_RULE; only when extras.notCreditable is given)
   //   1 at least one passing SDWS 3 result  2 not abandoned / not functional / not a hand pump  3 district not excluded (Marolinta)  4 district mapped to a stratum
   function mapMwaterEntities(entities, extras) {
-    const ex = extras || {}; const strata = ex.strata || MWATER.strata; const regions = ex.regionsById || {}; const roofs = ex.roofs || {}; const latest = ex.latest || {}; const passing = ex.passing || {};
+    const ex = extras || {}; const strata = ex.strata || MWATER.strata; const regions = ex.regionsById || {}; const roofs = ex.roofs || {}; const latest = ex.latest || {}; const passing = ex.passing || {}; const credit = ex.notCreditable || {};
     const counts = { total_in_group: entities.length, sdws3_pass_count: 0, excluded_no_pass: 0, excluded_abandoned: 0, excluded_marolinta: 0, unassigned: 0, eligible: 0, eligible_by_stratum: {} };
     Object.keys(strata).forEach(k => { counts.eligible_by_stratum[k] = 0; });
     const points = entities.map(e => {
@@ -420,7 +492,9 @@ const Core = (function () {
       const excluded = MWATER.excludedDistricts.districts.some(x => x.toLowerCase() === String(district).trim().toLowerCase());
       let reason = '';
       if (ps.passes > 0) counts.sdws3_pass_count++;
-      if (!(ps.passes > 0)) { reason = 'no_passing_sdws3_result'; counts.excluded_no_pass++; }
+      const cv = credit[e.code];
+      if (cv && cv.creditable === false) { reason = NOT_CREDITABLE + ':' + cv.failing.map(x => x.key).join('+'); counts.excluded_not_creditable = (counts.excluded_not_creditable || 0) + 1; }
+      else if (!(ps.passes > 0)) { reason = 'no_passing_sdws3_result'; counts.excluded_no_pass++; }
       else if (MWATER.inactiveNames.test(e.name || '')) { reason = 'abandoned:' + e.name; counts.excluded_abandoned++; }
       else if (st.status === 'not_functional') { reason = 'abandoned:maintenance not functional ' + String(st.status_on || '').slice(0, 10); counts.excluded_abandoned++; }
       else if (['kiosk', 'Unprotected dug well', 'Protected dug well'].includes(e.type)) { reason = 'abandoned:type ' + e.type; counts.excluded_abandoned++; }
@@ -435,7 +509,7 @@ const Core = (function () {
   }
   // Test A backlog: points of the stratum that are in the group, not abandoned and without a passing SDWS 3 result
   function backlog(points, stratum) {
-    const rows = points.filter(p => String(p.stratum) === String(stratum) && !(p.sdws3_passes > 0) && p.abandoned !== 'Y' && String(p.status_reason || '').indexOf('excluded_district') !== 0);
+    const rows = points.filter(p => String(p.stratum) === String(stratum) && (!(p.sdws3_passes > 0) || isNotCreditable(p)) && p.abandoned !== 'Y' && String(p.status_reason || '').indexOf('excluded_district') !== 0);
     const groups = { operating: [], failing: [], notBuilt: [], other: [] };
     rows.forEach(p => {
       const tested = p.sdws3_results > 0; const records = p.has_records === 'Y';
@@ -485,14 +559,16 @@ const Core = (function () {
     const missing = [...new Set(entities.filter(e => !e.admin_div2 && e.admin_region).map(e => e.admin_region))];
     const regionsById = {};
     if (missing.length) { const regs = await mwaterGet('admin_regions', { filter: JSON.stringify({ _id: { $in: missing } }), fields: JSON.stringify({ _id: 1, full_name: 1 }), limit: String(missing.length) }, token, F); regs.forEach(r => { regionsById[r._id] = r; }); }
-    const sd = cfg.sdws3; const sdFields = { ['data.' + sd.wpQ]: 1, ['data.' + sd.dateQ]: 1, submittedOn: 1, status: 1 }; sd.params.forEach(pm => { sdFields['data.' + pm.q] = 1; });
+    const sd = cfg.sdws3; const sdFields = { ['data.' + sd.wpQ]: 1, ['data.' + sd.dateQ]: 1, submittedOn: 1, status: 1, code: 1, form: 1 }; sd.params.forEach(pm => { sdFields['data.' + pm.q] = 1; }); SDWS3_RULE.fail_if.forEach(t => { sdFields['data.' + t.q] = 1; });
     const sdResp = await mwaterPages('responses', { form: sd.id, status: 'final' }, sdFields, token, prog, F); used.push(sd.id);
     const passing = sdws3PassingPoints(sdResp, sd);
+    const notCreditable = sdws3Creditable(sdResp, SDWS3_RULE);
     let roofs = {}, latest = {};
     try { const rr = await mwaterPages('responses', { form: cfg.beneficiaries.id, status: 'final' }, { ['data.' + cfg.beneficiaries.wpQ]: 1, ['data.' + cfg.beneficiaries.roofsQ]: 1, submittedOn: 1, status: 1 }, token, prog, F); roofs = mwaterRoofs(rr, cfg.beneficiaries); used.push(cfg.beneficiaries.id); } catch (e) { prog('warn', 'beneficiaries: ' + e.message); }
     try { const m = cfg.maintenance; const rr = await mwaterPages('responses', { form: m.id, status: 'final' }, { ['data.' + m.wpQ]: 1, ['data.' + m.statusQ]: 1, ['data.' + m.status2Q]: 1, ['data.' + m.pumpQ]: 1, ['data.' + m.workQ]: 1, ['data.' + m.endDateQ]: 1, submittedOn: 1, status: 1 }, token, prog, F); latest = mwaterLatestStatus(rr, m); used.push(m.id); } catch (e) { prog('warn', 'maintenance: ' + e.message); }
-    const mapped = mapMwaterEntities(entities, { roofs, latest, regionsById, passing });
-    return { fetchedAt: new Date().toISOString(), points: mapped.points, counts: mapped.counts, frameCsv: frameToCsv(mapped.points), formsUsed: used, sdws3Responses: sdResp.length, source: { api: MWATER.api, group: MWATER.group, entity_type: MWATER.entityType }, entities, latest, roofs, passing };
+    const mapped = mapMwaterEntities(entities, { roofs, latest, regionsById, passing, notCreditable });
+    const creditRule = { id: SDWS3_RULE.id, version: SDWS3_RULE.version, sha256: sha256Sync(SDWS3_RULE_JSON), not_creditable: Object.keys(notCreditable).filter(k => !notCreditable[k].creditable).sort() };
+    return { creditRule, notCreditable, fetchedAt: new Date().toISOString(), points: mapped.points, counts: mapped.counts, frameCsv: frameToCsv(mapped.points), formsUsed: used, sdws3Responses: sdResp.length, source: { api: MWATER.api, group: MWATER.group, entity_type: MWATER.entityType }, entities, latest, roofs, passing };
   }
 
   /* ---------- sampling record PDF (pdf-lib, standard fonts, deterministic output) ---------- */
@@ -536,10 +612,11 @@ const Core = (function () {
     heading(T.h_frame);
     para(FRAME_RULE_TEXT[lang]);
     const inp = a.input || {}; const mw = inp.mwater || {};
+    if (mw.creditable_rule) para(CREDIT_RULE_TEXT[lang] + ' (SHA-256 ' + mw.creditable_rule.sha256 + ')');
     if (inp.source === 'mwater') { kvRow(T.frame_source, T.frame_source_mwater); kvRow(T.frame_group, mw.group || MWATER.group); kvRow(T.frame_forms, (mw.forms_used || []).join(', ') || '—'); kvRow(T.frame_fetched, mw.fetched_at || '—'); if (mw.stratum_filter) kvRow(T.frame_filter, mw.stratum_filter); }
     else { kvRow(T.frame_source, T.frame_source_csv); kvRow(T.frame_file, inp.water_points_file || '—'); }
     const c = mw.counts || {};
-    if (c.total_in_group !== undefined) table([T.c_item, T.c_value], [[T.c_total, num(c.total_in_group)], [T.c_pass, num(c.sdws3_pass_count)], [T.c_nopass, num(c.excluded_no_pass)], [T.c_abandoned, num(c.excluded_abandoned)], [T.c_marolinta, num(c.excluded_marolinta)], [T.c_unassigned, num(c.unassigned)]].concat(Object.keys(c.eligible_by_stratum || {}).map(k => [T.c_eligible + ' ' + k, num(c.eligible_by_stratum[k])])), [CW - 120, 120]);
+    if (c.total_in_group !== undefined) table([T.c_item, T.c_value], [[T.c_total, num(c.total_in_group)], [T.c_pass, num(c.sdws3_pass_count)]].concat(c.excluded_not_creditable ? [[T.c_notcredit, num(c.excluded_not_creditable)]] : []).concat([[T.c_nopass, num(c.excluded_no_pass)], [T.c_abandoned, num(c.excluded_abandoned)], [T.c_marolinta, num(c.excluded_marolinta)], [T.c_unassigned, num(c.unassigned)]]).concat(Object.keys(c.eligible_by_stratum || {}).map(k => [T.c_eligible + ' ' + k, num(c.eligible_by_stratum[k])])), [CW - 120, 120]);
     kvRow(T.frame_eligible, num((a.frame || {}).eligible_points) + ' (' + P.stratum + ')'); kvRow(T.frame_sha, inp.water_points_sha256 || '—');
     // ---- randomness
     heading(T.h_random);
@@ -604,7 +681,7 @@ const Core = (function () {
     const inp = a.input || {}; const fc = inp.counts || {}; const fl = inp.fleet || {};
     kvRow(T.frame_source, inp.source === 'mwater' ? T.frame_source_mwater : T.frame_source_csv);
     if (fl.url) { kvRow(T.fleet_url, fl.url); kvRow(T.fleet_sha, fl.sha256 || '—'); kvRow(T.fleet_fetched, fl.fetched_at || '—'); }
-    table([T.c_item, T.c_value], [[T.c_group, num(fc.group_points)], [T.c_fleet, num(fc.fleet_in_group)], [T.c_scenario, num(fc.in_scenario)], [T.c_notfleet, num(fc.not_in_fleet)], [T.c_frame, num(fc.frame)], [T.c_communes, num((a.frame || {}).communes)], [T.c_zones, num((a.frame || {}).zones)], [T.c_fokontany, num((a.frame || {}).fokontany)]].filter(r => r[1] !== '—'), [CW - 120, 120]);
+    table([T.c_item, T.c_value], [[T.c_group, num(fc.group_points)], [T.c_fleet, num(fc.fleet_in_group)], [T.c_scenario, num(fc.in_scenario)], [T.c_notfleet, num(fc.not_in_fleet)], [T.c_notcredit, num(fc.not_creditable)], [T.c_frame, num(fc.frame)], [T.c_communes, num((a.frame || {}).communes)], [T.c_zones, num((a.frame || {}).zones)], [T.c_fokontany, num((a.frame || {}).fokontany)]].filter(r => r[1] !== '—'), [CW - 120, 120]);
     kvRow(T.frame_sha, inp.frame_sha256 || '—');
     heading(T.h_random);
     kvRow(T.seed, a.seed); kvRow(T.seed_word, String(a.seed_word_uint32)); kvRow(T.frame_sha, inp.frame_sha256 || '—');
@@ -677,15 +754,19 @@ const Core = (function () {
     overpass: 'https://overpass-api.de/api/interpreter'
   };
   const USAGE_ALGORITHM = 'zones (SOP-MAD-SDWS26 v0.4 s.4.2), built from the frame before the draw: every commune starts as its own zone; while a zone has fewer than 4 fokontany holding frame points, the zone with the fewest (ties: zone name) joins the zone holding the nearest commune, by straight-line distance between commune frame-point centres (ties: zone name); a zone is named by its communes in name order; seed string <round>-<scenario>-U -> xmur3 -> mulberry32; stage 1: 3 zones by systematic PPS on the number of frame points (zones in name order); stage 2: 4 fokontany per zone by simple random sampling among its fokontany with at least 1 frame point (commune / fokontany name order); stage 3: 1 water point per fokontany at equal probability (id order); 1 reserve water point per zone at equal probability among its undrawn points; households: building footprints (Google Open Buildings v3) whose centroid lies inside the 1 km service area after the barrier clip, sorted by key, 10 + 5 reserves drawn in random order with mulberry32 seeded by seed|water_point_id|B=<count>';
-  // the frame: fleet members of the scenario; no SDWS 3 eligibility filter, broken pumps stay in. A CSV frame (demo/offline) is used as it is.
+  // the frame: fleet members of the scenario, less the points not creditable after a failed SDWS 3 test; no other water quality
+  // filter, broken pumps stay in. A CSV frame (demo/offline) is used as it is, less any row marked not creditable.
+  // Points not creditable after a failed SDWS 3 test (status_reason not_creditable_sdws3, SDWS3_RULE) are left out of every frame;
+  // the count is recorded only when the rule excludes something, so a frame it does not touch is unchanged.
   function usageFrame(points, scenario, fleet) {
-    const inScenario = points.filter(p => String(p.stratum) === String(scenario));
-    if (!fleet) return { points: inScenario.slice().sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id))), counts: { source: 'csv', in_scenario: inScenario.length, frame: inScenario.length } };
+    const inAll = points.filter(p => String(p.stratum) === String(scenario)); const nc = inAll.filter(isNotCreditable).length;
+    const inScenario = inAll.filter(p => !isNotCreditable(p)); const ncc = c => (nc ? Object.assign(c, { not_creditable: nc }) : c);
+    if (!fleet) return { points: inScenario.slice().sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id))), counts: ncc({ source: 'csv', in_scenario: inScenario.length, frame: inScenario.length }) };
     const cls = fleet.records || {}; const keep = new Set(USAGE.fleetClasses);
     const fleetIds = new Set(Object.keys(cls).filter(k => keep.has(cls[k])));
     const byStratum = {}; points.forEach(p => { if (fleetIds.has(String(p.water_point_id))) byStratum[p.stratum] = (byStratum[p.stratum] || 0) + 1; });
     const frame = inScenario.filter(p => fleetIds.has(String(p.water_point_id))).sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id)));
-    return { points: frame, counts: { source: 'mwater+fleet', group_points: points.length, fleet_size: fleetIds.size, fleet_in_group: Object.values(byStratum).reduce((a, b) => a + b, 0), fleet_by_stratum: byStratum, in_scenario: inScenario.length, frame: frame.length, not_in_fleet: inScenario.length - frame.length } };
+    return { points: frame, counts: ncc({ source: 'mwater+fleet', group_points: points.length, fleet_size: fleetIds.size, fleet_in_group: Object.values(byStratum).reduce((a, b) => a + b, 0), fleet_by_stratum: byStratum, in_scenario: inScenario.length, frame: frame.length, not_in_fleet: inScenario.length - frame.length }) };
   }
   function srsWithoutReplacement(rng, items, k) { const pool = items.slice(); const out = []; while (out.length < k && pool.length) out.push(pool.splice(randInt(rng, pool.length), 1)[0]); return out; }
   // zones: neighbouring communes grouped until each holds at least minZoneFokontany fokontany with frame points (deterministic, before the draw)
@@ -870,7 +951,7 @@ const Core = (function () {
   // bearing (degrees from north) and distance (m) from the phone to a building
   function bearingTo(a, b) { const toR = Math.PI / 180; const y = Math.sin((b.lon - a.lon) * toR) * Math.cos(b.lat * toR); const x = Math.cos(a.lat * toR) * Math.sin(b.lat * toR) - Math.sin(a.lat * toR) * Math.cos(b.lat * toR) * Math.cos((b.lon - a.lon) * toR); return (Math.atan2(y, x) / toR + 360) % 360; }
 
-  return { USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
+  return { SDWS3_RULE, SDWS3_RULE_JSON, sdws3Creditable, isNotCreditable, CREDIT_RULE_TEXT, USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
 
@@ -886,7 +967,7 @@ const I18N = {
      
       method_poc: 'Point-of-collection (PoC) sample. One PoC sample is taken at the source outlet on each day households of that source are sampled, after disinfection of the spout and flushing, so that every PoU sample is paired with a PoC sample of the same source and day.',
       h_frame: '3. Sampling frame', frame_source: 'Source of the frame', frame_source_mwater: 'Fetched live from the mWater API by the tool', frame_source_csv: 'CSV file loaded into the tool', frame_group: 'mWater group', frame_forms: 'mWater forms used', frame_fetched: 'Fetched at (UTC)', frame_filter: 'Stratum filter at fetch', frame_file: 'Frame file', frame_eligible: 'Eligible sources in this stratum', frame_sha: 'Frame file SHA-256',
-      c_item: 'Item', c_value: 'Value', c_total: 'Water points in the MadAvance group', c_pass: 'with at least one passing SDWS 3 result', c_nopass: 'excluded: no passing result', c_abandoned: 'excluded: abandoned / not functional / not a hand pump', c_marolinta: 'excluded: Marolinta area (Beloha district)', c_unassigned: 'unassigned district', c_eligible: 'eligible in stratum',
+      c_item: 'Item', c_value: 'Value', c_total: 'Water points in the MadAvance group', c_pass: 'with at least one passing SDWS 3 result', c_notcredit: 'excluded: not creditable (latest SDWS 3 result fails)', c_nopass: 'excluded: no passing result', c_abandoned: 'excluded: abandoned / not functional / not a hand pump', c_marolinta: 'excluded: Marolinta area (Beloha district)', c_unassigned: 'unassigned district', c_eligible: 'eligible in stratum',
       h_random: '4. Randomness and reproducibility', seed: 'Seed string', seed_word: 'Seed word (xmur3, uint32)', prng: 'Generator', prng_v: 'mulberry32 (32-bit), seeded with the xmur3 hash of the seed string — SaniTap Sampler v{v}', stage1_numbers: 'Stage 1 numbers', stage1_numbers_v: 'total households {tot}; interval {int}; random start {start}; certainty selections {cert}; sources with imputed count {imp} (value {impv})',
       reproducible: 'The same seed string, the same frame file and the same parameters reproduce exactly the same selection on any device. To reproduce this draw:',
       repro_steps: ['Open {url} (any browser; the tool runs offline after the first load).', 'Data: choose "CSV file", load the frame file whose SHA-256 is {sha} (the file is filed with this record and is also produced by "Download loaded frame").', 'Parameters: round "{round}", stratum {stratum}, target {target} samples, {m} households per source, replacement fraction {rep}, method "{method}", seed "{seed}".', 'Press "Draw the sample". The audit record shown must list the same sources in the same order as this document, and its SHA-256 must equal the value in the footer once exported.'],
@@ -900,7 +981,7 @@ const I18N = {
     mw_connected: 'Token saved: {mask}{user}', mw_not_connected: 'No mWater token. Open "mWater connection" to sign in or paste a token. The programme water points are private, so a token is required.', mw_no_token: 'Sign in or paste a token first.', mw_fetching: 'Fetching {what}: {n} rows…', mw_done: 'Fetched {n} water points ({a} active) at {t}.', mw_err: 'Fetch failed: {e}. Check the connection and the token, or use the CSV source offline.', mw_login_err: 'Sign-in failed: {e}', mw_warn: 'Partial: {w}',
     data_frame_dl: 'Download loaded frame (CSV)', data_hh_dl: 'Download household list (CSV)', data_source: 'Source', data_fetched: 'fetched',
     p_drawn_by: 'Drawn by (name, role)', pdf_err: 'PDF library not loaded (needs one online visit first).', pdf_need_by: 'Enter "Drawn by" before exporting the record.', w_imputed: '{n} sources without a household count were given the stratum median ({value}) as sampling weight.',
-    c_total: 'in MadAvance group', c_pass: 'with a passing SDWS 3 result', c_nopass: 'excluded: no passing result', c_abandoned: 'excluded: abandoned/not functional', c_marolinta: 'excluded: Marolinta', c_unassigned: 'unassigned district', c_eligible: 'eligible',
+    c_total: 'in MadAvance group', c_pass: 'with a passing SDWS 3 result', c_notcredit: 'excluded: not creditable (failed SDWS 3)', c_nopass: 'excluded: no passing result', c_abandoned: 'excluded: abandoned/not functional', c_marolinta: 'excluded: Marolinta', c_unassigned: 'unassigned district', c_eligible: 'eligible',
     tab_backlog: '1b Test A backlog', next_params: 'Next: set parameters and draw', bl_title: 'Test A backlog — SDWS 3', bl_intro: 'Sources of the loaded stratum that are in the register and not abandoned but have no passing SDWS 3 result yet.', bl_operating: 'Operating, untested', bl_failing: 'Last result failed', bl_notbuilt: 'Not yet built', bl_other: 'No records, unclassified', bl_none: 'No backlog for this stratum, or no frame loaded.', bl_csv: 'Export backlog CSV (with coordinates, download only)', bl_print: 'Print visit sheets per commune', bl_print_hint: 'Visit sheets and the CSV carry coordinates: for the field team only, never filed.', col_fokontany: 'Fokontany', col_last_visit: 'Last maintenance', col_last_test: 'Last test', col_result: 'Result', col_pattern: 'Name', col_records: 'Records', map_show: 'Show on map', map_show_draw: 'the draw', map_show_backlog: 'the Test A backlog (route from {town})', bl_sheet_title: 'Test A visit sheet', bl_sheet_commune: 'Commune', bl_sheet_cols: ['#', 'Source', 'Name', 'Fokontany', 'GPS', 'Group', 'Last maintenance', 'Households', 'Sample ID / result', 'Notes'], step_done: 'done', step_current: 'current', step_pending: 'pending', update_banner: 'New version available', update_reload: 'Reload',
     col_sel_short: 'Selected', k_blank_short: 'numbers appear when K is entered in the app', record_id_label: 'Record id', next_backlog: 'Next: Test A backlog', next_draw: 'Next: draw', next_map: 'Next: map', next_sheet: 'Next: field sheet', col_alt: 'Pump no.', reach_far: 'Far from the rest: replace in the field only if unreachable, and record the reason', reach_col: 'Reach', reach_ok: 'ok', reach_dist: 'nearest {n} km · town {t} km', map_list_title: 'Stops (number on the map = row)', w_far: 'Source {id} is more than 25 km from every other selected source and from the district town (nearest {nearest_km} km, town {town_km} km): replace in the field only if unreachable, and record the reason.',
     sheet_rule: 'Field rule (Protocol v2.2 §6.4): count the households served by this source (K), then take the k-th household met when walking from the source for each drawn number k. Sterile sampling equipment; no flaming. Enter K in the app to get the numbers, or use the pre-generated numbers below.', sheet_mwater: 'Sampling steps and results are recorded in the mWater form (SDWS 22 PoU); enter the record id {rid} on every form.', sheet_stops: 'Stop list',
@@ -972,7 +1053,7 @@ const I18N = {
      
       method_poc: 'Échantillon au point de collecte (PoC). Un échantillon PoC est prélevé à la sortie de la source chaque jour où des ménages de cette source sont échantillonnés, après désinfection du bec et purge, de sorte que chaque échantillon PoU est apparié à un échantillon PoC de la même source et du même jour.',
       h_frame: '3. Base de sondage', frame_source: 'Source de la base', frame_source_mwater: 'Chargée en direct depuis l’API mWater par l’outil', frame_source_csv: 'Fichier CSV chargé dans l’outil', frame_group: 'Groupe mWater', frame_forms: 'Formulaires mWater utilisés', frame_fetched: 'Chargée le (UTC)', frame_filter: 'Filtre de strate au chargement', frame_file: 'Fichier de base', frame_eligible: 'Sources éligibles dans cette strate', frame_sha: 'SHA-256 du fichier de base',
-      c_item: 'Élément', c_value: 'Valeur', c_total: 'Points d’eau du groupe MadAvance', c_pass: 'avec au moins un résultat SDWS 3 conforme', c_nopass: 'exclus : aucun résultat conforme', c_abandoned: 'exclus : abandonnés / non fonctionnels / autre que pompe à main', c_marolinta: 'exclus : zone de Marolinta (district de Beloha)', c_unassigned: 'district non affecté', c_eligible: 'éligibles dans la strate',
+      c_item: 'Élément', c_value: 'Valeur', c_total: 'Points d’eau du groupe MadAvance', c_pass: 'avec au moins un résultat SDWS 3 conforme', c_notcredit: 'exclus : non créditable (dernier résultat SDWS 3 non conforme)', c_nopass: 'exclus : aucun résultat conforme', c_abandoned: 'exclus : abandonnés / non fonctionnels / autre que pompe à main', c_marolinta: 'exclus : zone de Marolinta (district de Beloha)', c_unassigned: 'district non affecté', c_eligible: 'éligibles dans la strate',
       h_random: '4. Aléa et reproductibilité', seed: 'Graine (seed)', seed_word: 'Mot de graine (xmur3, uint32)', prng: 'Générateur', prng_v: 'mulberry32 (32 bits), initialisé par le hachage xmur3 de la graine — SaniTap Sampler v{v}', stage1_numbers: 'Nombres du degré 1', stage1_numbers_v: 'total des ménages {tot} ; intervalle {int} ; départ aléatoire {start} ; sélections d’office {cert} ; sources avec nombre imputé {imp} (valeur {impv})',
       reproducible: 'La même graine, le même fichier de base et les mêmes paramètres reproduisent exactement la même sélection sur n’importe quel appareil. Pour reproduire ce tirage :',
       repro_steps: ['Ouvrir {url} (tout navigateur ; l’outil fonctionne hors ligne après le premier chargement).', 'Données : choisir « Fichier CSV », charger le fichier de base dont le SHA-256 est {sha} (le fichier est classé avec cet enregistrement et est aussi produit par « Télécharger la base chargée »).', 'Paramètres : cycle « {round} », strate {stratum}, cible {target} échantillons, {m} ménages par source, fraction de remplacement {rep}, méthode « {method} », graine « {seed} ».', 'Appuyer sur « Tirer l’échantillon ». L’enregistrement d’audit affiché doit lister les mêmes sources dans le même ordre que ce document, et son SHA-256 doit être égal à la valeur en pied de page une fois exporté.'],
@@ -986,7 +1067,7 @@ const I18N = {
     mw_connected: 'Jeton enregistré : {mask}{user}', mw_not_connected: 'Aucun jeton mWater. Ouvrez « Connexion mWater » pour vous connecter ou coller un jeton. Les points d’eau du programme sont privés : un jeton est nécessaire.', mw_no_token: 'Connectez-vous ou collez un jeton d’abord.', mw_fetching: 'Chargement {what} : {n} lignes…', mw_done: '{n} points d’eau chargés ({a} actifs) à {t}.', mw_err: 'Échec du chargement : {e}. Vérifiez la connexion et le jeton, ou utilisez la source CSV hors ligne.', mw_login_err: 'Connexion échouée : {e}', mw_warn: 'Partiel : {w}',
     data_frame_dl: 'Télécharger la base chargée (CSV)', data_hh_dl: 'Télécharger la liste des ménages (CSV)', data_source: 'Source', data_fetched: 'chargé',
     p_drawn_by: 'Tiré par (nom, fonction)', pdf_err: 'Bibliothèque PDF non chargée (une visite en ligne est nécessaire).', pdf_need_by: 'Renseignez « Tiré par » avant d’exporter l’enregistrement.', w_imputed: '{n} sources sans nombre de ménages ont reçu la médiane de la strate ({value}) comme poids de sondage.',
-    c_total: 'dans le groupe MadAvance', c_pass: 'avec un résultat SDWS 3 conforme', c_nopass: 'exclus : aucun résultat conforme', c_abandoned: 'exclus : abandonnés/non fonctionnels', c_marolinta: 'exclus : Marolinta', c_unassigned: 'district non affecté', c_eligible: 'éligibles',
+    c_total: 'dans le groupe MadAvance', c_pass: 'avec un résultat SDWS 3 conforme', c_notcredit: 'exclus : non créditable (dernier résultat SDWS 3 non conforme)', c_nopass: 'exclus : aucun résultat conforme', c_abandoned: 'exclus : abandonnés/non fonctionnels', c_marolinta: 'exclus : Marolinta', c_unassigned: 'district non affecté', c_eligible: 'éligibles',
     tab_backlog: '1b À tester (SDWS 3)', next_params: 'Suite : paramètres et tirage', bl_title: 'À tester — SDWS 3', bl_intro: 'Sources de la strate chargée qui sont dans le registre et non abandonnées mais sans résultat SDWS 3 conforme.', bl_operating: 'En service, non testées', bl_failing: 'Dernier résultat non conforme', bl_notbuilt: 'Pas encore construites', bl_other: 'Sans enregistrement, non classées', bl_none: 'Aucun point à tester pour cette strate, ou aucune base chargée.', bl_csv: 'Exporter le CSV (avec coordonnées, téléchargement seulement)', bl_print: 'Imprimer les fiches de visite par commune', bl_print_hint: 'Les fiches de visite et le CSV contiennent des coordonnées : pour l’équipe terrain seulement, jamais archivés.', col_fokontany: 'Fokontany', col_last_visit: 'Dernière maintenance', col_last_test: 'Dernier test', col_result: 'Résultat', col_pattern: 'Nom', col_records: 'Enregistrements', map_show: 'Afficher sur la carte', map_show_draw: 'le tirage', map_show_backlog: 'les points à tester (itinéraire depuis {town})', bl_sheet_title: 'Fiche de visite Test A', bl_sheet_commune: 'Commune', bl_sheet_cols: ['N°', 'Source', 'Nom', 'Fokontany', 'GPS', 'Groupe', 'Dernière maintenance', 'Ménages', 'ID échantillon / résultat', 'Notes'], step_done: 'fait', step_current: 'en cours', step_pending: 'à faire', update_banner: 'Nouvelle version disponible', update_reload: 'Recharger',
     col_sel_short: 'Sélectionnées', k_blank_short: 'les numéros apparaissent quand K est saisi dans l’application', record_id_label: 'Identifiant d’enregistrement', next_backlog: 'Suite : points à tester', next_draw: 'Suite : tirage', next_map: 'Suite : carte', next_sheet: 'Suite : fiche terrain', col_alt: 'N° pompe', reach_far: 'Éloignée des autres : remplacer sur le terrain seulement si inaccessible, et noter la raison', reach_col: 'Accès', reach_ok: 'ok', reach_dist: 'plus proche {n} km · ville {t} km', map_list_title: 'Étapes (numéro sur la carte = ligne)', w_far: 'La source {id} est à plus de 25 km de toute autre source sélectionnée et de la ville du district (plus proche {nearest_km} km, ville {town_km} km) : remplacer sur le terrain seulement si inaccessible, et noter la raison.',
     sheet_rule: 'Règle terrain (Protocole v2.2 §6.4) : compter les ménages desservis par cette source (K), puis prendre le k-ième ménage rencontré en marchant depuis la source pour chaque numéro k tiré. Matériel de prélèvement stérile ; pas de flambage. Saisir K dans l’application pour obtenir les numéros, ou utiliser les numéros pré-générés ci-dessous.', sheet_mwater: 'Les étapes et résultats du prélèvement sont enregistrés dans le formulaire mWater (SDWS 22 PoU) ; inscrire l’identifiant d’enregistrement {rid} sur chaque formulaire.', sheet_stops: 'Liste des étapes',
@@ -1066,9 +1147,9 @@ I18N.en.updf = {
     'Stage 3 — water points. One water point is drawn at equal probability in each drawn fokontany. One reserve water point is drawn per zone, at equal probability among its undrawn points, for use only when a drawn point cannot be surveyed.',
     'Households. Around each drawn water point the building footprints (Google Open Buildings v3) whose centre lies within 1 km are kept, after removing the part of the circle cut off by an unfordable river, canal or the coast (OpenStreetMap; streams are not barriers; a bridge or ford within 40 m opens the barrier). The kept buildings are sorted and 10 are drawn, plus 5 reserves, in random order from the round seed, the water point id and the building count. Reserves are used strictly in order, each only when a household is closed without an interview (refused, nobody home after 3 visits, not a dwelling, out of area, far side of an unfordable river).',
     'Every selection probability is recorded; the weight of a water point is the inverse of its overall probability (commune x fokontany x point).'],
-  h_frame: '3. Sampling frame', frame_rule: 'The frame is the carbon fleet of the scenario: the water points of the MadAvance mWater register that the programme report classifies as in the managed fleet (successfully rehabilitated plus completed new constructions), in the districts of the scenario. Marolinta (Beloha) is outside the carbon fleet. There is no water quality condition: broken pumps stay in the frame.',
+  h_frame: '3. Sampling frame', frame_rule: 'The frame is the carbon fleet of the scenario: the water points of the MadAvance mWater register that the programme report classifies as in the managed fleet (successfully rehabilitated plus completed new constructions), in the districts of the scenario. Marolinta (Beloha) is outside the carbon fleet. A water point that did not pass its SDWS 3 commissioning test (its latest final result fails the SDWS 3 rule) is not creditable and is left out (James Walker, 20 Oct 2026). There is no other water quality condition: broken pumps stay in the frame.',
   frame_source: 'Source of the frame', frame_source_mwater: 'mWater register fetched live by the tool, joined with the report\'s fleet classification', frame_source_csv: 'CSV file loaded into the tool', fleet_url: 'Fleet classification', fleet_sha: 'Fleet file SHA-256', fleet_fetched: 'Fleet file fetched (UTC)', frame_sha: 'Frame SHA-256',
-  c_item: 'Item', c_value: 'Value', c_group: 'Water points in the MadAvance group', c_fleet: 'of which in the carbon fleet (all scenarios)', c_scenario: 'in the districts of this scenario', c_notfleet: 'excluded: not in the fleet', c_frame: 'frame (fleet, this scenario)', c_communes: 'communes in the frame', c_fokontany: 'fokontany in the frame',
+  c_item: 'Item', c_value: 'Value', c_group: 'Water points in the MadAvance group', c_fleet: 'of which in the carbon fleet (all scenarios)', c_scenario: 'in the districts of this scenario', c_notfleet: 'excluded: not in the fleet', c_notcredit: 'excluded: not creditable (latest SDWS 3 result fails)', c_frame: 'frame (fleet, this scenario)', c_communes: 'communes in the frame', c_fokontany: 'fokontany in the frame',
   h_random: '4. Randomness and reproducibility', seed: 'Seed string', seed_word: 'Seed word (xmur3, uint32)', stage1: 'Stage 1 numbers', stage1_v: 'frame points {tot}; interval {int}; random start {start}; certainty selections {cert}',
   reproducible: 'The same seed string and the same frame (identified by its SHA-256) reproduce exactly the same communes, fokontany, water points and reserves on any device; the household draw is reproduced from the same seed and the same building list (identified by its SHA-256 per service area).',
   h_communes: '5. Drawn communes', t_commune: 'Commune', t_points: 'Frame points', t_fok: 'Fokontany', t_pi: 'Probability', t_note: 'Note', drawn: 'drawn', certainty: 'certainty', added: 'added (a commune had fewer than 4 fokontany)',
@@ -1088,6 +1169,7 @@ Object.assign(I18N.en.updf, {
   h_communes: '5b. Drawn zones', points_note: 'Probability = zone x fokontany x point; weight = 1 / probability.', t_pi_parts: 'Zone x fokontany x point', h_reserves: '7. Reserve water points (one per zone)', reserves_note: 'Use a reserve only when a drawn point of the same zone cannot be surveyed; record the reason.', t_pcond: 'Probability (within the zone)'
 });
 Object.assign(I18N.fr.updf, {
+  c_notcredit: 'exclus : non créditable (dernier résultat SDWS 3 non conforme)',
   h_zones_formed: '5. Zones, formées à partir de la base avant le tirage', zones_rule: "Une zone est un ensemble de communes voisines comptant au moins 4 fokontany avec des points de la base. Une commune qui en a 4 ou plus forme sa propre zone ; la zone qui en a le moins rejoint la zone de la commune la plus proche (ligne droite entre les centres des points de chaque commune), jusqu'à ce que chaque zone en ait au moins 4. Nombre de fokontany entre parenthèses.",
   t_zone: 'Zone', t_communes: 'Communes (fokontany)', t_merge_zone: 'Rattachée (fokontany)', t_merge_joined: 'à', t_merge_km: 'km', via: 'commune la plus proche', c_zones: 'Zones',
   h_communes: '5b. Zones tirées', points_note: 'Probabilité = zone x fokontany x point ; poids = 1 / probabilité.', t_pi_parts: 'Zone x fokontany x point', h_reserves: "7. Points d'eau de réserve (un par zone)", reserves_note: "N'utiliser une réserve que si un point tiré de la même zone ne peut pas être enquêté ; noter la raison.", t_pcond: 'Probabilité (dans la zone)'
@@ -1188,7 +1270,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     const src = state.wp.source === 'mwater' ? `mWater · ${t('data_fetched')} ${esc(state.wp.fetchedAt || '')}` : 'CSV';
     let h = `<div class="msg ok">${t('data_source')}: <b>${src}</b><br>${t('data_loaded')}: <b>${esc(state.wp.name)}</b> — ${state.points.length} ${t('data_points')}${state.wp.counts ? ` (${state.wp.counts.active} ${t('col_active').toLowerCase()})` : ''}<br><small>${t('sha')}: ${state.wp.hash}</small></div>`;
     $('btn-frame-dl').classList.remove('hidden'); $('btn-next-params').classList.remove('hidden');
-    const fc = state.wp.mwater && state.wp.mwater.counts; if (fc && fc.total_in_group !== undefined) h += `<div class="stat">${[['c_total', fc.total_in_group], ['c_pass', fc.sdws3_pass_count], ['c_nopass', fc.excluded_no_pass], ['c_abandoned', fc.excluded_abandoned], ['c_marolinta', fc.excluded_marolinta], ['c_unassigned', fc.unassigned]].map(x => `<div><b>${x[1]}</b><span>${t(x[0])}</span></div>`).join('')}${Object.keys(fc.eligible_by_stratum || {}).map(k => `<div><b>${fc.eligible_by_stratum[k]}</b><span>${t('c_eligible')} ${k}</span></div>`).join('')}${backlogTiles()}</div>`;
+    const fc = state.wp.mwater && state.wp.mwater.counts; if (fc && fc.total_in_group !== undefined) h += `<div class="stat">${[['c_total', fc.total_in_group], ['c_pass', fc.sdws3_pass_count]].concat(fc.excluded_not_creditable ? [['c_notcredit', fc.excluded_not_creditable]] : []).concat([['c_nopass', fc.excluded_no_pass], ['c_abandoned', fc.excluded_abandoned], ['c_marolinta', fc.excluded_marolinta], ['c_unassigned', fc.unassigned]]).map(x => `<div><b>${x[1]}</b><span>${t(x[0])}</span></div>`).join('')}${Object.keys(fc.eligible_by_stratum || {}).map(k => `<div><b>${fc.eligible_by_stratum[k]}</b><span>${t('c_eligible')} ${k}</span></div>`).join('')}${backlogTiles()}</div>`;
     if (state.wp.missing.length) h += `<div class="msg err">${t('missing_cols')}: ${state.wp.missing.join(', ')}</div>`;
     if (state.wp.errors && state.wp.errors.length) h += `<div class="msg warn">${state.wp.errors.slice(0, 5).map(esc).join('<br>')}${state.wp.errors.length > 5 ? '…' : ''}</div>`;
     st.innerHTML = h;
@@ -1230,7 +1312,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
       const points = stratum ? r.points.filter(p => p.stratum === stratum) : r.points;
       const frameCsv = Core.frameToCsv(points);
       const counts = Object.assign({}, r.counts, { fetched: points.length, active: points.filter(p => p.status === 'active').length });
-      const mwMeta = Object.assign({}, r.source, { fetched_at: r.fetchedAt, stratum_filter: stratum || null, forms_used: r.formsUsed, sdws3_responses: r.sdws3Responses, counts, frame_rule: Core.FRAME_RULE_TEXT.en });
+      const mwMeta = Object.assign({}, r.source, { fetched_at: r.fetchedAt, stratum_filter: stratum || null, forms_used: r.formsUsed, sdws3_responses: r.sdws3Responses, counts, frame_rule: Core.FRAME_RULE_TEXT.en, creditable_rule: r.creditRule });
       await loadWp(frameCsv, 'mwater:' + Core.MWATER.entityType + (stratum ? ':' + stratum : '') + '@' + r.fetchedAt, { source: 'mwater', fetchedAt: r.fetchedAt, counts, mwater: mwMeta });
       if (stratum) { $('p-stratum').value = stratum; $('data-stratum').value = stratum; updateSeed(); }
       out.innerHTML = `<div class="msg ok">${t('mw_done', { n: counts.fetched, a: counts.active, t: r.fetchedAt })}</div><button class="btn" type="button" onclick="document.getElementById('btn-next-params').click()">${t('next_params')}</button>` + (warns.length ? `<div class="msg warn">${esc(t('mw_warn', { w: warns.join('; ') }))}</div>` : '');

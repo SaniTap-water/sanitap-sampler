@@ -23,7 +23,7 @@ const round = args.round || '2026-DRY';
   const points = C.normaliseWaterPoints(C.parseCsv(frame.frameCsv).records).points;
   const fleetText = await (await fetch(C.USAGE.fleetUrl)).text(); const fleet = { url: C.USAGE.fleetUrl, sha256: C.sha256Sync(fleetText), fetched_at: new Date().toISOString(), records: JSON.parse(fleetText).records };
   const head = await fetch(C.USAGE.buildings.url, { method: 'HEAD' }); const version = [head.headers.get('last-modified'), head.headers.get('etag')].filter(Boolean).join(' · ');
-  const out = { round, frame_points: points.length, fleet_sha256: fleet.sha256, buildings: C.USAGE.buildings.name, buildings_version: version, scenarios: {} };
+  const out = { round, frame_points: points.length, not_creditable: frame.creditRule.not_creditable, fleet_sha256: fleet.sha256, buildings: C.USAGE.buildings.name, buildings_version: version, scenarios: {} };
   for (const scenario of ['HP-FD', 'HP-MA']) {
     const uf = C.usageFrame(points, scenario, fleet);
     const p = { roundName: round, stratum: scenario, seed: round.replace(/\s+/g, '') + '-' + scenario + '-U', timestamp: new Date().toISOString(), drawnBy: 'dry run', source: 'mwater', frameHash: C.sha256Sync(C.frameToCsv(uf.points)), frameCounts: uf.counts };

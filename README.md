@@ -3,6 +3,7 @@
 A static, offline-capable web tool that draws **statistically valid, logistics-aware samples** for the SaniTap programme under the Gold Standard *Safe Drinking Water Supply* (SDWS) methodology v2.0, in two modes chosen on the Parameters tab:
 
 - **SDWS 18 point-of-use (water quality)** — the original mode. Its draws (selections, stage-1 numbers, household numbers) are unchanged since v2.2.0, and a regression test proves it. v2.4.1 changed two things in the record: the record id no longer repeats the seed (`2026R1-HP-FD`, not `2026R1-HP-FD-2026R1-HP-FD`), and the design check fails below the protocol minimum of 12 sources per stratum;
+- **Not creditable after a failed SDWS 3 test** — v2.5.0: both modes leave out every water point whose latest SDWS 3 result fails the shared rule (see [Not creditable: failed SDWS 3](#not-creditable-failed-sdws-3)).
 - **Usage survey (SDWS 26)** — v2.4.0 (zones, SOP-MAD-SDWS26 v0.4 §4.2): a three-stage clustered draw of water points from the carbon fleet and a rooftop draw of households from building footprints, with an offline phone field view. See [Usage survey mode](#usage-survey-mode-sdws-26).
 
 **Live tool:** https://sanitap-water.github.io/sanitap-sampler/ (deployed from `main` by GitHub Actions; works offline after the first load).
@@ -14,10 +15,13 @@ index.html   app shell, styles, print stylesheet
 app.js       Core (PRNG, CSV, mWater frame, draw, statistics, PDF record, Excel workbook) + i18n object + UI
 sw.js        service worker: caches the app shell for offline use (tiles and the mWater API are never cached)
 data/sample-water-points.csv   60 fake points, 3 strata, 4 inactive (CSV-source demo)
+data/sdws3_rule.json           the SDWS 3 creditable rule, byte-identical in sanitap-water-report (embedded in app.js as Core.SDWS3_RULE)
+data/sdws3_rule_cases.json     its shared test cases (both repositories' implementations must give these verdicts)
 bin/file-round.js              files a drawn round under records/ (append-only) and pushes
 records/                       filed sampling records, served by Pages (records/index.md is the register)
 test/mapper.test.js            Node tests (frame rule, PPS draw, audit, PDF determinism)
 test/sdws18-regression.test.js the SDWS 18 mode reproduces every v2.2.0 draw and PDF (test/fixtures/sdws18-baseline.json)
+test/sdws3-rule.test.js        the SDWS 3 creditable rule: byte-identical to the report's, shared cases, frame exclusion in both modes
 test/usage.test.js             usage-survey mode: reproducibility, stages, probabilities, barrier clip, households, field slots, record
 test/screens.py                screenshots of the usage mode (fake frame, synthetic footprints) into docs/screens/
 bin/usage-dry-run.js           live dry run of the usage mode for both scenarios (prints counts, no coordinates)
@@ -46,14 +50,15 @@ Language toggle (EN/FR) is in the header; every label lives in the `I18N` object
 
 The frame is fetched in the browser from the mWater API (`https://api.mwater.co/v3`, CORS is open) and mapped by `Core.mapMwaterEntities()`.
 
-**Eligibility rule (v1.3).** A source is eligible when it
+**Eligibility rule (v1.3; v2.5.0 adds step 0).** A source is eligible when it
 
+0. is **not "not creditable"**: its latest final SDWS 3 result does not fail the shared rule ([below](#not-creditable-failed-sdws-3));
 1. belongs to the MadAvance water point register (mWater group `group:aaaf0a14…`, entity type `water_point`);
 2. has at least one **final** result in *Clean Water || Water Quality Testing_SDWS 3_Result* (form `7b33c5d7…`) that meets the **health-based rule**: E. coli = 0 CFU/100 mL, arsenic ≤ 10 µg/L, fluoride ≤ 1.5 mg/L (these three must be present), and, where measured, nitrate ≤ 50 mg/L and manganese ≤ 0.08 mg/L. pH, conductivity, turbidity and iron are recorded by the form but never exclude. The form has no nitrate question yet; the rule entry is in place (`q: null`) and is skipped until one exists;
 3. is not abandoned: name not "abondonné / identifié / drilling / proposal / puits ouvert", latest final record of the maintenance form not *Non fonctionnel*, type not kiosk or dug well;
 4. lies in a district mapped to a stratum: Taolagnaro and Amboasary-Atsimo (both Anosy) → **HP-FD**, Maroantsetra → **HP-MA**. Beloha (the Marolinta area) is outside the carbon project and excluded; any other district is *unassigned* and excluded.
 
-The exclusions are applied in that order and counted: total in group, SDWS 3 pass count, excluded (no passing result), excluded abandoned, excluded Marolinta, unassigned, eligible per stratum. The counts appear on the Data tab, in the audit record (`input.mwater.counts`) and in the sampling record PDF. The 286 `LR-…` points of the group named SaniTap are not in the register and stay out.
+The exclusions are applied in that order and counted: total in group, SDWS 3 pass count, excluded (not creditable, shown only when the rule excludes a point), excluded (no passing result), excluded abandoned, excluded Marolinta, unassigned, eligible per stratum. The counts appear on the Data tab, in the audit record (`input.mwater.counts`) and in the sampling record PDF. The 286 `LR-…` points of the group named SaniTap are not in the register and stay out.
 
 | Sampler column | mWater origin |
 |---|---|
@@ -100,7 +105,7 @@ Implemented in `Core.draw()` in `app.js`; also shown in the app under *How it wo
 
 Choose **Usage survey (SDWS 26)** under *Survey* on the Parameters tab. It samples households for the annual usage survey (SDWS 26, with SDWS 25 and SDWS 22) to VPA-DD B.7.2 (90/10, at least 100 households and 8 clusters per scenario) and is run to SOP-MAD-SDWS26 (usage survey).
 
-**Frame.** The carbon fleet of each scenario — HP-FD (Taolagnaro and Amboasary-Atsimo) and HP-MA (Maroantsetra). The mWater register is fetched as for the SDWS 18 mode, behind the user's own mWater login, and joined with the programme report's register classification (`register_classification.json` on the report site: water point ids and classes only, no coordinates); the fleet is the points classed *in_fleet* or *joins* (successfully rehabilitated plus completed new constructions). Marolinta (Beloha) is outside it. There is **no SDWS 3 eligibility filter**: broken pumps stay in the frame. A CSV frame is used as it is (demo/offline). The frame is serialised and hashed (SHA-256); the fleet file's own hash and fetch time go into the record.
+**Frame.** The carbon fleet of each scenario — HP-FD (Taolagnaro and Amboasary-Atsimo) and HP-MA (Maroantsetra). The mWater register is fetched as for the SDWS 18 mode, behind the user's own mWater login, and joined with the programme report's register classification (`register_classification.json` on the report site: water point ids and classes only, no coordinates); the fleet is the points classed *in_fleet* or *joins* (successfully rehabilitated plus completed new constructions). Marolinta (Beloha) is outside it. Points **not creditable** after a failed SDWS 3 test are left out (v2.5.0, [below](#not-creditable-failed-sdws-3)); there is no other SDWS 3 filter, and broken pumps stay in the frame. A CSV frame is used as it is (demo/offline). The frame is serialised and hashed (SHA-256); the fleet file's own hash and fetch time go into the record.
 
 **Draw** (`Core.drawUsage`), seeded `<round>-<scenario>-U` (xmur3 → mulberry32), reproducible from seed + frame hash:
 
@@ -139,6 +144,19 @@ The service-area clip uses the same rules as the report's SDWS 1 people-served m
 - only the fragment of the 1 km circle that contains the water point is kept. A barrier line has no width: cells on the line that touch the kept fragment count as kept area (v2.3.1).
 
 Known difference, in the report and not the Sampler (found 30 Sep 2026). The report clips each river line to the circle and then calls shapely `split()`. The clipped line ends miss the circle's boundary by rounding, so on many points the split returns the whole circle, and a river that crosses the circle cuts nothing. Run on the report's own OSM extract for the 31 dry-run service areas, the two agree within about 2 points of area wherever the report's split succeeds. Where it fails they differ by up to 39 points, and extending the report's line ends by 2 m brings it to the Sampler's figure. The Sampler applies the rule as written.
+
+## Not creditable: failed SDWS 3
+
+Decision: James Walker, Head of Carbon, 20 Oct 2026 (comment on the SDWS 3 SOP): a water point that did not pass SDWS 3 is not creditable, is not part of the carbon portfolio, and is excluded from survey frames. The rule is `data/sdws3_rule.json`, **byte-identical** in the programme report (`sanitap-water-report`, `data/sdws3_rule.json`). `app.js` embeds its exact text as `Core.SDWS3_RULE_JSON`, so its SHA-256 (recorded in the audit as `input.mwater.creditable_rule.sha256`) is the same in both repositories. `test/sdws3-rule.test.js` fails if the embedded text and the file differ, or (when the report is checked out beside this one, or `SANITAP_REPORT` points at it) if either file differs from the report's copy. The report's build fails the same way.
+
+1. For each water point, only its **latest final** result on *Water Quality Testing_SDWS 3_Result* (`7b33c5d7…`) counts, ordered by result date (WS7.10) and then by submission time. A later passing retest restores the point.
+2. It **fails** if E. coli > 0 CFU/100 mL, arsenic > 10 µg/L, fluoride ≥ 1.5 mg/L or turbidity > 5 NTU. 1.5 mg/L is the kit's maximum, so a reading of 1.5 means over the range, not a pass. A blank parameter does not fail the result.
+3. **Exceptions** are the named list in the rule file, each with its reason. Today there is one: 742894851, response Cathy_MadAvance-D5V5UQ (26 Apr 2025), where turbidity is ignored because the 11 NTU entered is a data-entry slip (the team's kit cannot read turbidity that precisely).
+4. A point with **no** final result is not touched and keeps its current treatment.
+
+`Core.sdws3Creditable()` applies the rule to the SDWS 3 responses fetched for the frame. A failing point gets `status = inactive` and `status_reason = not_creditable_sdws3:<parameters>` in the frame row itself. A frame stored, downloaded or reloaded as CSV therefore keeps the exclusion, and the usage mode (`Core.usageFrame`) drops those rows from every scenario frame, the fleet-joined one and a CSV one alike. In the SDWS 18 order this comes first, so a point that also has no passing result is counted once, as not creditable. The counts (`excluded_not_creditable`, usage `not_creditable`) and the PDF rows appear only when the rule excludes something, so a frame it does not touch, and every SDWS 18 regression draw and PDF, is unchanged. The SDWS 18 record states the rule and its SHA-256 when the frame came from mWater. The Test A backlog lists not-creditable points under "tested, failing", because they need a retest. `bin/reconcile.js` gives them `status_for_crediting = not-creditable`.
+
+On the mWater data of 20–21 Oct 2026 the rule excludes 6 points, all in Maroantsetra: 833033198 (E. coli 50 CFU/100 mL, 14 Aug 2025) and 800634100, 797195318, 797885233, 797195301 and 794012210 (fluoride 1.5 mg/L, 15 Aug 2025). The HP-FD frames are unchanged. For HP-MA, the SDWS 18 eligible count goes from 601 to 596 (833033198 was already out, now for this reason) and the SDWS 26 frame from 604 to 598. The rounds already filed are not redrawn: 2026R1 HP-FD and 2026R1 HP-MA (filed 20 Oct 2026 with v2.4.1) selected none of the 6 points, as primary or replacement.
 
 ## Outputs
 

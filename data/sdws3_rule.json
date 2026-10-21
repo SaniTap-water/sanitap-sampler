@@ -1,0 +1,40 @@
+{
+ "id": "sdws3-creditable",
+ "version": "1.0",
+ "title": "A water point that did not pass its SDWS 3 commissioning test is not creditable",
+ "decision": {
+  "by": "James Walker, Head of Carbon",
+  "on": "2026-10-20",
+  "where": "comment on the SDWS 3 SOP",
+  "text": "A water point that did not pass SDWS 3 is not creditable, is not part of the carbon portfolio, and is excluded from survey frames."
+ },
+ "homes": [
+  "sanitap-water-report: data/sdws3_rule.json (read by tools/sdws3_creditable.py)",
+  "sanitap-sampler: data/sdws3_rule.json (embedded as Core.SDWS3_RULE in app.js)"
+ ],
+ "form": {
+  "id": "7b33c5d7e5074808a94915939a5a0783",
+  "name": "Clean Water || Water Quality Testing_ SDWS 3__ Result",
+  "status": "final",
+  "site_q": "a3390d2e97494b3da193e5c015a879d1",
+  "date_q": "630ccd46f76f420692572e0db2d86ad8"
+ },
+ "selection": "Per water point, only its latest final result counts, ordered by result date (WS7.10), then by submission time. A later passing retest restores the point.",
+ "fail_if": [
+  {"key": "ecoli", "label": "E. coli", "q": "892f1d81bf1a4c4483e53271dda474a5", "code": "WS7.11", "op": ">", "limit": 0, "unit": "CFU/100 mL"},
+  {"key": "arsenic", "label": "arsenic", "q": "4b86e349e9bc418ea5a4868e7b383604", "code": "WS7.16", "op": ">", "limit": 10, "unit": "ug/L"},
+  {"key": "fluoride", "label": "fluoride", "q": "b4e94c2a5ca4497199bcde2856f2cd0c", "code": "WS7.17", "op": ">=", "limit": 1.5, "unit": "mg/L", "note": "1.5 mg/L is the kit maximum, so a reading of 1.5 means over-range, not a pass"},
+  {"key": "turbidity", "label": "turbidity", "q": "c70eb0f3cf764b04a26a2bc463a8ca2e", "code": "WS7.12", "op": ">", "limit": 5, "unit": "NTU"}
+ ],
+ "blank": "A parameter left blank does not fail the result (all four are required on the form, so a final response carries them).",
+ "no_result": "A water point with no final SDWS 3 result is not touched by this rule and keeps its current treatment.",
+ "exceptions": [
+  {
+   "response": "Cathy_MadAvance-D5V5UQ",
+   "water_point": "742894851",
+   "result_date": "2025-04-26",
+   "ignore": ["turbidity"],
+   "reason": "The turbidity of 11 NTU is a data-entry slip: the team's kit cannot read turbidity that precisely. Turbidity is ignored for this response only."
+  }
+ ]
+}

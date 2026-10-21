@@ -141,7 +141,9 @@ test('mwaterLoadFrame assembles the frame with SDWS 3 pass data and counts', asy
     return [];
   };
   const r = await C.mwaterLoadFrame('tok', { fetchImpl: async (u) => ({ ok: true, status: 200, json: async () => replies(u) }) });
-  assert.deepEqual(r.counts, { total_in_group: 3, sdws3_pass_count: 2, excluded_no_pass: 1, excluded_abandoned: 1, excluded_marolinta: 0, unassigned: 0, eligible: 1, eligible_by_stratum: { 'HP-FD': 1, 'HP-MA': 0 } });
+  // point 3's only (and so latest) result has E. coli 1: not creditable (SDWS3_RULE, 21 Oct 2026), counted there before "no passing result"
+  assert.deepEqual(r.counts, { total_in_group: 3, sdws3_pass_count: 2, excluded_no_pass: 0, excluded_not_creditable: 1, excluded_abandoned: 1, excluded_marolinta: 0, unassigned: 0, eligible: 1, eligible_by_stratum: { 'HP-FD': 1, 'HP-MA': 0 } });
+  assert.equal(r.points[2].status_reason, 'not_creditable_sdws3:ecoli'); assert.deepEqual(r.creditRule.not_creditable, ['3']);
   assert.equal(r.points[0].households_served, 12); assert.equal(r.points[1].stratum, 'HP-MA'); assert.equal(r.points[1].status, 'inactive'); assert.equal(r.formsUsed.length, 3); assert.equal(r.sdws3Responses, 3); assert.ok(!JSON.stringify(r).includes('tok'));
 });
 

@@ -42,6 +42,7 @@ const namePattern = n => /identifi/i.test(n || '') ? 'identifié' : /drilling|pr
     let status, note = '';
     if (OUTSIDE.includes(district.toLowerCase())) status = 'outside-carbon';
     else if (pat === 'abandonné' || st.status === 'not_functional') { status = 'abandoned'; note = pat === 'abandonné' ? 'name' : 'maintenance: not functional'; }
+    else if (C.isNotCreditable(p)) { status = 'not-creditable'; note = 'latest SDWS 3 result fails ' + p.status_reason.split(':')[1] + ' (James Walker, 20 Oct 2026)'; }
     else if (hasRehab && passing && p.status === 'active') status = 'credited-eligible';
     else if (hasRecords && !tested) { status = 'operating-untested'; note = [hasRehab ? 'rehab' : '', st.last_visit ? 'maintenance' : '', roofs !== undefined ? 'beneficiaries' : ''].filter(Boolean).join('+'); }
     else if ((pat === 'identifié' || pat === 'drilling') && !hasRecords && !tested) status = 'not-yet-built';
@@ -70,7 +71,7 @@ const namePattern = n => /identifi/i.test(n || '') ? 'identifié' : /drilling|pr
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, [header].concat(rows.map(x => header.map(k => x[k]))).map(l => l.map(C.csvEscape).join(',')).join('\r\n') + '\r\n');
   // summary district x status
-  const STATUSES = ['credited-eligible', 'operating-untested', 'not-yet-built', 'abandoned', 'outside-carbon', 'other'];
+  const STATUSES = ['credited-eligible', 'not-creditable', 'operating-untested', 'not-yet-built', 'abandoned', 'outside-carbon', 'other'];
   const by = {}; rows.forEach(x => { const d = x.district || '(none)'; by[d] = by[d] || {}; by[d][x.status_for_crediting] = (by[d][x.status_for_crediting] || 0) + 1; });
   const tot = {}; rows.forEach(x => { tot[x.status_for_crediting] = (tot[x.status_for_crediting] || 0) + 1; });
   const table = [['district', 'total'].concat(STATUSES)].concat(Object.keys(by).sort().map(d => [d, Object.values(by[d]).reduce((a, b) => a + b, 0)].concat(STATUSES.map(s => by[d][s] || 0)))).concat([['TOTAL', rows.length].concat(STATUSES.map(s => tot[s] || 0))]);
