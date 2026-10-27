@@ -4,6 +4,7 @@ A static, offline-capable web tool that draws **statistically valid, logistics-a
 
 - **SDWS 18 point-of-use (water quality)** — the original mode. Its draws (selections, stage-1 numbers, household numbers) are unchanged since v2.2.0, and a regression test proves it. v2.4.1 changed two things in the record: the record id no longer repeats the seed (`2026R1-HP-FD`, not `2026R1-HP-FD-2026R1-HP-FD`), and the design check fails below the protocol minimum of 12 sources per stratum;
 - **Not creditable after a failed SDWS 3 test** — v2.5.0: both modes leave out every water point whose latest SDWS 3 result fails the shared rule (see [Not creditable: failed SDWS 3](#not-creditable-failed-sdws-3)).
+- **mWater form name and register K** — v2.6.0: two per-draw settings on the Parameters tab, written into the record only when set (older records and the SDWS 18 baseline are unchanged). *mWater form name* (default `SDWS18`) is printed in the record header, section 1, section 8 and the field sheet, in place of the old fixed "SDWS 22 PoU" label. *K pre-filled from the register "Ménages" figure* fills K with each source's register roof count at the draw, so the household numbers are printed; section 8 then says in one line that nothing needs counting, and the count-K instruction stays only for draws without it (or for a source with no register figure). `bin/reissue-record.js` reissues a filed record with these settings without re-drawing and checks that the sources, replacements, K and household numbers are unchanged; it writes outside `records/`, which stays append-only.
 - **Usage survey (SDWS 26)** — v2.4.0 (zones, SOP-MAD-SDWS26 v0.4 §4.2): a three-stage clustered draw of water points from the carbon fleet and a rooftop draw of households from building footprints, with an offline phone field view. See [Usage survey mode](#usage-survey-mode-sdws-26).
 
 **Live tool:** https://sanitap-water.github.io/sanitap-sampler/ (deployed from `main` by GitHub Actions; works offline after the first load).
@@ -18,10 +19,13 @@ data/sample-water-points.csv   60 fake points, 3 strata, 4 inactive (CSV-source 
 data/sdws3_rule.json           the SDWS 3 creditable rule, byte-identical in sanitap-water-report (embedded in app.js as Core.SDWS3_RULE)
 data/sdws3_rule_cases.json     its shared test cases (both repositories' implementations must give these verdicts)
 bin/file-round.js              files a drawn round under records/ (append-only) and pushes
+bin/reissue-record.js          reissues a filed SDWS 18 record with the current template (form name, register K), same draw, checked
+bin/pdf-text.js                text runs of a record PDF (tests and reissue check)
 records/                       filed sampling records, served by Pages (records/index.md is the register)
 test/mapper.test.js            Node tests (frame rule, PPS draw, audit, PDF determinism)
 test/sdws18-regression.test.js the SDWS 18 mode reproduces every v2.2.0 draw and PDF (test/fixtures/sdws18-baseline.json)
 test/sdws3-rule.test.js        the SDWS 3 creditable rule: byte-identical to the report's, shared cases, frame exclusion in both modes
+test/field-sheet.test.js       v2.6.0 form name and register-K settings, PDF section 8 text, reissue of the filed 2026R1 records
 test/usage.test.js             usage-survey mode: reproducibility, stages, probabilities, barrier clip, households, field slots, record
 test/screens.py                screenshots of the usage mode (fake frame, synthetic footprints) into docs/screens/
 bin/usage-dry-run.js           live dry run of the usage mode for both scenarios (prints counts, no coordinates)
