@@ -53,3 +53,27 @@ test('reissuing the filed 2026R1 records keeps every source, replacement and hou
   }
   fs.rmSync(tmp, { recursive: true, force: true });
 });
+
+// v2.6.1: section 2 (method) follows the same setting as section 8
+async function section2(audit, lang) {
+  const text = JSON.stringify(audit, null, 2);
+  const runs = pdfTextRuns(Buffer.from(await C.buildSamplingRecordPdf({ PDFLib, audit, auditText: text, auditSha: C.sha256Sync(text), lang, url: C.APP_URL, kValues: {} })));
+  const i = runs.findIndex(r => /^2\. /.test(r)), j = runs.findIndex(r => /^3\. /.test(r));
+  assert.ok(i >= 0 && j > i, 'section 2 not found'); return runs.slice(i, j).join(' ').replace(/\s+/g, ' ');
+}
+test('record PDF section 2: register K says K is the register figure, not counted; otherwise the count wording stays', async () => {
+  if (!PDFLib) { console.log('  (pdf-lib not available: set PDFLIB_DIR) — skipped'); return; }
+  const reg = C.draw(P({ mwaterForm: 'SDWS18', kSource: 'register' }), frame).audit;
+  const fr = await section2(reg, 'fr');
+  assert.match(fr, /Pour chaque source, K est le chiffre « Ménages » \(nombre de toits\) du registre ; il n.est pas compté sur le terrain\./);
+  assert.doesNotMatch(fr, /le préleveur compte les ménages desservis/); assert.doesNotMatch(fr, /sans chiffre du registre/);
+  const en = await section2(reg, 'en');
+  assert.match(en, /K is the register "Ménages" \(roof count\) figure; it is not counted in the field\./); assert.doesNotMatch(en, /the sampler counts the households served/);
+  // setting off: the v2.6.0 count wording, unchanged
+  const off = await section2(C.draw(P({ mwaterForm: 'SDWS18' }), frame).audit, 'fr');
+  assert.match(off, /À chaque source, le préleveur compte les ménages desservis \(K\)/); assert.doesNotMatch(off, /chiffre « Ménages »/);
+  // setting on, one source without a register figure: it keeps the count wording, by id
+  const gap = JSON.parse(JSON.stringify(reg)); gap.replacements[0].households_served = ''; const id = gap.replacements[0].water_point_id;
+  const g = await section2(gap, 'fr');
+  assert.match(g, /il n.est pas compté sur le terrain/); assert.ok(g.includes('Pour les sources sans chiffre du registre (' + id + '), le préleveur compte les ménages desservis (K) sur place'), g);
+});
