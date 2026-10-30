@@ -5,12 +5,15 @@ const { spawnSync } = require('child_process');
 const C = require('../app.js'); const K = require('../bin/sdws18-cases.js');
 let PDFLib; try { PDFLib = require(path.join(process.env.PDFLIB_DIR || '/nonexistent', 'node_modules', 'pdf-lib')); } catch (e) { PDFLib = null; }
 const skip = () => { console.log('  (pdf-lib not available: set PDFLIB_DIR) — skipped'); };
-const ROOT = path.join(__dirname, '..'); const REC = s => path.join(ROOT, 'records', '2026R1', s);
+const ROOT = path.join(__dirname, '..'); const { EVIDENCE, REC, skipNoEvidence } = require('./evidence.js');
+// a SharePoint-like folder for the filing scripts (SAMPLER_CONFIG): never inside the repo, never under git
+function tempEvidence() { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'evidence-')); const cfg = path.join(d, 'sampler.local.json'); fs.mkdirSync(path.join(d, 'Sampling records')); fs.writeFileSync(cfg, JSON.stringify({ records_dir: path.join(d, 'Sampling records') })); return { root: d, dir: path.join(d, 'Sampling records'), env: Object.assign({}, process.env, { SAMPLER_CONFIG: cfg }) }; }
 const csvRows = text => text.trim().split(/\r?\n/).slice(1).map(l => l.split(','));
 
 // the filed 2026R1 records: opened from the PDF alone, the round reproduces exactly what was filed
 for (const s of ['HP-FD', 'HP-MA']) {
   test('open the filed 2026R1 ' + s + ' record from its PDF: same audit, 12 sources, R1-R3, household numbers as in selection.csv', async () => {
+    if (!EVIDENCE) return skipNoEvidence();
     const pdf = fs.readFileSync(path.join(REC(s), 'sampling-record.pdf'));
     const o = await C.openRecord({ pdf: new Uint8Array(pdf) }); // the browser path (DecompressionStream)
     assert.equal(o.ok, true, o.error); assert.equal(o.mode, 'pou');
@@ -28,18 +31,21 @@ for (const s of ['HP-FD', 'HP-MA']) {
   });
 }
 
-test('the evidence pack PDF rebuilt from an opened filed record is byte-identical to the filed PDF (fr)', async () => {
-  if (!PDFLib) return skip();
+test('the record PDF rebuilt from an opened filed record is byte-identical to the filed PDF (fr); the v2.8.0 pack adds the map and still opens', async () => {
+  if (!PDFLib) return skip(); if (!EVIDENCE) return skipNoEvidence();
   for (const s of ['HP-FD', 'HP-MA']) {
     const pdf = fs.readFileSync(path.join(REC(s), 'sampling-record.pdf')); const o = await C.openRecord({ pdf: new Uint8Array(pdf) });
     const kv = {}; o.audit.field_rule_numbers.forEach(x => { kv[x.water_point_id] = x.K; });
+    const same = await C.buildSamplingRecordPdf({ PDFLib, audit: o.audit, auditText: o.auditText, auditSha: o.sha, lang: 'fr', url: C.APP_URL, kValues: kv });
+    assert.ok(Buffer.from(same).equals(pdf), s + ' PDF differs (without the map pages the template is unchanged)');
     const pack = await C.evidencePack({ PDFLib, auditText: o.auditText, lang: 'fr', kValues: kv });
-    assert.ok(Buffer.from(pack.pdf).equals(pdf), s + ' PDF differs'); assert.equal(pack.sha, o.sha); assert.equal(pack.csv, fs.readFileSync(path.join(REC(s), 'selection.csv'), 'utf8'));
+    const re = await C.openRecord({ pdf: new Uint8Array(pack.pdf) }); assert.equal(re.ok, true); assert.equal(re.auditText, o.auditText); assert.equal(pack.sha, o.sha); assert.equal(pack.csv, fs.readFileSync(path.join(REC(s), 'selection.csv'), 'utf8'));
     assert.deepEqual(pack.names, { pdf: 'sanitap-2026R1-' + s + '-record.pdf', xlsx: 'sanitap-2026R1-' + s + '-selection.xlsx', csv: 'sanitap-2026R1-' + s + '-selection.csv' });
   }
 });
 
 test('a changed record is refused: footer hash, record id, edited audit.json, unverifiable audit.json, not a record', async () => {
+  if (!EVIDENCE) return skipNoEvidence();
   const pdf = fs.readFileSync(path.join(REC('HP-FD'), 'sampling-record.pdf')); const text = fs.readFileSync(path.join(REC('HP-FD'), 'audit.json'), 'utf8');
   const sha = C.sha256Sync(text); const t = pdf.toString('latin1');
   // the PDF's own audit hash replaced (same length): the attached audit no longer matches it
@@ -49,7 +55,7 @@ test('a changed record is refused: footer hash, record id, edited audit.json, un
   assert.equal((await C.openRecord({ pdf: new Uint8Array(badRid) })).error, 'rid_mismatch');
   // audit.json: accepted with the footer hash or when the published register lists it; refused when edited or when nothing vouches for it
   assert.equal((await C.openRecord({ json: text, expectedSha: sha })).ok, true);
-  assert.equal((await C.openRecord({ json: text, registerShas: C.registerShas(fs.readFileSync(path.join(ROOT, 'records', 'index.md'), 'utf8')) })).ok, true, 'the filed record is in records/index.md');
+  assert.equal((await C.openRecord({ json: text, registerShas: C.registerShas(fs.readFileSync(path.join(EVIDENCE, 'index.md'), 'utf8')) })).ok, true, 'the filed record is in the register (index.md in SharePoint)');
   const edited = text.replace('"742895168"', '"742895169"'); assert.notEqual(edited, text);
   assert.equal((await C.openRecord({ json: edited, expectedSha: sha })).error, 'sha_mismatch');
   assert.equal((await C.openRecord({ json: text.replace(/\n/g, '\r\n'), expectedSha: sha })).error, 'sha_mismatch', 'even a line-ending change is refused');
@@ -77,6 +83,7 @@ test('confirm and lock: a record id is confirmed once; the same record again is 
 });
 
 test('both strata (and both surveys) are held side by side; adding one never changes another', async () => {
+  if (!EVIDENCE) return skipNoEvidence();
   const lib = {};
   for (const s of ['HP-FD', 'HP-MA']) { const text = fs.readFileSync(path.join(REC(s), 'audit.json'), 'utf8'); C.libraryAdd(lib, C.libraryEntry({ audit: JSON.parse(text), auditText: text, sha: C.sha256Sync(text), at: s, origin: 'opened' })); }
   const before = JSON.stringify(lib['2026R1-HP-FD']);
@@ -117,16 +124,11 @@ test('usage draw: confirmed, opened from its PDF, reproduces the water points, r
   // the usage selection CSV: 12 water points then R1-R3, no coordinates
   const rows = csvRows(pack.csv); assert.deepEqual(rows.map(x => x[4]), r.points.map(w => String(w.order)).concat(r.reserves.map(w => 'R' + w.order)));
   assert.ok(!/-25\.0|46\.9/.test(pack.csv)); assert.ok(!C.hasCoordinateKeys(o.audit));
-  // bin/file-round.js: a usage record files to records/<round>/<scenario>-U/ (dry run: nothing written)
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-file-')); const f = path.join(tmp, pack.names.pdf); fs.writeFileSync(f, pack.pdf);
-  const res = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'file-round.js'), '--pdf', f, '--xlsx', path.join(tmp, 'none.xlsx'), '--dry-run'], { encoding: 'utf8' });
-  assert.equal(res.status, 0, res.stderr); assert.match(res.stdout, /Usage-survey \(SDWS 26\) record 2026-DRY-HP-FD-2026-DRY-HP-FD-U -> records\/2026-DRY\/HP-FD-U\//); assert.match(res.stdout, new RegExp('audit SHA-256 ' + pack.sha));
-  fs.rmSync(tmp, { recursive: true, force: true });
-});
-
-test('file-round stays append-only: the filed 2026R1 HP-FD folder is never overwritten', () => {
-  const res = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'file-round.js'), '--pdf', path.join(REC('HP-FD'), 'sampling-record.pdf'), '--xlsx', path.join(os.tmpdir(), 'none.xlsx'), '--dry-run'], { encoding: 'utf8' });
-  assert.equal(res.status, 1); assert.match(res.stderr, /record folder already exists: records\/2026R1\/HP-FD/);
+  // bin/file-round.js: a usage record files to <records_dir>/<round>/<scenario>-U/ (dry run: nothing written)
+  const ev = tempEvidence(); const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-file-')); const f = path.join(tmp, pack.names.pdf); fs.writeFileSync(f, pack.pdf);
+  const res = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'file-round.js'), '--pdf', f, '--xlsx', path.join(tmp, 'none.xlsx'), '--dry-run'], { encoding: 'utf8', env: ev.env });
+  assert.equal(res.status, 0, res.stderr); assert.match(res.stdout, /Usage-survey \(SDWS 26\) record 2026-DRY-HP-FD-2026-DRY-HP-FD-U -> 2026-DRY\/HP-FD-U\/ in /); assert.deepEqual(fs.readdirSync(ev.dir), [], 'dry run writes nothing'); assert.match(res.stdout, new RegExp('audit SHA-256 ' + pack.sha));
+  fs.rmSync(tmp, { recursive: true, force: true }); fs.rmSync(ev.root, { recursive: true, force: true });
 });
 
 test('K typed in the field fills only the sources without a recorded K; recorded K stays authoritative', () => {

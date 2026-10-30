@@ -1,0 +1,29 @@
+{
+  "note": "SHA-256 of audit.json texts (version stamp normalised) for fixed draws, written by /tmp/claude-1000/-home-bushp/dff8b96b-a310-46b4-8913-2d9fe4334c56/scratchpad/app-v270.js v2.7.0. Later versions must reproduce them byte for byte.",
+  "app_version": "2.7.0",
+  "audits": {
+    "pou|mw|2026-DRY-HP-FD|58": "5f02fcfbdd6b493d200a78203edeade851b48ad5cad5b1101eba100b1f1f08ce",
+    "pou|mw|2026R1-HP-FD|58": "58f0c2e9c1be0954d284fd7ebd3c29d203d2c4f1340f4cec3cf139778e502ea0",
+    "pou|sample|2026R1-AM|20": "8dd9bad1aaf8de77725daa38078e76bfb885ea609d2a03282601843fc2a5fea1",
+    "pou|sample|2026R1-AM|58": "bb504539781488bd1aea842762616f396bc500f43b7f8584281bff92d392e92f",
+    "pou|sample|2026R1-FD|20": "1e9d6eb2a9f680e4aa580214cb65a4142f65ff49f41ee02d6cf823e674abee20",
+    "pou|sample|2026R1-FD|58": "155a89f116dad993fc9b7ca98e49648644cbe99ca700edc08cc7f7305525307b",
+    "pou|sample|2026R1-MA|20": "8b0aafc39594780be27460f9cca859fb69c9f6cb1cd49ba7a59d8f67e7dca074",
+    "pou|sample|2026R1-MA|58": "2e3c0864d84fa75f494f66e3dc1d13463b69b46db174b4195842ce795df791d5",
+    "pou|sample|2026R2-AM|20": "88f80ebf7681d5a4628c5a0c69fa0678f616bec21a4cdc216b8646c0fa6199b5",
+    "pou|sample|2026R2-AM|58": "92d182ecb868a6357fc58d0c2ea8a5d8775542ce9f8910ee31f741ca4225f5d6",
+    "pou|sample|2026R2-FD|20": "1898bf03579fcd58a52f87a474c714ac84c429dacdb46a5a3c3e6596f145bab4",
+    "pou|sample|2026R2-FD|58": "c303d13abd10b9c7eeafe4455b3c8c8a1797127026492d31b8933f032b44af7a",
+    "pou|sample|2026R2-MA|20": "1df5cc3a6b9d911d669d737c67e73d8af429988302bbf50ec8938c674203e664",
+    "pou|sample|2026R2-MA|58": "15e2dbae4eb329435adaf79baa69194961052963c44abaff19281b63b8a580b7",
+    "pou|sample|TEST-AM|20": "5e3391c25d27f1494301a5a028990631e8d89d04d05b6a05f056ea09c6b88866",
+    "pou|sample|TEST-AM|58": "5d450649d17f82bff8d904156890685e3097b1298eb44ec8bf978bf08f13a9f0",
+    "pou|sample|TEST-FD|20": "e772e13ee314cacd9feeccf0ea5cad9c585d106a8e2d3985f9957b6c9305690e",
+    "pou|sample|TEST-FD|58": "b621e76a187716303dd7882a0fee61a9e4655f653c413fcb14e411cd4b49c93c",
+    "pou|sample|TEST-MA|20": "d7a9560a191df8e4b983eb009f5e644326e0731c9a74022b943647b7cc177d56",
+    "pou|sample|TEST-MA|58": "9636fbda34869731d3972c81a206b9a9edaac3bf9ea195af7951087c0aab4d23",
+    "usage|2026-DRY-HP-FD-U": "4f7f5052e873cf8dc45874ad901f50c0b276462fb25e542b594af869c5745b77",
+    "usage|2027-WET-HP-FD-U": "634141bc988058fc8b4422c23ec0d300ae4b4a816b3a838f57e601bee0b69b98",
+    "usage|X-HP-FD-U": "4717c1916bdc46098e75e04233fcce9c66e7478851a2fcc1e30bc3fda8c8ea86"
+  }
+}

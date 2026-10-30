@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.7.0';
+const APP_VERSION = '2.8.0';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -578,6 +578,133 @@ const Core = (function () {
   const RECORD_COORD_KEYS = /^(lat|lon|lng|latitude|longitude|coordinates|location|geometry)$/i;
   function hasCoordinateKeys(obj) { if (Array.isArray(obj)) return obj.some(hasCoordinateKeys); if (obj && typeof obj === 'object') return Object.keys(obj).some(k => RECORD_COORD_KEYS.test(k) || hasCoordinateKeys(obj[k])); return false; }
   const pdfSafe = str => String(str === undefined || str === null ? '' : str).replace(/≤/g, '<=').replace(/≥/g, '>=').replace(/→/g, '->').replace(/×/g, 'x').replace(/\r?\n/g, ' ').replace(PDF_SAFE, '?');
+  /* ---------- record map pages (v2.8.0): overview, stop list, one zoomed page per 25 km cluster ----------
+   * Basemap: Esri World Street Map tiles, fetched at Confirm (only the tiles the maps need) and embedded as images.
+   * Positions come from the device (the draw made here, or a frame loaded here); they go into the PDF pages only, never into audit.json. */
+  const TILES = { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', host: 'server.arcgisonline.com', maxZoom: 16,
+    attribution: 'Tiles © Esri — Source: Esri, HERE, Garmin, USGS, Intermap, INCREMENT P, NRCan, Esri Japan, METI, Esri China (Hong Kong), Esri Korea, Esri (Thailand), NGCC, © OpenStreetMap contributors, and the GIS User Community' };
+  const MAP_PALETTE = ['#0b5e8a', '#b45309', '#157347', '#7c3aed', '#be185d', '#0f766e', '#a16207', '#4338ca'];
+  const tileUrl = (z, x, y) => TILES.url.replace('{z}', z).replace('{y}', y).replace('{x}', x);
+  // one fetcher per pack: each tile is fetched at most once; a failed tile resolves to null
+  function tileFetcher(fetchImpl, opts) {
+    const o = opts || {}; const memo = {}; let count = 0;
+    const get = (z, x, y) => { const k = z + '/' + y + '/' + x; if (!memo[k]) { count++; memo[k] = (async () => { const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null; const tm = ctl ? setTimeout(() => ctl.abort(), o.timeoutMs || 10000) : null; try { const r = await fetchImpl(tileUrl(z, x, y), ctl ? { signal: ctl.signal } : {}); if (!r || !r.ok) return null; return new Uint8Array(await r.arrayBuffer()); } catch (e) { return null; } finally { if (tm) clearTimeout(tm); } })(); } return memo[k]; };
+    get.count = () => count; return get;
+  }
+  const mercX = (lon, z) => (lon + 180) / 360 * 256 * Math.pow(2, z);
+  const mercY = (lat, z) => { const s = Math.sin(lat * Math.PI / 180); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * Math.pow(2, z); };
+  // single-linkage clusters: sources within REACH_KM of each other (through a chain) share a zoomed page
+  function mapClusters(stops, km) {
+    const lim = km === undefined ? REACH_KM : km; const pts = stops.filter(s => isFinite(s.lat) && isFinite(s.lon)); const seen = new Set(); const out = [];
+    pts.forEach(p => { if (seen.has(p)) return; const c = []; const q = [p]; seen.add(p); while (q.length) { const a = q.shift(); c.push(a); pts.forEach(b => { if (!seen.has(b) && haversineKm(a, b) <= lim) { seen.add(b); q.push(b); } }); } out.push(c); });
+    return out;
+  }
+  // the view of a map frame: zoom and top-left pixel so that every point fits with a margin; 1 tile pixel = s points
+  function mapView(pts, w, h, opts) {
+    const o = opts || {}; const s = o.scale || 0.5; const pad = o.pad || 28; let z = Math.min(o.maxZoom || 15, TILES.maxZoom);
+    for (; z > 1; z--) { const xs = pts.map(p => mercX(p.lon, z)), ys = pts.map(p => mercY(p.lat, z)); if ((Math.max.apply(null, xs) - Math.min.apply(null, xs)) * s <= w - 2 * pad && (Math.max.apply(null, ys) - Math.min.apply(null, ys)) * s <= h - 2 * pad) break; }
+    const xs = pts.map(p => mercX(p.lon, z)), ys = pts.map(p => mercY(p.lat, z));
+    const cx = (Math.max.apply(null, xs) + Math.min.apply(null, xs)) / 2, cy = (Math.max.apply(null, ys) + Math.min.apply(null, ys)) / 2;
+    return { z, s, left: cx - w / s / 2, top: cy - h / s / 2, w, h };
+  }
+  const viewTiles = v => { const out = []; const n = Math.pow(2, v.z); for (let ty = Math.floor(v.top / 256); ty <= Math.floor((v.top + v.h / v.s) / 256); ty++) for (let tx = Math.floor(v.left / 256); tx <= Math.floor((v.left + v.w / v.s) / 256); tx++) if (ty >= 0 && ty < n) out.push({ tx, ty, x: ((tx % n) + n) % n }); return out; };
+  const hexRgb = (rgb, hex) => rgb(parseInt(hex.slice(1, 3), 16) / 255, parseInt(hex.slice(3, 5), 16) / 255, parseInt(hex.slice(5, 7), 16) / 255);
+  function niceScale(mPerPt, maxPt) { const want = mPerPt * maxPt; const p = Math.pow(10, Math.floor(Math.log10(want))); const m = [5, 2, 1].map(k => k * p).find(v => v <= want) || p; return { m, pt: m / mPerPt, label: m >= 1000 ? (m / 1000) + ' km' : m + ' m' }; }
+
+  // stops: [{ label, water_point_id, name, commune, fokontany, lat, lon, K, numbers, kind: 'sel'|'rep', far, zone }]
+  async function addMapPages(o) {
+    const { doc, font, bold, PDFLib, T } = o; const { rgb, PageSizes } = PDFLib; const ops = PDFLib;
+    const W = 595.28, H = 841.89, M = 50, CW = W - 2 * M; let page = null, y = 0;
+    const newPage = () => { page = doc.addPage(PageSizes && PageSizes.A4 ? PageSizes.A4 : [W, H]); y = H - M; };
+    const ensure = h => { if (!page || y - h < M + 22) newPage(); };
+    const wrap = (text, f, size, width) => { const out = []; String(text).split(/\n/).forEach(par => { const words = par.split(/\s+/); let line = ''; words.forEach(wd => { const cand = line ? line + ' ' + wd : wd; if (f.widthOfTextAtSize(cand, size) <= width) line = cand; else { if (line) out.push(line); line = wd; } }); out.push(line); }); return out; };
+    const para = (text, po) => { po = po || {}; const f = po.bold ? bold : font, size = po.size || 9.5, lh = size * 1.35; wrap(pdfSafe(text), f, size, CW).forEach(l => { ensure(lh); page.drawText(l, { x: M, y: y - size, size, font: f, color: po.color || rgb(0.1, 0.1, 0.1) }); y -= lh; }); y -= 4; };
+    const heading = text => { ensure(30); y -= 6; page.drawText(pdfSafe(text), { x: M, y: y - 12, size: 12.5, font: bold, color: rgb(0.04, 0.37, 0.54) }); y -= 18; page.drawLine({ start: { x: M, y }, end: { x: M + CW, y }, thickness: 0.6, color: rgb(0.04, 0.37, 0.54) }); y -= 6; };
+    const table = (headers, rows, widths) => {
+      const size = 7.5, lh = size * 1.3, pad = 2.5; const drawHead = () => { ensure(lh * 2 + 2 * pad + 10); const hl = headers.map((hh, i) => wrap(pdfSafe(hh), bold, size, widths[i] - 2 * pad)); const n = Math.max.apply(null, hl.map(c => c.length)); page.drawRectangle({ x: M, y: y - n * lh - 2 * pad, width: CW, height: n * lh + 2 * pad, color: rgb(0.93, 0.95, 0.97) }); let x = M; hl.forEach((lines, i) => { lines.forEach((l, j) => page.drawText(l, { x: x + pad, y: y - pad - size - j * lh, size, font: bold })); x += widths[i]; }); y -= n * lh + 2 * pad; };
+      drawHead();
+      rows.forEach(r => { const cells = r.map((c, i) => wrap(pdfSafe(c), font, size, widths[i] - 2 * pad)); const n = Math.max.apply(null, cells.map(c => c.length)); const h = n * lh + 2 * pad; if (y - h < M + 22) { newPage(); drawHead(); } let x = M; cells.forEach((lines, i) => { lines.forEach((l, j) => page.drawText(l, { x: x + pad, y: y - pad - size - j * lh, size, font })); x += widths[i]; }); y -= h; page.drawLine({ start: { x: M, y }, end: { x: M + CW, y }, thickness: 0.3, color: rgb(0.8, 0.82, 0.85) }); });
+      y -= 6;
+    };
+    const stops = o.stops; const placed = stops.filter(s => isFinite(s.lat) && isFinite(s.lon));
+    const BLUE = hexRgb(rgb, '#0b5e8a'), GREY = hexRgb(rgb, '#9aa3ad'), ORANGE = hexRgb(rgb, '#e07b00'), WHITE = rgb(1, 1, 1), INK = rgb(0.1, 0.1, 0.1);
+    const zoneColour = {}; (o.zones || []).forEach((z, i) => { zoneColour[z] = hexRgb(rgb, MAP_PALETTE[i % MAP_PALETTE.length]); });
+    let basemapMissing = 0;
+    const marker = (x, yy, s) => {
+      const r = s.label.length > 2 ? 8.5 : 7.5; const usage = o.mode === 'usage'; const zc = usage ? zoneColour[s.zone] || BLUE : null;
+      const fill = s.kind === 'rep' ? GREY : (usage ? zc : BLUE); const border = s.kind === 'rep' && usage ? zc : WHITE;
+      page.drawCircle({ x, y: yy, size: r, color: fill, borderColor: border, borderWidth: s.kind === 'rep' && usage ? 1.8 : 1 });
+      const fs = 6.5; const tw = bold.widthOfTextAtSize(s.label, fs); page.drawText(s.label, { x: x - tw / 2, y: yy - fs * 0.35, size: fs, font: bold, color: WHITE });
+      if (s.far) { page.drawLine({ start: { x: x + r - 1, y: yy + r - 2 }, end: { x: x + r - 1, y: yy + r + 9 }, thickness: 0.9, color: INK }); page.drawSvgPath('M 0 0 L 8 2.5 L 0 5 Z', { x: x + r - 0.6, y: yy + r + 9, color: ORANGE, borderColor: INK, borderWidth: 0.4 }); }
+    };
+    // one map frame at (fx, fy) of w x h points with the given stops; returns the height used below the frame (attribution)
+    async function mapFrame(fx, fy, w, h, list, viewOpts) {
+      const v = mapView(list.concat(o.town && viewOpts.withTown ? [o.town] : []), w, h, viewOpts);
+      const tiles = viewTiles(v); let imgs = null;
+      if (o.fetchTile) { const got = []; for (let i = 0; i < tiles.length; i += 4) got.push.apply(got, await Promise.all(tiles.slice(i, i + 4).map(t => o.fetchTile(v.z, t.x, t.ty)))); if (got.every(b => b && b.length)) imgs = got; }
+      page.drawRectangle({ x: fx, y: fy, width: w, height: h, color: rgb(0.94, 0.95, 0.96) });
+      const embedded = [];
+      if (imgs) { try { for (const b of imgs) embedded.push(b[0] === 0x89 ? await doc.embedPng(b) : await doc.embedJpg(b)); } catch (e) { embedded.length = 0; } }
+      if (embedded.length === tiles.length && tiles.length) {
+        page.pushOperators(ops.pushGraphicsState(), ops.rectangle(fx, fy, w, h), ops.clip(), ops.endPath());
+        tiles.forEach((t, i) => { const px = fx + (t.tx * 256 - v.left) * v.s, pyTop = (t.ty * 256 - v.top) * v.s; page.drawImage(embedded[i], { x: px, y: fy + h - pyTop - 256 * v.s, width: 256 * v.s, height: 256 * v.s }); });
+        page.pushOperators(ops.popGraphicsState());
+      } else { basemapMissing++; const msg = pdfSafe(T.basemap_unavailable); page.drawText(msg, { x: fx + w / 2 - font.widthOfTextAtSize(msg, 9) / 2, y: fy + h - 18, size: 9, font, color: rgb(0.4, 0.4, 0.4) }); }
+      page.drawRectangle({ x: fx, y: fy, width: w, height: h, borderColor: rgb(0.45, 0.47, 0.5), borderWidth: 0.8 });
+      const toPt = p => ({ x: fx + (mercX(p.lon, v.z) - v.left) * v.s, y: fy + h - (mercY(p.lat, v.z) - v.top) * v.s });
+      const inside = q => q.x >= fx && q.x <= fx + w && q.y >= fy && q.y <= fy + h;
+      if (o.town) { const q = toPt(o.town); if (inside(q)) { page.drawRectangle({ x: q.x - 3.5, y: q.y - 3.5, width: 7, height: 7, color: INK, borderColor: WHITE, borderWidth: 0.8 }); page.drawText(pdfSafe(o.town.name), { x: q.x + 6, y: q.y - 3, size: 7.5, font: bold, color: INK }); } }
+      list.slice().sort((a, b) => (b.kind === 'rep') - (a.kind === 'rep')).forEach(s => { const q = toPt(s); if (inside(q)) marker(q.x, q.y, s); });
+      // north arrow (top right) and scale bar (bottom left), on white plates
+      const nx = fx + w - 20, ny = fy + h - 34; page.drawRectangle({ x: nx - 10, y: ny - 4, width: 20, height: 30, color: WHITE, opacity: 0.85 }); page.drawSvgPath('M 0 -14 L 5 0 L 0 -4 L -5 0 Z', { x: nx, y: ny + 1, color: INK }); page.drawText('N', { x: nx - bold.widthOfTextAtSize('N', 8) / 2, y: ny + 17, size: 8, font: bold, color: INK });
+      const latc = list.reduce((a, p) => a + p.lat, 0) / list.length; const mPerPt = 156543.03392 * Math.cos(latc * Math.PI / 180) / Math.pow(2, v.z) / v.s; const sc = niceScale(mPerPt, w / 4);
+      page.drawRectangle({ x: fx + 6, y: fy + 6, width: sc.pt + 16, height: 20, color: WHITE, opacity: 0.85 }); page.drawRectangle({ x: fx + 14, y: fy + 11, width: sc.pt / 2, height: 3, color: INK }); page.drawRectangle({ x: fx + 14 + sc.pt / 2, y: fy + 11, width: sc.pt / 2, height: 3, color: WHITE, borderColor: INK, borderWidth: 0.5 });
+      page.drawText(sc.label, { x: fx + 14, y: fy + 17, size: 6.5, font, color: INK });
+      // attribution under every map that shows the basemap
+      const lines = embedded.length ? wrap(pdfSafe(TILES.attribution), font, 5.5, w) : []; lines.forEach((l, i) => page.drawText(l, { x: fx, y: fy - 7 - i * 6.5, size: 5.5, font, color: rgb(0.35, 0.35, 0.35) }));
+      return lines.length ? 9 + lines.length * 6.5 : 4;
+    }
+    const legend = () => {
+      const items = o.mode === 'usage' ? [{ kind: 'sel', label: '1', text: T.lg_point }, { kind: 'rep', label: 'R1', text: T.lg_reserve }] : [{ kind: 'sel', label: '1', text: T.lg_selected }, { kind: 'rep', label: 'R1', text: T.lg_replacement }, { kind: 'sel', label: '1', far: true, text: T.lg_far }];
+      items.forEach(it => { ensure(20); marker(M + 9, y - 9, it); page.drawText(pdfSafe(it.text), { x: M + 26, y: y - 12, size: 8, font, color: INK }); y -= 20; });
+      if (o.town) { ensure(14); page.drawRectangle({ x: M + 5.5, y: y - 12, width: 7, height: 7, color: INK }); page.drawText(pdfSafe(T.lg_town.replace('{town}', o.town.name)), { x: M + 26, y: y - 11, size: 8, font, color: INK }); y -= 16; }
+      if (o.mode === 'usage') (o.zones || []).forEach(z => { ensure(12); page.drawRectangle({ x: M + 5, y: y - 10, width: 8, height: 8, color: zoneColour[z] }); page.drawText(pdfSafe(T.lg_zone + ' ' + z), { x: M + 26, y: y - 9, size: 8, font, color: INK }); y -= 12; });
+      y -= 4;
+    };
+    // ---- overview
+    newPage(); heading(T.h_map.replace('{n}', o.sectionNo));
+    para(T.map_intro.replace('{stratum}', o.stratum).replace('{rid}', o.rid));
+    if (o.reissueNote) para(o.reissueNote);
+    if (o.positionsNote) para(o.positionsNote, { color: rgb(0.55, 0.3, 0.0) });
+    if (placed.length) {
+      const mh = 470; ensure(mh + 30); const used = await mapFrame(M, y - mh, CW, mh, placed, { maxZoom: 14, withTown: false }); y -= mh + used + 6;
+      legend();
+    } else para(T.no_positions, { bold: true });
+    // ---- stop list
+    ensure(140); heading(T.h_stops); para(T.stops_note);
+    const c5 = v => (isFinite(v) ? Number(v).toFixed(5) : '—');
+    table([T.s_no, T.s_id, T.s_name, T.s_commune, T.s_fokontany, T.s_lat, T.s_lon, T.s_k, T.s_numbers], stops.map(s => [s.label + (s.far ? ' !' : ''), s.water_point_id, s.name || '', s.commune || '', s.fokontany || '', c5(s.lat), c5(s.lon), s.K ? String(s.K) : '—', s.numbers || '—']), [24, 58, 70, 60, 62, 42, 42, 24, 113]);
+    // ---- zoomed pages, one per cluster of sources within REACH_KM
+    const clusters = mapClusters(placed); const order = s => (s.kind === 'rep' ? 1000 : 0) + (parseInt(String(s.label).replace(/\D/g, ''), 10) || 0);
+    for (let i = 0; i < clusters.length; i++) {
+      const c = clusters[i].slice().sort((a, b) => order(a) - order(b));
+      newPage(); heading(T.h_zoom.replace('{i}', i + 1).replace('{n}', clusters.length)); para(T.zoom_list.replace('{km}', REACH_KM).replace('{list}', c.map(s => s.label + ' ' + s.water_point_id).join(', ')));
+      const mh = 560; const used = await mapFrame(M, y - mh, CW, mh, c, { maxZoom: 15 }); y -= mh + used + 6;
+    }
+    if (basemapMissing) { ensure(16); para(T.basemap_note.replace('{n}', basemapMissing), { color: rgb(0.55, 0.3, 0.0) }); }
+    return { maps: 1 + clusters.length, clusters: clusters.length, basemapMissing, placed: placed.length };
+  }
+  // stops of an SDWS 18 or usage audit, with positions and the household numbers as on the field sheet
+  function recordStops(a, positions, numbersFor) {
+    const pos = positions || {}; const usage = recordMode(a) === 'usage';
+    const farIds = new Set(((a.reach_check || {}).sources || []).filter(x => x.far).map(x => x.water_point_id));
+    const list = usage ? a.water_points.map(w => [w, 'sel']).concat(a.reserves.map(w => [w, 'rep'])) : a.water_points.map(w => [w, 'sel']).concat(a.replacements.map(w => [w, 'rep']));
+    const stops = list.map(([w, kind]) => { const q = pos[String(w.water_point_id)]; const n = numbersFor ? numbersFor(w) : null; return { label: (kind === 'rep' ? 'R' : '') + w.order, kind, water_point_id: String(w.water_point_id), name: w.name || '', commune: w.commune || w.cluster || '', fokontany: w.fokontany || '', zone: w.zone, lat: q ? Number(q.lat) : NaN, lon: q ? Number(q.lon) : NaN, K: n ? n.K : null, numbers: n ? n.text : null, far: farIds.has(w.water_point_id) }; });
+    // usage records have no reach check in the audit: flag a drawn point more than REACH_KM from every other drawn point and from the town
+    if (usage) { const town = (MWATER.strata[a.parameters.scenario] || {}).town; const sel = stops.filter(s => s.kind === 'sel' && isFinite(s.lat)); sel.forEach(s => { const near = sel.some(o2 => o2 !== s && haversineKm(s, o2) <= REACH_KM); s.far = !near && !(town && haversineKm(s, town) <= REACH_KM); }); }
+    return stops;
+  }
+  function positionsNote(T, stops) { const missing = stops.filter(s => !isFinite(s.lat)).length; if (!missing) return ''; return missing === stops.length ? T.pos_none : T.pos_some.replace('{n}', missing).replace('{of}', stops.length); }
   async function buildSamplingRecordPdf(ctx) {
     const { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PageSizes, AFRelationship } = ctx.PDFLib;
     const a = ctx.audit; const lang = ctx.lang === 'fr' ? 'fr' : 'en'; const T = (I18N[lang] && I18N[lang].pdf) || I18N.en.pdf; const P = a.parameters; const st = a.statistics; const kv = ctx.kValues || {};
@@ -646,6 +773,8 @@ const Core = (function () {
     else para(T.field_rule_text.replace('{n}', P.households_per_point).replace('{r}', P.household_replacements).replace('le formulaire mWater.', 'le formulaire mWater' + formRef + '.').replace('the mWater form.', 'the mWater form' + formRef + '.'));
     if (a.reach_check) { heading(T.h_reach); para(T.reach_text.replace('{km}', a.reach_check.threshold_km).replace('{town}', a.reach_check.town || '—')); const far = (a.reach_check.sources || []).filter(x => x.far); para(far.length ? T.reach_far.replace('{list}', far.map(x => x.water_point_id + ' (' + (x.nearest_km === null ? '—' : x.nearest_km + ' km') + ' / ' + (x.town_km === null ? '—' : x.town_km + ' km') + ')').join(', ')) : T.reach_none); }
     if (a.warnings && a.warnings.length) { heading(T.h_warnings); a.warnings.forEach(wn => para('- ' + JSON.stringify(wn))); }
+    // ---- v2.8.0: map, stop list and zoomed cluster pages (only when the caller passes ctx.map; positions never enter audit.json)
+    if (ctx.map) { const TM = (I18N[lang] && I18N[lang].pmap) || I18N.en.pmap; const numbersFor = w => { const K = kFor(w, kv, P.k_source); if (!K) return { K: null, text: TM.k_none }; const fn = fieldNumbers(a.seed, w.water_point_id, K, w.households.n, w.households.extra); return { K, text: fn.primary.join(', ') + ' (+' + fn.replacements.join(', ') + ')' }; }; const stops = recordStops(a, ctx.map.positions, numbersFor); ctx.mapResult = await addMapPages({ doc, font, bold, PDFLib: ctx.PDFLib, T: TM, stops, mode: 'pou', town: (MWATER.strata[P.stratum] || {}).town || null, stratum: P.stratum, rid, sectionNo: 11, positionsNote: positionsNote(TM, stops), reissueNote: ctx.map.reissue ? TM.reissued.replace('{at}', ctx.map.reissue.at).replace('{v}', ctx.map.reissue.version).replace('{c}', ctx.map.reissue.commit || 'dev') : '', fetchTile: ctx.map.fetchTile || null }); }
     // ---- footer on every page
     const pages = doc.getPages(); const n = pages.length;
     pages.forEach((pg, i) => { const left = pdfSafe(T.footer_record + ' ' + rid + ' · ' + T.footer_sha + ' ' + (ctx.auditSha || '')); const right = pdfSafe('SaniTap Sampler v' + a.version + ' (' + (a.commit || 'dev') + ') · ' + T.page.replace('{x}', i + 1).replace('{y}', n)); pg.drawLine({ start: { x: M, y: M - 8 }, end: { x: W - M, y: M - 8 }, thickness: 0.4, color: rgb(0.7, 0.7, 0.7) }); pg.drawText(left, { x: M, y: M - 18, size: 6.5, font, color: rgb(0.35, 0.35, 0.35) }); pg.drawText(right, { x: W - M - font.widthOfTextAtSize(right, 6.5), y: M - 28, size: 6.5, font, color: rgb(0.35, 0.35, 0.35) }); });
@@ -711,6 +840,7 @@ const Core = (function () {
       table([T.t_id, T.t_circle, T.t_kept, T.t_area, T.t_barriers, T.t_bsha], hh.service_areas.map(sa => [sa.water_point_id, num(sa.buildings_in_circle), num(sa.buildings_kept) + (sa.short ? ' ' + T.short : ''), num(sa.area_kept_pct, 1) + ' %', Object.keys(sa.barrier_ways || {}).map(k => k + ' ' + sa.barrier_ways[k]).join(', ') + (sa.crossings ? ' · ' + T.crossings + ' ' + sa.crossings : ''), String(sa.buildings_sha256 || '').slice(0, 16)]), [85, 60, 70, 55, 125, CW - 395]);
     } else para(T.hh_not_prepared);
     if (a.warnings && a.warnings.length) { heading(T.h_warnings); a.warnings.forEach(wn => para('- ' + JSON.stringify(wn))); }
+    if (ctx.map) { const TM = (I18N[lang] && I18N[lang].pmap) || I18N.en.pmap; const stops = recordStops(a, ctx.map.positions, () => ({ K: null, text: TM.u_numbers })); ctx.mapResult = await addMapPages({ doc, font, bold, PDFLib: ctx.PDFLib, T: TM, stops, mode: 'usage', zones: (a.zones || []).map(z => z.name), town: (MWATER.strata[P.scenario] || {}).town || null, stratum: P.scenario, rid, sectionNo: 10, positionsNote: positionsNote(TM, stops), fetchTile: ctx.map.fetchTile || null }); }
     const pages = doc.getPages(); const n = pages.length;
     pages.forEach((pg, i) => { const left = pdfSafe(T.footer_record + ' ' + rid + ' · ' + T.footer_sha + ' ' + (ctx.auditSha || '')); const right = pdfSafe('SaniTap Sampler v' + a.version + ' (' + (a.commit || 'dev') + ') · ' + T.page.replace('{x}', i + 1).replace('{y}', n)); pg.drawLine({ start: { x: M, y: M - 8 }, end: { x: W - M, y: M - 8 }, thickness: 0.4, color: rgb(0.7, 0.7, 0.7) }); pg.drawText(left, { x: M, y: M - 18, size: 6.5, font, color: rgb(0.35, 0.35, 0.35) }); pg.drawText(right, { x: W - M - font.widthOfTextAtSize(right, 6.5), y: M - 28, size: 6.5, font, color: rgb(0.35, 0.35, 0.35) }); });
     const when = new Date(a.timestamp);
@@ -1047,9 +1177,13 @@ const Core = (function () {
   async function evidencePack(ctx) {
     const audit = JSON.parse(ctx.auditText); const sha = await sha256(ctx.auditText); const usage = recordMode(audit) === 'usage';
     if (hasCoordinateKeys(audit)) throw new Error('coordinates in the audit');
-    const c = { PDFLib: ctx.PDFLib, audit, auditText: ctx.auditText, auditSha: sha, lang: ctx.lang, url: ctx.url || APP_URL, kValues: ctx.kValues || {} };
+    // v2.8.0: the PDF gains the map pages; positions (from this device) and the tile fetcher are passed in, the audit text is unchanged
+    const c = { PDFLib: ctx.PDFLib, audit, auditText: ctx.auditText, auditSha: sha, lang: ctx.lang, url: ctx.url || APP_URL, kValues: ctx.kValues || {}, map: { positions: ctx.positions || {}, fetchTile: ctx.fetchTile || null } };
     const pdf = usage ? await buildUsageRecordPdf(c) : await buildSamplingRecordPdf(c);
-    return { sha, record_id: audit.record_id, names: packNames(audit), pdf, csv: recordCsv(audit), sheets: usage ? usageSelectionWorkbook(audit, ctx.lang) : selectionWorkbook(audit, ctx.kValues || {}, ctx.lang) };
+    const sheets = usage ? usageSelectionWorkbook(audit, ctx.lang) : selectionWorkbook(audit, ctx.kValues || {}, ctx.lang);
+    const TM = (I18N[ctx.lang] && I18N[ctx.lang].pmap) || I18N.en.pmap; const stops = recordStops(audit, ctx.positions || {}, null);
+    if (stops.some(s => isFinite(s.lat))) sheets.push({ name: TM.h_stops, rows: [[TM.s_no, TM.s_id, TM.s_name, TM.s_commune, TM.s_fokontany, TM.s_lat, TM.s_lon]].concat(stops.map(s => [s.label, s.water_point_id, s.name, s.commune, s.fokontany, isFinite(s.lat) ? Number(s.lat.toFixed(5)) : '', isFinite(s.lon) ? Number(s.lon.toFixed(5)) : ''])) });
+    return { sha, record_id: audit.record_id, names: packNames(audit), pdf, csv: recordCsv(audit), sheets, map: c.mapResult || null };
   }
   // service areas prepared for a confirmed usage round (counts and hashes, no positions), for filing with the outcome log
   function serviceAreasCsv(rid, households) {
@@ -1059,6 +1193,7 @@ const Core = (function () {
   }
 
   return { recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
+    TILES, MAP_PALETTE, tileUrl, tileFetcher, mercX, mercY, mapClusters, mapView, viewTiles, addMapPages, recordStops,
     SDWS3_RULE, SDWS3_RULE_JSON, sdws3Creditable, isNotCreditable, CREDIT_RULE_TEXT, USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, kFor, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
@@ -1068,6 +1203,20 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;
  * ===================================================================*/
 const I18N = {
   en: {
+    pmap: {
+      h_map: '{n}. Map and stop list', map_intro: 'Overview of stratum {stratum}, record {rid}. Positions are printed on these pages only; the attached audit.json carries no coordinates.',
+      lg_selected: 'Selected source (number = draw order)', lg_replacement: 'Replacement source (use strictly in order)', lg_far: 'Orange flag: more than 25 km from every other selected source and from the district town',
+      lg_point: 'Drawn water point (colour = zone)', lg_reserve: 'Reserve water point (ring = zone)', lg_town: 'District town ({town})', lg_zone: 'Zone',
+      h_stops: 'Stop list', stops_note: 'Every source of the record. Latitude and longitude in decimal degrees (WGS 84). K and household numbers as on the field sheet; "!" marks a flagged source.',
+      s_no: 'No.', s_id: 'Water point id', s_name: 'Name', s_commune: 'Commune', s_fokontany: 'Fokontany', s_lat: 'Latitude', s_lon: 'Longitude', s_k: 'K', s_numbers: 'Household numbers (+ replacements)',
+      k_none: 'K = ____ (enter K in the app)', u_numbers: 'drawn in the field stage from the service-area buildings',
+      h_zoom: 'Map {i} of {n}: sources within 25 km', zoom_list: 'Sources linked by distances of at most {km} km: {list}.',
+      basemap_unavailable: 'basemap unavailable', basemap_note: 'Basemap unavailable for {n} map(s) (offline or tiles not loaded): positions are drawn without a basemap.',
+      no_positions: 'No positions on the device that made this record (round opened without a frame): no map; the stop list below has no coordinates.',
+      pos_none: 'Positions not available: the round was confirmed or opened without a frame on this device, so the map is left out and the stop list has no coordinates.',
+      pos_some: '{n} of {of} sources have no position on this device: they are listed without coordinates and are not on the maps.',
+      reissued: 'Reissued {at} with SaniTap Sampler v{v} ({c}): map and stop list added. The draw and the attached audit.json are unchanged (same audit SHA-256 as in the footer and the register).'
+    },
     pdf: {
       title: 'Sampling record', record: 'record', h_id: '1. Identification', programme: 'Programme', programme_v: 'SaniTap safe drinking water supply, Madagascar — Gold Standard SDWS methodology v2.0 — operator MadAvance', stratum: 'Stratum', round: 'Round', drawn_at: 'Draw date/time (UTC)', drawn_by: 'Drawn by', record_id: 'Record id', tool: 'Tool',
       h_method: '2. Method', method_name_pps: 'Protocol ' + PROTOCOL_VERSION + ' section 6.4 (systematic PPS by households served)',
@@ -1154,6 +1303,20 @@ const I18N = {
 <p>If the app shows an old version or misbehaves, <a href="./reset.html">Reset app</a>: it removes the cached copy and the service worker, keeps your mWater token and settings, and reloads the current build.</p>`
   },
   fr: {
+    pmap: {
+      h_map: '{n}. Carte et liste des arrêts', map_intro: 'Vue d’ensemble de la strate {stratum}, enregistrement {rid}. Les positions figurent uniquement sur ces pages ; le fichier audit.json joint ne contient aucune coordonnée.',
+      lg_selected: 'Source sélectionnée (numéro = ordre de tirage)', lg_replacement: 'Source de remplacement (à utiliser strictement dans l’ordre)', lg_far: 'Drapeau orange : à plus de 25 km de toute autre source sélectionnée et de la ville du district',
+      lg_point: 'Point d’eau tiré (couleur = zone)', lg_reserve: 'Point d’eau de réserve (anneau = zone)', lg_town: 'Ville du district ({town})', lg_zone: 'Zone',
+      h_stops: 'Liste des arrêts', stops_note: 'Toutes les sources de l’enregistrement. Latitude et longitude en degrés décimaux (WGS 84). K et numéros de ménages comme sur la fiche terrain ; « ! » signale une source éloignée.',
+      s_no: 'N°', s_id: 'Id point d’eau', s_name: 'Nom', s_commune: 'Commune', s_fokontany: 'Fokontany', s_lat: 'Latitude', s_lon: 'Longitude', s_k: 'K', s_numbers: 'Numéros de ménages (+ remplacements)',
+      k_none: 'K = ____ (saisir K dans l’outil)', u_numbers: 'tirés à l’étape terrain parmi les bâtiments de la zone desservie',
+      h_zoom: 'Carte {i} sur {n} : sources à moins de 25 km', zoom_list: 'Sources reliées par des distances d’au plus {km} km : {list}.',
+      basemap_unavailable: 'fond de carte indisponible', basemap_note: 'Fond de carte indisponible pour {n} carte(s) (hors ligne ou tuiles non chargées) : les positions sont dessinées sans fond de carte.',
+      no_positions: 'Aucune position sur l’appareil qui a produit cet enregistrement (tournée ouverte sans base de sondage) : pas de carte ; la liste des arrêts ci-dessous est sans coordonnées.',
+      pos_none: 'Positions indisponibles : la tournée a été confirmée ou ouverte sans base de sondage sur cet appareil ; la carte est omise et la liste des arrêts est sans coordonnées.',
+      pos_some: '{n} sources sur {of} n’ont pas de position sur cet appareil : elles sont listées sans coordonnées et ne figurent pas sur les cartes.',
+      reissued: 'Réédité le {at} avec SaniTap Sampler v{v} ({c}) : carte et liste des arrêts ajoutées. Le tirage et le fichier audit.json joint sont inchangés (même SHA-256 d’audit qu’en pied de page et au registre).'
+    },
     pdf: {
       title: 'Enregistrement d’échantillonnage', record: 'enregistrement', h_id: '1. Identification', programme: 'Programme', programme_v: 'SaniTap approvisionnement en eau potable, Madagascar — méthodologie Gold Standard SDWS v2.0 — opérateur MadAvance', stratum: 'Strate', round: 'Cycle', drawn_at: 'Date/heure du tirage (UTC)', drawn_by: 'Tiré par', record_id: 'Identifiant', tool: 'Outil',
       h_method: '2. Méthode', method_name_pps: 'Protocole ' + PROTOCOL_VERSION + ' section 6.4 (PPS systématique selon les ménages desservis)',
@@ -1317,11 +1480,12 @@ Object.assign(I18N.en, {
   cf_title: 'Confirm the sample', cf_intro: 'The sampling stage ends here. Confirm sample downloads the evidence pack (sampling record PDF with audit.json attached, selection Excel, selection CSV) and marks the round confirmed on this device. A confirmed round cannot be redrawn under the same record id: a redraw needs a new round name. The field stage then runs from the confirmed record.',
   cf_rid: 'Record id', cf_survey: 'Survey', cf_frame_sha: 'Frame SHA-256', cf_audit_sha: 'Audit SHA-256', cf_drawn: 'Drawn (UTC) / by', cf_btn: 'Confirm sample', cf_again: 'Download the evidence pack again',
   cf_not_yet: 'Not confirmed yet.', cf_done: 'Confirmed on this device at {at}. The field stage runs from this record.', cf_other: 'Record {rid} is already confirmed on this device with a different audit (another draw or other K values). It cannot be confirmed again: change the round name and draw again.',
+  cf_building: 'Building the evidence pack (record PDF with map: loading basemap tiles)…', cf_no_basemap: 'Basemap unavailable (offline or tiles not loaded): the record maps are drawn without a basemap and say so.', cf_no_positions: 'No positions on this device: the record has the stop list without coordinates and no map.',
   cf_downloaded: 'Evidence pack downloaded: {files}. Audit SHA-256 {sha}.', cf_need_by: 'Enter "Drawn by" on the Parameters tab and draw again before confirming: the confirmed record names who drew it.',
   err_confirmed: 'Round {rid} is confirmed on this device and cannot be redrawn under the same record id. Change the round name for a redraw.',
   res_confirmed: 'This draw is confirmed ({rid}) and locked. The field stage runs from the round selector; K for sources without one is entered on the field sheet.',
   open_title: 'Open a confirmed round', open_intro: 'Load the sampling record PDF (or its audit.json) of a confirmed round to run its field stage on this device. No mWater login and no redraw: the record is checked against its audit SHA-256 and refused if they differ.',
-  open_file: 'Sampling record (PDF) or audit.json', open_sha: 'Audit SHA-256', open_sha_hint: '(for audit.json only, from the PDF footer; not needed when the record is in the published register)',
+  open_file: 'Sampling record (PDF) or audit.json', open_sha: 'Audit SHA-256', open_sha_hint: '(for audit.json only: the audit SHA-256 from the PDF footer or the SharePoint register)',
   open_ok: 'Opened {rid} ({survey}): {n} water points and {r} {rlabel}. Audit SHA-256 {sha} verified{reg}.{same}', open_reg_yes: ' and found in the published register', open_reg_no: '', open_same: ' It was already on this device.', open_reserves: 'reserves', open_replacements: 'replacements',
   open_err_not_pdf: 'Not a PDF or JSON file.', open_err_no_input: 'Not a PDF or JSON file.', open_err_no_audit: 'No attached audit.json in this PDF: it is not a SaniTap Sampler record (v2.1 or later).', open_err_not_json: 'This file is not valid JSON.', open_err_not_record: 'This file is not a SaniTap Sampler audit record.',
   open_err_sha_mismatch: 'Refused: the audit SHA-256 is {sha} but the record says {expected}. The file was changed after it was confirmed.', open_err_rid_mismatch: 'Refused: the record id of the PDF does not match its attached audit.', open_err_coords: 'Refused: the audit carries coordinates, which a record must not.',
@@ -1339,11 +1503,12 @@ Object.assign(I18N.fr, {
   cf_title: "Confirmer l'échantillon", cf_intro: "L'étape d'échantillonnage s'arrête ici. « Confirmer l'échantillon » télécharge le dossier de preuves (registre d'échantillonnage PDF avec audit.json joint, sélection Excel, sélection CSV) et marque la campagne comme confirmée sur cet appareil. Une campagne confirmée ne peut pas être retirée sous le même identifiant : un nouveau tirage demande un nouveau nom de campagne. L'étape de terrain part ensuite du registre confirmé.",
   cf_rid: 'Identifiant du registre', cf_survey: 'Enquête', cf_frame_sha: 'SHA-256 de la base', cf_audit_sha: "SHA-256 de l'audit", cf_drawn: 'Tirage (UTC) / par', cf_btn: "Confirmer l'échantillon", cf_again: 'Télécharger à nouveau le dossier de preuves',
   cf_not_yet: 'Pas encore confirmé.', cf_done: "Confirmé sur cet appareil le {at}. L'étape de terrain part de ce registre.", cf_other: "Le registre {rid} est déjà confirmé sur cet appareil avec un autre audit (autre tirage ou autres valeurs de K). Il ne peut pas être confirmé à nouveau : changez le nom de campagne et refaites le tirage.",
+  cf_building: 'Préparation du dossier de preuves (PDF avec carte : chargement du fond de carte)…', cf_no_basemap: 'Fond de carte indisponible (hors ligne ou tuiles non chargées) : les cartes de l’enregistrement sont dessinées sans fond de carte, et le disent.', cf_no_positions: 'Aucune position sur cet appareil : l’enregistrement contient la liste des arrêts sans coordonnées et pas de carte.',
   cf_downloaded: "Dossier de preuves téléchargé : {files}. SHA-256 de l'audit {sha}.", cf_need_by: "Renseignez « Tiré par » dans l'onglet Paramètres et refaites le tirage avant de confirmer : le registre confirmé nomme qui a fait le tirage.",
   err_confirmed: 'La campagne {rid} est confirmée sur cet appareil et ne peut pas être retirée sous le même identifiant. Changez le nom de campagne pour un nouveau tirage.',
   res_confirmed: "Ce tirage est confirmé ({rid}) et verrouillé. L'étape de terrain se choisit en haut ; K des sources qui n'en ont pas se saisit sur la fiche terrain.",
   open_title: 'Ouvrir une campagne confirmée', open_intro: "Chargez le registre d'échantillonnage PDF (ou son audit.json) d'une campagne confirmée pour faire son étape de terrain sur cet appareil. Sans connexion mWater et sans nouveau tirage : le registre est vérifié avec le SHA-256 de son audit et refusé s'ils diffèrent.",
-  open_file: "Registre d'échantillonnage (PDF) ou audit.json", open_sha: "SHA-256 de l'audit", open_sha_hint: '(pour audit.json seulement, depuis le pied de page du PDF ; inutile si le registre est publié)',
+  open_file: "Registre d'échantillonnage (PDF) ou audit.json", open_sha: "SHA-256 de l'audit", open_sha_hint: '(pour audit.json seulement : le SHA-256 de l’audit, depuis le pied de page du PDF ou le registre SharePoint)',
   open_ok: "Ouvert {rid} ({survey}) : {n} points d'eau et {r} {rlabel}. SHA-256 de l'audit {sha} vérifié{reg}.{same}", open_reg_yes: ' et trouvé dans le registre publié', open_reg_no: '', open_same: ' Il était déjà sur cet appareil.', open_reserves: 'réserves', open_replacements: 'remplacements',
   open_err_not_pdf: "Ce n'est pas un fichier PDF ou JSON.", open_err_no_input: "Ce n'est pas un fichier PDF ou JSON.", open_err_no_audit: "Pas d'audit.json joint à ce PDF : ce n'est pas un registre SaniTap Sampler (v2.1 ou ultérieure).", open_err_not_json: "Ce fichier n'est pas un JSON valide.", open_err_not_record: "Ce fichier n'est pas un audit SaniTap Sampler.",
   open_err_sha_mismatch: "Refusé : le SHA-256 de l'audit est {sha} mais le registre indique {expected}. Le fichier a été modifié après la confirmation.", open_err_rid_mismatch: "Refusé : l'identifiant du PDF ne correspond pas à son audit joint.", open_err_coords: "Refusé : l'audit contient des coordonnées, ce qu'un registre ne doit pas.",
@@ -1687,7 +1852,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
    *  USAGE SURVEY MODE (v2.3.0)
    * ===================================================================*/
   const isUsage = () => state.mode === 'usage';
-  const PALETTE = ['#0b5e8a', '#b45309', '#157347', '#7c3aed', '#be185d', '#0f766e', '#a16207', '#4338ca'];
+  const PALETTE = Core.MAP_PALETTE;
   // IndexedDB: the prepared round (with coordinates, on this device only) and the outcome log
   const IDB = {
     db: null,
@@ -1928,19 +2093,21 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     if (!a.drawn_by && !state.lib[a.record_id]) { msg.innerHTML = `<div class="msg err">${esc(t('cf_need_by'))}</div>`; return; }
     $('btn-confirm').disabled = true;
     try {
-      const pack = await Core.evidencePack({ PDFLib, auditText: d.auditText, lang: state.lang, url: Core.APP_URL, kValues: d.kValues });
-      const ids = Core.roundIds(Core.roundFromAudit(a));
-      const r = await Lib.add(Core.libraryEntry({ audit: a, auditText: d.auditText, sha: pack.sha, at: new Date().toISOString(), origin: 'here', positions: Core.positionsFromPoints(d.list, ids) }));
+      const ids = Core.roundIds(Core.roundFromAudit(a)); const positions = Core.positionsFromPoints(d.list, ids);
+      msg.innerHTML = `<div class="msg">${esc(t('cf_building'))}</div>`;
+      const pack = await Core.evidencePack({ PDFLib, auditText: d.auditText, lang: state.lang, url: Core.APP_URL, kValues: d.kValues, positions, fetchTile: navigator.onLine === false ? null : Core.tileFetcher((u, o) => fetch(u, Object.assign({ mode: 'cors', credentials: 'omit' }, o))) });
+      const r = await Lib.add(Core.libraryEntry({ audit: a, auditText: d.auditText, sha: pack.sha, at: new Date().toISOString(), origin: 'here', positions }));
       if (r.error) { msg.innerHTML = `<div class="msg err">${esc(t('cf_other', { rid: a.record_id }))}</div>`; return; }
       downloadPack(pack);
       state.lastRecord = { auditSha: pack.sha, recordId: a.record_id }; LS.set('lastRecord', state.lastRecord);
       await setActive(a.record_id);
-      msg.innerHTML = `<div class="msg ok">${esc(t('cf_downloaded', { files: [pack.names.pdf, pack.names.xlsx, pack.names.csv].join(', '), sha: pack.sha }))}</div>`;
+      msg.innerHTML = `<div class="msg ok">${esc(t('cf_downloaded', { files: [pack.names.pdf, pack.names.xlsx, pack.names.csv].join(', '), sha: pack.sha }))}</div>${pack.map && pack.map.basemapMissing ? `<div class="msg warn">${esc(t('cf_no_basemap'))}</div>` : ''}${pack.map && !pack.map.placed ? `<div class="msg warn">${esc(t('cf_no_positions'))}</div>` : ''}`;
     } catch (e) { msg.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
     finally { renderConfirm(); }
   };
   // open a confirmed round from its record PDF or audit.json: verified against the audit SHA-256, no login, no redraw
-  async function registerShas() { try { const r = await fetch('records/index.md', { cache: 'no-cache' }); return r.ok ? Core.registerShas(await r.text()) : []; } catch (e) { return []; } }
+  // v2.8.0: the register (index.md) lives in SharePoint with the records, not on the public site; an audit.json alone needs the footer SHA-256
+  async function registerShas() { return []; }
   $('open-file').onchange = async ev => {
     const f = ev.target.files[0]; if (!f) return; const msg = $('open-msg'); msg.innerHTML = '<div class="msg">…</div>';
     try {

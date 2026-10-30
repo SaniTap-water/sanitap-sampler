@@ -45,10 +45,11 @@ test('record PDF: form name in header and section 8; register K replaces the cou
 
 test('reissuing the filed 2026R1 records keeps every source, replacement and household number', async () => {
   if (!PDFLib) { console.log('  (pdf-lib not available: set PDFLIB_DIR) — skipped'); return; }
+  const { EVIDENCE, REC, skipNoEvidence } = require('./evidence.js'); if (!EVIDENCE) return skipNoEvidence();
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'reissue-'));
   for (const s of ['HP-FD', 'HP-MA']) {
     const out = path.join(tmp, s + '.pdf');
-    const res = require('child_process').spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'reissue-record.js'), path.join(__dirname, '..', 'records', '2026R1', s), '--form', 'SDWS18', '--k-register', '--lang', 'fr', '--at', '2026-10-27', '--out', out], { env: process.env, encoding: 'utf8' });
+    const res = require('child_process').spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'reissue-record.js'), REC(s), '--form', 'SDWS18', '--k-register', '--lang', 'fr', '--at', '2026-10-27', '--offline', '--out', out], { env: process.env, encoding: 'utf8' });
     assert.equal(res.status, 0, res.stderr); assert.equal(JSON.parse(res.stdout).draw_identical, true);
   }
   fs.rmSync(tmp, { recursive: true, force: true });

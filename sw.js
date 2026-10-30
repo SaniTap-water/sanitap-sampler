@@ -27,7 +27,7 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
   if (url.origin === location.origin && url.pathname.endsWith('/reset.html')) return; // always from the network
-  if (url.hostname.endsWith('openstreetmap.org')) return; // tiles: network only, never cached
+  if (url.hostname.endsWith('openstreetmap.org') || url.hostname === 'server.arcgisonline.com') return; // tiles (map tab, record basemap): network only, never cached
   if (url.hostname === 'api.mwater.co') return; // mWater API: network only, never cached (URLs carry the client token)
   if (url.hostname === 'data.source.coop' || url.hostname.endsWith('overpass-api.de')) return; // building footprints and barriers: network only; the prepared round is kept in IndexedDB on the device
   // index.html and app.js: network first so a new deploy is picked up, cache fallback offline

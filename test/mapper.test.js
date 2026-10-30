@@ -83,18 +83,25 @@ test('sampling record PDF is byte-reproducible, carries the audit hash and recor
   assert.ok(wb[2].rows.some(x => x[0] === 'Seed' && x[1] === r.audit.seed) && wb[2].rows.some(x => x[0] === 'Design check' && x[1] === 'PASS'));
 });
 
-test('published record files never carry coordinates: audit JSON, selection CSV, PDF text, and every file under records/', async () => {
+// v2.8.0: the record PDF carries the map and stop list (positions) and the Excel file may carry latitude/longitude.
+// audit.json, the selection CSV, the outcome log and the service-areas CSV stay coordinate-free, and so does every
+// audit.json / CSV / index.md filed in the SharePoint evidence folder.
+test('records never carry coordinates in audit.json, selection CSV, outcome log, service-areas CSV, or the filed audit/CSV files', async () => {
   const ents = []; for (let i = 0; i < 20; i++) ents.push(ent({ code: String(300 + i) }));
   const pts = C.normaliseWaterPoints(C.parseCsv(C.frameToCsv(C.mapMwaterEntities(ents, { passing: C.sdws3PassingPoints(ents.map(e => good(e.code)), SD) }).points)).records).points;
   const r = C.draw({ roundName: 'R', stratum: 'HP-FD', target: 20, hhPerPoint: 5, replacementFraction: 0.2, seed: 's', icc: 0.1, expectedPass: 0.95, confidence: '0.90', precision: 0.1, precisionType: 'relative', hhReplacements: 2, timestamp: 't' }, pts);
   assert.ok(pts[0].lat === -25, 'frame itself keeps coordinates for the map');
   assert.equal(C.hasCoordinateKeys(JSON.parse(C.auditJson(r))), false, 'reach check keeps distances only');
   assert.ok(!/lat|lon/i.test(C.toCsv(r).split('\r\n')[0]));
-  const dir = path.join(__dirname, '..', 'records'); const bad = [];
-  const scanText = (txt, f) => { if (/(^|[,;])\s*(lat|lon|lng|latitude|longitude)\s*([,;]|$)/im.test(txt) || /-2[0-9]\.\d{4,}/.test(txt)) bad.push(f); };
-  (function walk(d) { if (!fs.existsSync(d)) return; fs.readdirSync(d).forEach(n => { const f = path.join(d, n); if (fs.statSync(f).isDirectory()) return walk(f); if (n.endsWith('.json')) { if (C.hasCoordinateKeys(JSON.parse(fs.readFileSync(f, 'utf8')))) bad.push(f); } else if (n.endsWith('.csv') || n.endsWith('.md')) scanText(fs.readFileSync(f, 'utf8'), f); else if (n.endsWith('.xlsx')) { const raw = fs.readFileSync(f); const zlib = require('zlib'); let off = 0; while (off + 30 <= raw.length && raw.readUInt32LE(off) === 0x04034b50) { const method = raw.readUInt16LE(off + 8), csize = raw.readUInt32LE(off + 18), nlen = raw.readUInt16LE(off + 26), elen = raw.readUInt16LE(off + 28); const name = raw.toString('utf8', off + 30, off + 30 + nlen); const data = raw.subarray(off + 30 + nlen + elen, off + 30 + nlen + elen + csize); let content = data; if (method === 8) { try { content = zlib.inflateRawSync(data); } catch (e) { } } if (/\.xml$/.test(name)) scanText(content.toString('utf8'), f + ':' + name); off += 30 + nlen + elen + csize; } }
-        else if (n.endsWith('.pdf')) { const raw = fs.readFileSync(f); const b = raw.toString('latin1'); const zlib = require('zlib'); let runs = []; const re = /stream\r?\n/g; let m; while ((m = re.exec(b))) { const end = b.indexOf('endstream', m.index); let chunk = raw.subarray(m.index + m[0].length, end); try { chunk = zlib.inflateSync(chunk); } catch (e) { } const txt = chunk.toString('latin1'); (txt.match(/<([0-9A-Fa-f]+)> Tj/g) || []).forEach(h => runs.push(Buffer.from(h.slice(1, -4), 'hex').toString('latin1'))); } assert.ok(runs.length > 50, 'PDF text could not be extracted from ' + f); scanText(runs.join('\n'), f); if (/\/(Lat|Lon|GPS)/.test(b)) bad.push(f); } }); })(dir);
-  assert.deepEqual(bad, [], 'files under records/ with coordinate fields: ' + bad.join(', '));
+  const scanText = (txt, f, bad) => { if (/(^|[,;])\s*(lat|lon|lng|latitude|longitude)\s*([,;]|$)/im.test(txt) || /-2[0-9]\.\d{4,}/.test(txt)) bad.push(f); };
+  const b0 = []; scanText(C.toCsv(r), 'selection.csv', b0);
+  scanText(C.outcomeLogCsv('R-HP-FD', [{ water_point_id: '300', position: 1, outcome: 'done', at: '2026-10-30T08:00:00Z', lat: -25.01234, lon: 46.98765 }]), 'outcome log', b0);
+  scanText(C.serviceAreasCsv('R-HP-FD', { service_areas: [{ water_point_id: '300', buildings_in_circle: 40, buildings_kept: 30, area_kept_pct: 75, barrier_ways: { river: 1 }, crossings: 0, buildings_sha256: 'ab', drawn: 7 }], dataset: 'x', version: 'y', fetched_at: 'z' }), 'service areas', b0);
+  assert.deepEqual(b0, []);
+  const { EVIDENCE } = require('./evidence.js'); if (!EVIDENCE) { console.log('  (no SharePoint evidence folder configured) — filed-file part skipped'); return; }
+  const bad = [];
+  (function walk(d) { fs.readdirSync(d).forEach(n => { const f = path.join(d, n); if (fs.statSync(f).isDirectory()) return walk(f); if (n.endsWith('.json')) { if (C.hasCoordinateKeys(JSON.parse(fs.readFileSync(f, 'utf8')))) bad.push(f); } else if (n.endsWith('.csv') || n.endsWith('.md')) scanText(fs.readFileSync(f, 'utf8'), f, bad); }); })(EVIDENCE);
+  assert.deepEqual(bad, [], 'filed audit/CSV files with coordinate fields: ' + bad.join(', '));
 });
 
 test('mapper on real mWater document shapes (scrubbed fixture): counts, flags and backlog groups', () => {
