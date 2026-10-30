@@ -9,6 +9,7 @@ import argparse, functools, http.server, os, threading
 from playwright.sync_api import sync_playwright
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = None
 SYNTH = r"""
 window.SAMPLER_TEST = {
   // a regular village of small squares around the point, with a little deterministic jitter
@@ -45,24 +46,30 @@ def prepare(pg, url):
     pg.select_option('#p-mode', 'usage'); pg.fill('#p-round', '2026-DRY'); pg.fill('#p-drawn-by', 'Demo (fake frame)')
     pg.evaluate("() => { const s = document.getElementById('p-stratum'); s.value = 'FD'; s.dispatchEvent(new Event('input')); }")
     pg.click('#btn-draw'); pg.wait_for_selector('#usage-results:not(.hidden)')
+    pg.screenshot(path=os.path.join(OUT, "usage-laptop-draw-1440.png"), full_page=True) if pg.viewport_size["width"] > 1000 else None
+    # v2.7.0: the sampling stage ends at Confirm (downloads the evidence pack); the field stage runs from the confirmed round
+    pg.click('nav button[data-tab="confirm"]')
+    with pg.expect_download():
+        pg.click('#btn-confirm')
+    pg.wait_for_selector('#btn-next-field:not(.hidden)'); pg.wait_for_timeout(1200)
+    pg.click('nav button[data-tab="field"]')
     pg.click('#btn-prepare'); pg.wait_for_function("document.querySelector('#u-msg .msg.ok')", timeout=60000)
 
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--out", default=os.path.join(REPO, "docs", "screens")); a = ap.parse_args()
-    os.makedirs(a.out, exist_ok=True)
+    os.makedirs(a.out, exist_ok=True); global OUT; OUT = a.out
     srv, url = serve()
     with sync_playwright() as p:
         b = p.chromium.launch()
-        lap = b.new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
+        lap = b.new_context(viewport={"width": 1440, "height": 900}, service_workers="block", accept_downloads=True)
         lap.add_init_script(SYNTH); pg = lap.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
         prepare(pg, url)
-        pg.screenshot(path=os.path.join(a.out, "usage-laptop-draw-1440.png"), full_page=True)
         pg.click('nav button[data-tab="map"]'); pg.wait_for_timeout(2500)
         pg.screenshot(path=os.path.join(a.out, "usage-laptop-map-1440.png"), full_page=True)
         # the phone: GPS about 150 m south-west of the first drawn point of the fake frame
-        lat_lon = pg.evaluate("""async () => { const r = await new Promise(res => { const q = indexedDB.open('sanitap-sampler', 1); q.onsuccess = () => { const tx = q.result.transaction('rounds').objectStore('rounds').getAll(); tx.onsuccess = () => res(tx.result[0]); }; }); return [r.points[0].lat, r.points[0].lon]; }""")
-        phone = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True, has_touch=True, service_workers="block",
+        lat_lon = pg.evaluate("""async () => { const r = await new Promise(res => { const q = indexedDB.open('sanitap-sampler'); q.onsuccess = () => { const tx = q.result.transaction('rounds').objectStore('rounds').getAll(); tx.onsuccess = () => res(tx.result[0]); }; }); return [r.points[0].lat, r.points[0].lon]; }""")
+        phone = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True, has_touch=True, service_workers="block", accept_downloads=True,
                               geolocation={"latitude": lat_lon[0] - 0.0012, "longitude": lat_lon[1] - 0.0012}, permissions=["geolocation"])
         phone.add_init_script(SYNTH); ph = phone.new_page(); ph.on("pageerror", lambda e: errs.append(str(e)))
         prepare(ph, url)

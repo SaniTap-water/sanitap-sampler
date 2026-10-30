@@ -2,6 +2,7 @@
 /* File a sampling round: verify the sampling record PDF (it carries the audit record as an attached audit.json), copy it with the
  * selection Excel file and a selection CSV to records/<round>/<stratum>/, append records/index.md, commit and push.
  * Append-only: an existing record folder is never overwritten (except round "test").
+ * SDWS 18 records go to records/<round>/<stratum>/, usage-survey (SDWS 26) records (seed suffix -U) to records/<round>/<scenario>-U/.
  * Usage: node bin/file-round.js [--pdf f] [--xlsx f] [--frame f] [--round NAME] [--no-push] [--dry-run]
  * Without paths the newest sanitap-*-record.pdf (and -selection.xlsx) in ~/Downloads are used. --frame verifies the frame CSV hash; it is never published. */
 'use strict';
@@ -10,20 +11,9 @@ const ROOT = path.resolve(__dirname, '..');
 const C = require(path.join(ROOT, 'app.js'));
 const sha = buf => crypto.createHash('sha256').update(buf).digest('hex');
 
-// Extract the attached audit.json from a SaniTap Sampler record PDF (pdf-lib embedded file, Flate-compressed)
-function extractAudit(pdfBuf) {
-  const txt = pdfBuf.toString('latin1');
-  const re = /\/Type \/EmbeddedFile/g; let m;
-  while ((m = re.exec(txt))) {
-    const sm = /stream\r?\n/g; sm.lastIndex = m.index; const sh = sm.exec(txt); if (!sh) continue;
-    const start = sh.index + sh[0].length; const end = txt.indexOf('endstream', start); if (end < 0) continue;
-    let chunk = pdfBuf.subarray(start, end); if (chunk[chunk.length - 1] === 0x0a) chunk = chunk.subarray(0, chunk.length - 1); if (chunk[chunk.length - 1] === 0x0d) chunk = chunk.subarray(0, chunk.length - 1);
-    let out = null; try { out = zlib.inflateSync(chunk); } catch (e) { out = chunk; }
-    const s = out.toString('utf8'); if (s.trim().startsWith('{') && s.includes('"record_id"')) return s;
-  }
-  return null;
-}
-function infoValue(pdfTxt, key) { const m = new RegExp('\\/' + key + ' \\(([^)]*)\\)').exec(pdfTxt); return m ? m[1] : null; }
+// The attached audit.json of a SaniTap Sampler record PDF: the same code the app uses to open a confirmed round (Core.extractAudit), inflated with zlib here
+const extractAudit = pdfBuf => C.extractAudit(pdfBuf, zlib.inflateSync);
+const infoValue = (pdfTxt, key) => C.pdfInfoValue(pdfTxt, key);
 module.exports = { extractAudit, infoValue };
 if (require.main === module) {
   const args = {}; for (let i = 2; i < process.argv.length; i++) { const a = process.argv[i]; if (a.startsWith('--')) { const k = a.slice(2); if (['no-push', 'dry-run'].includes(k)) args[k] = true; else args[k] = process.argv[++i]; } }
@@ -38,15 +28,18 @@ if (require.main === module) {
   if (footerSha !== auditSha) fail('the attached audit (SHA-256 ' + auditSha + ') does not match the PDF footer (' + footerSha + ')');
   if (rid !== audit.record_id) fail('record id mismatch between PDF (' + rid + ') and audit (' + audit.record_id + ')');
   if (C.hasCoordinateKeys(audit)) fail('the audit contains coordinate fields; records must not carry coordinates');
-  const round = String(args.round || audit.parameters.round || '').replace(/\s+/g, ''); const stratum = String(audit.parameters.stratum || '');
+  const usage = C.recordMode(audit) === 'usage';
+  if (usage && !/-U$/.test(String(audit.seed || ''))) fail('a usage-survey record must have a seed ending in -U: ' + audit.seed);
+  if (!usage && /-U$/.test(String(audit.seed || ''))) fail('seed ' + audit.seed + ' ends in -U but the record is not a usage-survey record');
+  const round = String(args.round || audit.parameters.round || '').replace(/\s+/g, ''); const stratum = usage ? String(audit.parameters.scenario || '') + '-U' : String(audit.parameters.stratum || '');
   if (!/^[A-Za-z0-9_.-]+$/.test(round) || !/^[A-Za-z0-9_.-]+$/.test(stratum)) fail('round/stratum must be plain names: ' + round + ' / ' + stratum);
   const dir = path.join(ROOT, 'records', round, stratum);
   if (fs.existsSync(dir) && round !== 'test') fail('record folder already exists: records/' + round + '/' + stratum + ' — records are append-only; a re-draw gets a new seed and a new round name');
-  const frameSha = audit.input && audit.input.water_points_sha256; const framePath = args.frame || null;
+  const frameSha = audit.input && (usage ? audit.input.frame_sha256 : audit.input.water_points_sha256); const framePath = args.frame || null;
   if (framePath) { if (!fs.existsSync(framePath)) fail('missing frame file ' + framePath); if (sha(fs.readFileSync(framePath)) !== frameSha) fail('frame file SHA-256 does not match the audit record (' + frameSha + ')'); }
-  const csv = C.auditToCsv(audit);
+  const csv = C.recordCsv(audit);
   const hasXlsx = xlsxPath && fs.existsSync(xlsxPath);
-  console.log('Record ' + audit.record_id + ' -> records/' + round + '/' + stratum + '/'); console.log('  audit SHA-256 ' + auditSha + ' (attached in the PDF, matches the footer)'); console.log('  frame SHA-256 ' + frameSha + (framePath ? ' (frame file verified, not published)' : ' (frame file not supplied)')); console.log('  Excel file: ' + (hasXlsx ? xlsxPath : 'none'));
+  console.log((usage ? 'Usage-survey (SDWS 26) record ' : 'Record ') + audit.record_id + ' -> records/' + round + '/' + stratum + '/'); console.log('  audit SHA-256 ' + auditSha + ' (attached in the PDF, matches the footer)'); console.log('  frame SHA-256 ' + frameSha + (framePath ? ' (frame file verified, not published)' : ' (frame file not supplied)')); console.log('  Excel file: ' + (hasXlsx ? xlsxPath : 'none'));
   if (args['dry-run']) { console.log('dry run: nothing written'); process.exit(0); }
   fs.mkdirSync(dir, { recursive: true });
   fs.copyFileSync(pdfPath, path.join(dir, 'sampling-record.pdf')); if (hasXlsx) fs.copyFileSync(xlsxPath, path.join(dir, 'selection.xlsx')); fs.writeFileSync(path.join(dir, 'selection.csv'), csv); fs.writeFileSync(path.join(dir, 'audit.json'), auditText);

@@ -106,6 +106,12 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
 }
 /* usage-survey mode (v2.3.0) */
 .hidden-mode{display:none!important}
+/* v2.7.0: confirmed rounds */
+#round-bar{background:#eef3f7;border-bottom:1px solid var(--line);padding:.4rem .8rem;display:flex;gap:.3rem .7rem;align-items:center;flex-wrap:wrap}
+#round-bar label{margin:0}#round-bar select{width:auto;max-width:100%;min-height:40px;padding:.35rem 2.4rem .35rem .6rem;font-size:.95rem}#round-bar .muted{font-size:.82rem}
+.hash{font-family:ui-monospace,monospace;font-size:.82rem;word-break:break-all}
+.ponly{display:none}
+@media print{.ponly{display:inline}#round-bar{display:none!important}}
 #fmap{height:46vh;min-height:260px;margin:.5rem 0;border-radius:8px}
 .field-top select{width:100%}
 .fbig{font-size:2.4rem;font-weight:800;line-height:1;color:var(--blue)}
@@ -130,11 +136,13 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
   <button data-tab="backlog" data-i18n="tab_backlog">1b Test A backlog</button>
   <button data-tab="params" data-i18n="tab_params">2 Parameters</button>
   <button data-tab="results" data-i18n="tab_results">3 Draw</button>
-  <button data-tab="map" data-i18n="tab_map">4 Map</button>
-  <button data-tab="sheet" data-i18n="tab_sheet" class="pou-only">5 Field sheet</button>
-  <button data-tab="field" data-i18n="tab_field" class="usage-only hidden">5 Field</button>
+  <button data-tab="confirm" data-i18n="tab_confirm">4 Confirm</button>
+  <button data-tab="map" data-i18n="tab_map">5 Map</button>
+  <button data-tab="sheet" data-i18n="tab_sheet" class="pou-only">6 Field sheet</button>
+  <button data-tab="field" data-i18n="tab_field" class="usage-only hidden">6 Field</button>
   <button data-tab="how" data-i18n="tab_how">How it works</button>
 </nav>
+<div id="round-bar" class="hidden noprint"><label for="round-sel" data-i18n="rb_label">Confirmed round</label><select id="round-sel"></select><span id="round-info" class="muted"></span></div>
 <main>
 
 <!-- ============ DATA ============ -->
@@ -180,6 +188,15 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
     <div id="data-summary" class="tablewrap"></div>
     <div class="btnrow"><button class="btn small secondary hidden" id="btn-frame-dl" type="button" data-i18n="data_frame_dl">Download loaded frame (CSV)</button></div>
     <div class="btnrow"><button class="btn hidden" id="btn-next-params" type="button" data-i18n="next_backlog">Next: Test A backlog</button></div>
+  </div>
+  <div class="card" id="open-card">
+    <h2 data-i18n="open_title">Open a confirmed round</h2>
+    <p class="muted" data-i18n="open_intro">Load the sampling record PDF (or its audit.json) of a confirmed round to run its field stage on this device.</p>
+    <label data-i18n="open_file">Sampling record (PDF) or audit.json</label>
+    <input type="file" id="open-file" accept=".pdf,.json,application/pdf,application/json">
+    <label><span data-i18n="open_sha">Audit SHA-256</span> <small data-i18n="open_sha_hint">(for audit.json only)</small></label>
+    <input type="text" id="open-sha" autocomplete="off" spellcheck="false" inputmode="text">
+    <div id="open-msg"></div>
   </div>
 </section>
 
@@ -240,12 +257,8 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
       <div class="stat" id="u-stats"></div>
       <div id="u-warn"></div>
       <div class="btnrow" style="margin-top:.6rem">
-        <button class="btn" id="btn-updf" type="button" data-i18n="btn_updf">Sampling record (PDF)</button>
-        <button class="btn" id="btn-prepare" type="button" data-i18n="btn_prepare">Prepare households</button>
-        <button class="btn secondary" id="btn-ufield" type="button" data-i18n="btn_field">Open the field view</button>
-        <button class="btn secondary" id="btn-outcomes" type="button" data-i18n="btn_outcomes">Outcome log (CSV)</button>
+        <button class="btn" id="btn-unext-confirm" type="button" data-i18n="next_confirm">Next: confirm the sample</button>
       </div>
-      <div id="u-msg"></div>
     </div>
     <div class="card"><h2 data-i18n="u_zones_drawn">Zones drawn</h2><div class="tablewrap" id="u-communes"></div></div>
     <div class="card"><h2 data-i18n="u_points">Water points</h2><div class="tablewrap" id="u-points"></div></div>
@@ -256,20 +269,24 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
       <div id="res-head" class="muted"></div>
       <div class="stat" id="res-stats"></div>
       <div id="res-check"></div>
-      <div class="btnrow" style="margin-top:.6rem">
-        <button class="btn" id="btn-pdf" type="button" data-i18n="btn_pdf">Sampling record (PDF)</button>
-        <button class="btn" id="btn-xlsx" type="button" data-i18n="btn_xlsx">Selection (Excel)</button>
-      </div>
-      <div id="res-export-msg"></div>
-      <div class="btnrow"><button class="btn" id="btn-next-map" type="button" data-i18n="next_map">Next: map</button></div>
-      <div class="btnrow hidden">
-        <button class="btn secondary" id="btn-print" type="button" data-i18n="btn_print">Print field sheet</button>
-      </div>
+      <div class="btnrow" style="margin-top:.6rem"><button class="btn" id="btn-next-confirm" type="button" data-i18n="next_confirm">Next: confirm the sample</button></div>
     </div>
     <div class="card"><h2 data-i18n="res_clusters">Clusters</h2><div class="tablewrap" id="res-clusters"></div></div>
     <div class="card"><h2 data-i18n="res_points">Selected water points</h2>
       <p class="muted" data-i18n="res_points_hint">For points without a household list, type K (number of households counted clockwise from the pump) to generate the household numbers.</p>
       <div class="tablewrap" id="res-points"></div></div>
+  </div>
+</section>
+
+<!-- ============ CONFIRM (v2.7.0): the sampling stage ends here ============ -->
+<section class="tab" id="tab-confirm">
+  <div class="card">
+    <h2 data-i18n="cf_title">Confirm the sample</h2>
+    <p class="muted" data-i18n="cf_intro">The sampling stage ends here.</p>
+    <div id="cf-body" class="tablewrap"></div>
+    <div class="btnrow" style="margin-top:.6rem"><button class="btn" id="btn-confirm" type="button" data-i18n="cf_btn">Confirm sample</button></div>
+    <div id="cf-msg"></div>
+    <div class="btnrow"><button class="btn secondary hidden" id="btn-next-field" type="button" data-i18n="next_field_stage">Next: field stage (map)</button></div>
   </div>
 </section>
 
@@ -286,17 +303,18 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
   <div id="map"></div>
   <div class="card" id="map-legend-bottom"></div>
   <div class="card" id="map-list"></div>
-  <div class="card"><div class="btnrow"><button class="btn" id="btn-next-sheet" type="button" data-i18n="next_sheet">Next: field sheet</button></div></div>
+  <div class="card"><div class="btnrow"><button class="btn pou-only" id="btn-next-sheet" type="button" data-i18n="next_sheet">Next: field sheet</button><button class="btn usage-only hidden" id="btn-next-ufield" type="button" data-i18n="next_field">Next: field</button></div></div>
 </section>
 
 <!-- ============ FIELD SHEET ============ -->
 <section class="tab" id="tab-sheet">
-  <div class="card noprint"><button class="btn" id="btn-print2" type="button" data-i18n="btn_print">Print field sheet</button> <span class="muted" data-i18n="sheet_hint">Use the browser print dialog; choose "Save as PDF" on the phone.</span></div>
+  <div class="card noprint"><button class="btn" id="btn-print2" type="button" data-i18n="btn_print">Print field sheet</button> <span class="muted" data-i18n="sheet_hint">Use the browser print dialog; choose "Save as PDF" on the phone.</span><div id="sheet-msg"></div></div>
   <div id="fieldsheet"></div>
 </section>
 
 <!-- ============ FIELD (usage survey, phone) ============ -->
 <section class="tab" id="tab-field">
+  <div class="card noprint" id="f-tools"><div id="f-round" class="muted"></div><div class="btnrow"><button class="btn" id="btn-prepare" type="button" data-i18n="btn_prepare">Prepare households</button><button class="btn secondary" id="btn-outcomes" type="button" data-i18n="btn_outcomes">Outcome log (CSV)</button><button class="btn secondary" id="btn-areas" type="button" data-i18n="btn_areas">Service areas (CSV)</button></div><div id="u-msg"></div></div>
   <div class="card field-top"><label for="f-wp" data-i18n="f_choose">Water point</label><select id="f-wp"></select><div id="f-status" class="muted"></div></div>
   <div class="card" id="f-next"></div>
   <div id="fmap"></div>
