@@ -30,8 +30,8 @@ self.addEventListener('fetch', e => {
   if (url.hostname.endsWith('openstreetmap.org') || url.hostname === 'server.arcgisonline.com') return; // tiles (map tab, record basemap): network only, never cached
   if (url.hostname === 'api.mwater.co') return; // mWater API: network only, never cached (URLs carry the client token)
   if (url.hostname === 'data.source.coop' || url.hostname.endsWith('overpass-api.de')) return; // building footprints and barriers: network only; the prepared round is kept in IndexedDB on the device
-  // index.html and app.js: network first so a new deploy is picked up, cache fallback offline
-  const isShell = url.origin === location.origin && (e.request.mode === 'navigate' || /\/(index\.html)?$/.test(url.pathname) || url.pathname.endsWith('/app.js'));
+  // index.html, app.js and the fleet file: network first so a new deploy is picked up, cache fallback offline
+  const isShell = url.origin === location.origin && (e.request.mode === 'navigate' || /\/(index\.html)?$/.test(url.pathname) || url.pathname.endsWith('/app.js') || url.pathname.endsWith('/data/register_classification.json')); // the fleet file changes weekly: network first too
   if (isShell) { e.respondWith(fetch(new Request(url.href, { cache: 'no-cache', credentials: 'same-origin' })).then(resp => { if (resp && resp.ok) { const copy = resp.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); } return resp; }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(hit => hit || caches.match('./index.html')))); return; }
   // Leaflet, pdf-lib and data: cache first, then network (and store)
   e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(hit => hit || fetch(e.request).then(resp => {

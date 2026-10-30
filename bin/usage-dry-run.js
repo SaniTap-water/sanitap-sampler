@@ -21,7 +21,7 @@ const round = args.round || '2026-DRY';
   if (!token) token = (await C.mwaterLogin(process.env.MWATER_USERNAME, process.env.MWATER_PASSWORD)).token;
   const frame = await C.mwaterLoadFrame(token, { onProgress: () => {} });
   const points = C.normaliseWaterPoints(C.parseCsv(frame.frameCsv).records).points;
-  const fleetText = await (await fetch(C.USAGE.fleetUrl)).text(); const fleet = { url: C.USAGE.fleetUrl, sha256: C.sha256Sync(fleetText), fetched_at: new Date().toISOString(), records: JSON.parse(fleetText).records };
+  const fleetPath = require('path').join(__dirname, '..', C.USAGE.fleetUrl); const fleetText = require('fs').readFileSync(fleetPath, 'utf8'); const fleet = { url: 'https://sanitap-water.github.io/sanitap-sampler/' + C.USAGE.fleetUrl.replace(/^\.\//, ''), sha256: C.sha256Sync(fleetText), fetched_at: new Date().toISOString(), records: JSON.parse(fleetText).records };
   const head = await fetch(C.USAGE.buildings.url, { method: 'HEAD' }); const version = [head.headers.get('last-modified'), head.headers.get('etag')].filter(Boolean).join(' · ');
   const out = { round, frame_points: points.length, not_creditable: frame.creditRule.not_creditable, fleet_sha256: fleet.sha256, buildings: C.USAGE.buildings.name, buildings_version: version, scenarios: {} };
   for (const scenario of ['HP-FD', 'HP-MA']) {

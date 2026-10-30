@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.8.0';
+const APP_VERSION = '2.8.1';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -886,7 +886,7 @@ const Core = (function () {
     // bridge ways, and ford nodes or ways; any other value (bridge=no, aqueduct, culvert, ...) does not open a river
     bridgeValues: ['yes', 'viaduct', 'boardwalk'], fordValues: ['yes', 'stepping_stones', 'boat'],
     // the carbon fleet: the report's register classification (ids and classes only, no coordinates)
-    fleetUrl: 'https://sanitap-water.github.io/sanitap-water-report/data/register_classification.json',
+    fleetUrl: './data/register_classification.json', // same origin since v2.8.1: copied here each Monday by the report build (ids and classes only)
     fleetClasses: ['in_fleet', 'joins'],
     buildings: { name: 'Google Open Buildings v3 (the Google layer of the VIDA Google-Microsoft combined FlatGeobuf, Source Cooperative)', url: 'https://data.source.coop/vida/google-microsoft-open-buildings/flatgeobuf/by_country/country_iso=MDG/MDG.fgb', source: 'google' },
     overpass: 'https://overpass-api.de/api/interpreter'
@@ -1448,7 +1448,7 @@ Object.assign(I18N.fr.updf, {
 Object.assign(I18N.en, {
   p_mode: 'Survey', mode_pou: 'SDWS 18 point-of-use (water quality)', mode_usage: 'Usage survey (SDWS 26)',
   usage_intro: 'Three-stage clustered draw per scenario (SOP-MAD-SDWS26 v0.4 s.4.2): zones of neighbouring communes are formed from the frame first, each with at least 4 fokontany holding frame points; then 3 zones (probability proportional to frame points), 4 fokontany per zone, 1 water point per fokontany, 1 reserve per zone; then 10 households + 5 reserves per water point from building footprints inside the 1 km service area, clipped at unfordable rivers. Frame: the carbon fleet (no water quality condition; broken pumps stay in).',
-  usage_fleet_ok: 'Carbon fleet list: {n} water points (report classification, fetched {t}).', usage_fleet_none: 'The carbon fleet list is fetched from the programme report when you draw (ids only).', usage_fleet_err: 'The carbon fleet list could not be fetched: {e}', usage_csv: 'CSV frame: every water point of the stratum is taken as the frame.',
+  usage_fleet_ok: 'Carbon fleet list: {n} water points (report classification, fetched {t}).', usage_fleet_none: 'The carbon fleet list (the programme report\'s classification, copied to this site each week; ids only) is loaded when usage mode opens and again when you draw.', usage_fleet_err: 'The carbon fleet list could not be fetched: {e}', usage_csv: 'CSV frame: every water point of the stratum is taken as the frame.',
   usage_preview: 'Frame: {n} water points in {c} communes and {f} fokontany ({s}).', usage_res_title: 'Usage survey draw', u_communes: 'Communes', u_fokontany: 'Fokontany', u_points: 'Water points', u_reserves: 'Reserves', u_households: 'Households', col_pi: 'Probability', col_weight: 'Weight', col_buildings: 'Buildings (kept / 1 km)',
   btn_prepare: 'Prepare households (download buildings for the drawn service areas)', prep_running: 'Preparing {i} of {n}: {id}…', prep_done: 'Households ready for {n} water points; this round now works offline on this device.', prep_err: 'Preparation failed for {id}: {e}', btn_field: 'Open the field view', btn_outcomes: 'Outcome log (CSV)', btn_updf: 'Sampling record (PDF)',
   tab_field: '6 Field', f_choose: 'Water point', f_next: 'Next household', f_none: 'Prepare the households first (button above; needs a connection once).', f_done: 'Ten households interviewed at this water point.', f_exhausted: 'No household left: all reserves are used. Record the reason and move on.', f_position: 'Draw position', f_enter: 'enter this number on the mWater response', f_dist: '{d} m, bearing {b}° ({c})', f_nogps: 'waiting for GPS…', f_visits: 'visit {v} of 3', f_reserve: 'reserve R{r}',
@@ -1458,7 +1458,7 @@ Object.assign(I18N.en, {
 Object.assign(I18N.fr, {
   p_mode: 'Enquête', mode_pou: "SDWS 18 point d'utilisation (qualité de l'eau)", mode_usage: "Enquête d'usage (SDWS 26)",
   usage_intro: "Tirage en grappes à trois degrés par scénario (SOP-MAD-SDWS26 v0.4 §4.2) : des zones de communes voisines sont d'abord formées à partir de la base, chacune avec au moins 4 fokontany ayant des points ; puis 3 zones (proportionnel aux points de la base), 4 fokontany par zone, 1 point d'eau par fokontany, 1 réserve par zone ; puis 10 ménages + 5 réserves par point d'eau parmi les bâtiments situés dans la zone de service de 1 km, découpée aux rivières infranchissables. Base : la flotte carbone (sans condition de qualité ; les pompes en panne restent).",
-  usage_fleet_ok: 'Liste de la flotte carbone : {n} points (classification du rapport, obtenue {t}).', usage_fleet_none: 'La liste de la flotte carbone est obtenue du rapport du programme au moment du tirage (identifiants seulement).', usage_fleet_err: "La liste de la flotte carbone n'a pas pu être obtenue : {e}", usage_csv: "Base CSV : tous les points d'eau de la strate forment la base.",
+  usage_fleet_ok: 'Liste de la flotte carbone : {n} points (classification du rapport, obtenue {t}).', usage_fleet_none: 'La liste de la flotte carbone (classification du rapport du programme, copiée sur ce site chaque semaine ; identifiants seulement) est chargée à l\'ouverture du mode usage et de nouveau au tirage.', usage_fleet_err: "La liste de la flotte carbone n'a pas pu être obtenue : {e}", usage_csv: "Base CSV : tous les points d'eau de la strate forment la base.",
   usage_preview: "Base : {n} points d'eau dans {c} communes et {f} fokontany ({s}).", usage_res_title: "Tirage de l'enquête d'usage", u_communes: 'Communes', u_fokontany: 'Fokontany', u_points: "Points d'eau", u_reserves: 'Réserves', u_households: 'Ménages', col_pi: 'Probabilité', col_weight: 'Poids', col_buildings: 'Bâtiments (retenus / 1 km)',
   btn_prepare: 'Préparer les ménages (télécharger les bâtiments des zones tirées)', prep_running: 'Préparation {i} sur {n} : {id}…', prep_done: "Ménages prêts pour {n} points d'eau ; la campagne fonctionne maintenant hors ligne sur cet appareil.", prep_err: 'Échec de la préparation pour {id} : {e}', btn_field: 'Ouvrir la vue terrain', btn_outcomes: 'Journal des résultats (CSV)', btn_updf: "Registre d'échantillonnage (PDF)",
   tab_field: '6 Terrain', f_choose: "Point d'eau", f_next: 'Ménage suivant', f_none: "Préparez d'abord les ménages (bouton ci-dessus ; connexion nécessaire une fois).", f_done: "Dix ménages interrogés à ce point d'eau.", f_exhausted: 'Plus de ménage : toutes les réserves sont utilisées. Notez la raison et continuez.', f_position: 'Position de tirage', f_enter: 'à saisir sur la réponse mWater', f_dist: '{d} m, cap {b}° ({c})', f_nogps: 'en attente du GPS…', f_visits: 'visite {v} sur 3', f_reserve: 'réserve R{r}',
@@ -1867,13 +1867,21 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     document.querySelectorAll('.usage-only').forEach(el => el.classList.toggle('hidden', !isUsage()));
     const act = document.querySelector('nav button.active'); if (act && act.offsetParent === null) showTab(isUsage() && act.dataset.tab === 'sheet' ? 'field' : (!isUsage() && act.dataset.tab === 'field' ? 'sheet' : 'params'));
     $('usage-intro').innerHTML = isUsage() ? esc(t('usage_intro')) + '<br><small>' + fleetLine() + '</small>' : '';
+    if (isUsage()) prefetchFleet();
     // the field tabs follow the mode: switching it selects the newest confirmed round of that mode (none if there is none); no round is discarded
     if (!keepActive) { const e = activeEntry(); if (e && e.mode !== state.mode) { const alt = Object.values(state.lib).filter(x => x.mode === state.mode).sort(byNewest)[0]; setActive(alt ? alt.record_id : null, { keepMode: true }); } }
     updateSeed(); renderPreview(); renderResults(); renderConfirm(); renderMapList(); if (state.map) renderMap(); updateSteps();
   }
   function fleetLine() { if (state.wp && state.wp.source !== 'mwater') return esc(t('usage_csv')); const f = state.fleet; return f ? esc(t('usage_fleet_ok', { n: Object.values(f.records).filter(c => Core.USAGE.fleetClasses.includes(c)).length, t: f.fetched_at })) : esc(t('usage_fleet_none')); }
+  // v2.8.1: usage mode loads the fleet list (same origin) when it is selected, so the line shows the count; the draw fetches it again
+  function prefetchFleet() {
+    if (state.fleetFresh) return; state.fleetFresh = true;
+    const intro = () => esc(t('usage_intro')) + '<br><small>';
+    getFleet().then(() => { if (isUsage()) $('usage-intro').innerHTML = intro() + fleetLine() + '</small>'; })
+      .catch(e => { state.fleetFresh = false; if (isUsage()) $('usage-intro').innerHTML = intro() + '<span class="err">' + esc(t('usage_fleet_err', { e: e.message })) + '</span></small>'; });
+  }
   async function getFleet() {
-    try { const r = await fetch(Core.USAGE.fleetUrl, { cache: 'no-cache' }); if (!r.ok) throw new Error('HTTP ' + r.status); const text = await r.text(); const j = JSON.parse(text); state.fleet = { url: Core.USAGE.fleetUrl, sha256: await Core.sha256(text), fetched_at: new Date().toISOString(), records: j.records || {} }; LS.set('fleet', state.fleet); }
+    try { const r = await fetch(Core.USAGE.fleetUrl, { cache: 'no-cache' }); if (!r.ok) throw new Error('HTTP ' + r.status); const text = await r.text(); const j = JSON.parse(text); state.fleet = { url: new URL(Core.USAGE.fleetUrl, location.href).href, sha256: await Core.sha256(text), fetched_at: new Date().toISOString(), records: j.records || {} }; LS.set('fleet', state.fleet); }
     catch (e) { if (!state.fleet) throw e; } // offline: the cached list (its hash and fetch time stay in the record)
     return state.fleet;
   }
