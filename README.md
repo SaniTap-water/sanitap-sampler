@@ -24,7 +24,7 @@ data/sample-water-points.csv   60 fake points, 3 strata, 4 inactive (CSV-source 
 data/sdws3_rule.json           the SDWS 3 creditable rule, byte-identical in sanitap-water-report (embedded in app.js as Core.SDWS3_RULE)
 data/sdws3_rule_cases.json     its shared test cases (both repositories' implementations must give these verdicts)
 bin/file-round.js              files a drawn round in the SharePoint evidence folder (append-only, index.md); no git
-bin/reissue-record.js          reissues a filed SDWS 18 record as a new version in the SharePoint folder (v2.8.0: with the map), same draw, checked
+bin/reissue-record.js          reissues a filed SDWS 18 or (v2.8.2) usage-survey record as a new version in the SharePoint folder (v2.8.0: with the map), same draw, checked
 bin/config.js                  reads sampler.local.json (gitignored): records_dir = the SharePoint "Sampling records" folder
 bin/audit-cases.js             audit.json texts of fixed draws (test/fixtures/audit-baseline-v2.7.0.json was written from v2.7.0)
 sampler.local.example.json     template for sampler.local.json
@@ -33,6 +33,7 @@ test/mapper.test.js            Node tests (frame rule, PPS draw, audit, PDF dete
 test/sdws18-regression.test.js the SDWS 18 mode reproduces every v2.2.0 draw and PDF (test/fixtures/sdws18-baseline.json)
 test/sdws3-rule.test.js        the SDWS 3 creditable rule: byte-identical to the report's, shared cases, frame exclusion in both modes
 test/confirm.test.js           v2.7.0 confirm/lock, open from PDF or audit.json (filed 2026R1 records and a usage draw), hash refusal, both strata held, file-round for usage records
+test/reissue-usage.test.js     v2.8.2 bin/reissue-record.js on usage-survey records: audit unchanged, map 1-12 / R1-R3, sections 1-8 compared with the filed PDF
 test/open-feedback.test.js     v2.8.2 open feedback: translations without raw keys, IndexedDB open that cannot hang, the tab/message plan, field and filed PDFs
 test/open-ui.test.js           v2.8.2 the page after an open (Playwright on localhost): field tab, message on screen, refusals on Data, older tab holding the database
 test/fleet-file.test.js        v2.8.1 the fleet file holds ids and classes only (no coordinate keys); fleetUrl is same-origin
