@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.8.1';
+const APP_VERSION = '2.8.2';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -1192,7 +1192,45 @@ const Core = (function () {
     return rows.map(r => r.map(csvEscape).join(',')).join('\r\n') + '\r\n';
   }
 
-  return { recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
+  // v2.8.2: translation lookup. An empty string is a valid translation: it used to fall through to the key, so a successful
+  // open read "... verifiedopen_reg_no."
+  function translate(dict, lang, k, v) {
+    const has = d => !!d && Object.prototype.hasOwnProperty.call(d, k) && d[k] != null;
+    let s = String(has(dict[lang]) ? dict[lang][k] : has(dict.en) ? dict.en[k] : k);
+    if (v) for (const x in v) s = s.split('{' + x + '}').join(v[x]);
+    return s;
+  }
+  // v2.8.2: IndexedDB open that cannot hang. A tab still running v2.3-v2.6 (database version 1) blocks the upgrade to version 2;
+  // the request then waited for ever and "Open a confirmed round" stayed on "…". Now it fails with code 'idb_blocked' (the library
+  // falls back to this browser's localStorage), and this page closes its own connection when a newer version needs the database.
+  function idbOpen(factory, name, version, stores, timeoutMs) {
+    return new Promise((res, rej) => {
+      const fail = (code, msg) => Object.assign(new Error(msg), { code });
+      if (!factory || typeof factory.open !== 'function') return rej(fail('idb_none', 'IndexedDB unavailable'));
+      let done = false; let tm = null; const fin = (f, x) => { if (done) return; done = true; if (tm) clearTimeout(tm); f(x); };
+      tm = setTimeout(() => fin(rej, fail('idb_blocked', 'IndexedDB did not open (another SaniTap Sampler tab may be using it)')), timeoutMs || 6000);
+      let r; try { r = factory.open(name, version); } catch (e) { return fin(rej, e); }
+      r.onupgradeneeded = () => { const d = r.result; stores.forEach(st => { if (!d.objectStoreNames.contains(st)) d.createObjectStore(st); }); };
+      r.onblocked = () => fin(rej, fail('idb_blocked', 'IndexedDB blocked by another SaniTap Sampler tab'));
+      r.onsuccess = () => { const d = r.result; d.onversionchange = () => d.close(); if (done) { d.close(); return; } fin(res, d); };
+      r.onerror = () => fin(rej, r.error || fail('idb_error', 'IndexedDB error'));
+    });
+  }
+  // v2.8.2: what the page shows after "Open a confirmed round". Success: the round is active in the selector, the page moves to its
+  // field tab (6 Field for usage, 6 Field sheet for SDWS 18) and the message stays above every tab. Error: the Data tab, message at its top.
+  // key/vars feed the translation; tkeys are values that are translation keys themselves.
+  function openOutcome(res, lib) {
+    if (!res || res.error) return { ok: false, tab: 'data', cls: 'err', key: 'open_err_' + ((res && res.error) || 'no_input'), vars: { sha: (res && res.sha) || '', expected: (res && res.expected) || '' }, tkeys: {} };
+    const rid = res.audit.record_id;
+    if (lib && lib.error) return { ok: false, tab: 'data', cls: 'err', key: 'open_err_other', vars: { rid }, tkeys: {} };
+    const usage = res.mode === 'usage';
+    return { ok: true, tab: usage ? 'field' : 'sheet', select: rid, cls: 'ok', key: 'open_ok',
+      vars: { rid, n: res.audit.water_points.length, r: (usage ? res.audit.reserves : res.audit.replacements).length, sha: res.sha },
+      tkeys: { survey: usage ? 'mode_usage' : 'mode_pou', rlabel: usage ? 'open_reserves' : 'open_replacements', reg: res.registered ? 'open_reg_yes' : 'open_reg_no', same: lib && lib.same ? 'open_same' : 'open_new' },
+      warn: lib && lib.local ? 'open_local' : null };
+  }
+
+  return { translate, idbOpen, openOutcome, recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
     TILES, MAP_PALETTE, tileUrl, tileFetcher, mercX, mercY, mapClusters, mapView, viewTiles, addMapPages, recordStops,
     SDWS3_RULE, SDWS3_RULE_JSON, sdws3Creditable, isNotCreditable, CREDIT_RULE_TEXT, USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, kFor, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
 })();
@@ -1486,7 +1524,7 @@ Object.assign(I18N.en, {
   res_confirmed: 'This draw is confirmed ({rid}) and locked. The field stage runs from the round selector; K for sources without one is entered on the field sheet.',
   open_title: 'Open a confirmed round', open_intro: 'Load the sampling record PDF (or its audit.json) of a confirmed round to run its field stage on this device. No mWater login and no redraw: the record is checked against its audit SHA-256 and refused if they differ.',
   open_file: 'Sampling record (PDF) or audit.json', open_sha: 'Audit SHA-256', open_sha_hint: '(for audit.json only: the audit SHA-256 from the PDF footer or the SharePoint register)',
-  open_ok: 'Opened {rid} ({survey}): {n} water points and {r} {rlabel}. Audit SHA-256 {sha} verified{reg}.{same}', open_reg_yes: ' and found in the published register', open_reg_no: '', open_same: ' It was already on this device.', open_reserves: 'reserves', open_replacements: 'replacements',
+  open_ok: 'Opened {rid} ({survey}): {n} water points and {r} {rlabel}. Audit SHA-256 {sha} verified{reg}.{same}', open_reg_yes: ' and found in the published register', open_reg_no: '', open_new: '', open_opening: 'Opening {file}…', open_local: 'Saved in this browser only (localStorage): another SaniTap Sampler tab is open with an older version. Close the other Sampler tabs and reload this page.', flash_close: 'Close', open_same: ' It was already on this device.', open_reserves: 'reserves', open_replacements: 'replacements',
   open_err_not_pdf: 'Not a PDF or JSON file.', open_err_no_input: 'Not a PDF or JSON file.', open_err_no_audit: 'No attached audit.json in this PDF: it is not a SaniTap Sampler record (v2.1 or later).', open_err_not_json: 'This file is not valid JSON.', open_err_not_record: 'This file is not a SaniTap Sampler audit record.',
   open_err_sha_mismatch: 'Refused: the audit SHA-256 is {sha} but the record says {expected}. The file was changed after it was confirmed.', open_err_rid_mismatch: 'Refused: the record id of the PDF does not match its attached audit.', open_err_coords: 'Refused: the audit carries coordinates, which a record must not.',
   open_err_no_reference: 'audit.json alone cannot be verified: type the audit SHA-256 printed in the PDF footer, or open the PDF. (This file\'s SHA-256 is {sha}.)', open_err_other: 'Refused: a different record with id {rid} is already confirmed on this device.',
@@ -1509,7 +1547,7 @@ Object.assign(I18N.fr, {
   res_confirmed: "Ce tirage est confirmé ({rid}) et verrouillé. L'étape de terrain se choisit en haut ; K des sources qui n'en ont pas se saisit sur la fiche terrain.",
   open_title: 'Ouvrir une campagne confirmée', open_intro: "Chargez le registre d'échantillonnage PDF (ou son audit.json) d'une campagne confirmée pour faire son étape de terrain sur cet appareil. Sans connexion mWater et sans nouveau tirage : le registre est vérifié avec le SHA-256 de son audit et refusé s'ils diffèrent.",
   open_file: "Registre d'échantillonnage (PDF) ou audit.json", open_sha: "SHA-256 de l'audit", open_sha_hint: '(pour audit.json seulement : le SHA-256 de l’audit, depuis le pied de page du PDF ou le registre SharePoint)',
-  open_ok: "Ouvert {rid} ({survey}) : {n} points d'eau et {r} {rlabel}. SHA-256 de l'audit {sha} vérifié{reg}.{same}", open_reg_yes: ' et trouvé dans le registre publié', open_reg_no: '', open_same: ' Il était déjà sur cet appareil.', open_reserves: 'réserves', open_replacements: 'remplacements',
+  open_ok: "Ouvert {rid} ({survey}) : {n} points d'eau et {r} {rlabel}. SHA-256 de l'audit {sha} vérifié{reg}.{same}", open_reg_yes: ' et trouvé dans le registre publié', open_reg_no: '', open_new: '', open_opening: 'Ouverture de {file}…', open_local: "Enregistré dans ce navigateur seulement (localStorage) : un autre onglet SaniTap Sampler est ouvert avec une version plus ancienne. Fermez les autres onglets Sampler et rechargez cette page.", flash_close: 'Fermer', open_same: ' Il était déjà sur cet appareil.', open_reserves: 'réserves', open_replacements: 'remplacements',
   open_err_not_pdf: "Ce n'est pas un fichier PDF ou JSON.", open_err_no_input: "Ce n'est pas un fichier PDF ou JSON.", open_err_no_audit: "Pas d'audit.json joint à ce PDF : ce n'est pas un registre SaniTap Sampler (v2.1 ou ultérieure).", open_err_not_json: "Ce fichier n'est pas un JSON valide.", open_err_not_record: "Ce fichier n'est pas un audit SaniTap Sampler.",
   open_err_sha_mismatch: "Refusé : le SHA-256 de l'audit est {sha} mais le registre indique {expected}. Le fichier a été modifié après la confirmation.", open_err_rid_mismatch: "Refusé : l'identifiant du PDF ne correspond pas à son audit joint.", open_err_coords: "Refusé : l'audit contient des coordonnées, ce qu'un registre ne doit pas.",
   open_err_no_reference: "audit.json seul ne peut pas être vérifié : saisissez le SHA-256 de l'audit imprimé en pied de page du PDF, ou ouvrez le PDF. (Le SHA-256 de ce fichier est {sha}.)", open_err_other: 'Refusé : un autre registre avec l\'identifiant {rid} est déjà confirmé sur cet appareil.',
@@ -1519,11 +1557,13 @@ Object.assign(I18N.fr, {
   btn_areas: 'Aires de service (CSV)', prep_nopos: "Pas de position pour {id} sur cet appareil : chargez d'abord la base dans l'onglet Données.", fs_k_field: 'K saisi sur le terrain'
 });
 
+// the UI strings, for the Node tests (v2.8.2: no message may show a raw key)
+if (typeof module !== 'undefined' && module.exports) module.exports.I18N = I18N;
 if (typeof window !== 'undefined' && typeof document !== 'undefined') (function () {
   const $ = id => document.getElementById(id);
   const LS = { get(k, d) { try { const v = localStorage.getItem('sanitap.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem('sanitap.' + k, JSON.stringify(v)); } catch (e) { console.warn('localStorage', e); } }, del(k) { try { localStorage.removeItem('sanitap.' + k); } catch (e) {} } };
   const state = { lib: {}, active: LS.get('active', null), mode: LS.get('mode', 'pou'), fleet: LS.get('fleet', null), usage: null, usageRound: null, mw: LS.get('mw', null), lang: LS.get('lang', (navigator.language || '').startsWith('fr') ? 'fr' : 'en'), wp: LS.get('wp', null), points: [], result: null, kValues: LS.get('k', {}), map: null, layers: {} };
-  const t = (k, v) => { let s = (I18N[state.lang] && I18N[state.lang][k]) || I18N.en[k] || k; if (v) for (const x in v) s = s.split('{' + x + '}').join(v[x]); return s; };
+  const t = (k, v) => Core.translate(I18N, state.lang, k, v);
   const esc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = (n, d) => (n === undefined || n === null || isNaN(n)) ? '' : Number(n).toFixed(d === undefined ? 1 : d);
 
@@ -1856,7 +1896,8 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   // IndexedDB: the prepared round (with coordinates, on this device only) and the outcome log
   const IDB = {
     db: null,
-    open() { if (this.db) return Promise.resolve(this.db); return new Promise((res, rej) => { if (!window.indexedDB) return rej(new Error('IndexedDB unavailable')); const r = indexedDB.open('sanitap-sampler', 2); r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('confirmed')) d.createObjectStore('confirmed'); if (!d.objectStoreNames.contains('rounds')) d.createObjectStore('rounds'); if (!d.objectStoreNames.contains('outcomes')) d.createObjectStore('outcomes'); if (!d.objectStoreNames.contains('buildings')) d.createObjectStore('buildings'); }; r.onsuccess = () => { this.db = r.result; res(this.db); }; r.onerror = () => rej(r.error); }); },
+    // v2.8.2: never hangs (an older tab blocking the upgrade gives 'idb_blocked'); a newer version asking for the database closes this connection
+    open() { if (this.db) return Promise.resolve(this.db); return Core.idbOpen(window.indexedDB, 'sanitap-sampler', 2, ['confirmed', 'rounds', 'outcomes', 'buildings']).then(d => { d.onversionchange = () => { d.close(); this.db = null; }; this.db = d; return d; }); },
     async get(store, key) { const d = await this.open(); return new Promise((res, rej) => { const q = d.transaction(store).objectStore(store).get(key); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); },
     async put(store, key, val) { const d = await this.open(); return new Promise((res, rej) => { const tx = d.transaction(store, 'readwrite'); tx.objectStore(store).put(val, key); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); },
     async all(store) { const d = await this.open(); return new Promise((res, rej) => { const q = d.transaction(store).objectStore(store).getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); }); }
@@ -2032,7 +2073,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   // the library: every confirmed or opened round on this device, keyed by record id (IndexedDB; localStorage if IndexedDB is unavailable)
   const Lib = {
     async load() { const m = {}; try { (await IDB.all('confirmed')).forEach(e => { m[e.record_id] = e; }); } catch (e) { console.warn('IndexedDB', e); } state.lib = Object.assign({}, LS.get('library', {}), m); },
-    async add(entry) { const r = Core.libraryAdd(state.lib, entry); if (r.error || r.same) return r; try { await IDB.put('confirmed', entry.record_id, entry); } catch (e) { LS.set('library', state.lib); } return r; }
+    async add(entry) { const r = Core.libraryAdd(state.lib, entry); if (r.error || r.same) return r; try { await IDB.put('confirmed', entry.record_id, entry); } catch (e) { LS.set('library', state.lib); r.local = true; r.idbError = e && e.code; } return r; }
   };
   const byNewest = (a, b) => String(b.confirmed_at || '').localeCompare(String(a.confirmed_at || ''));
   function activeEntry() { return (state.active && state.lib[state.active]) || null; }
@@ -2116,21 +2157,30 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   // open a confirmed round from its record PDF or audit.json: verified against the audit SHA-256, no login, no redraw
   // v2.8.0: the register (index.md) lives in SharePoint with the records, not on the public site; an audit.json alone needs the footer SHA-256
   async function registerShas() { return []; }
+  // v2.8.2: feedback. The result used to appear only at the bottom of the Data tab (below the screen on a phone and on most laptops)
+  // with nothing else changing, so a successful open looked like nothing happened. Now: progress and errors at the top of the Data
+  // tab; on success the round is selected, the page moves to its field tab and the message stays above every tab until closed.
+  function flash(el, cls, html) { const box = $(el); if (!html) { box.innerHTML = ''; return; } box.innerHTML = `<div class="msg ${cls}"><button type="button" class="flash-x" aria-label="${esc(t('flash_close'))}" title="${esc(t('flash_close'))}">×</button>${html}</div>`; box.querySelector('.flash-x').onclick = () => { box.innerHTML = ''; }; }
   $('open-file').onchange = async ev => {
-    const f = ev.target.files[0]; if (!f) return; const msg = $('open-msg'); msg.innerHTML = '<div class="msg">…</div>';
+    const f = ev.target.files[0]; if (!f) return; const msg = $('open-msg');
+    const opening = `<div class="msg">${esc(t('open_opening', { file: f.name }))}</div>`; msg.innerHTML = opening; flash('flash', '', ''); flash('data-flash', '', esc(t('open_opening', { file: f.name }))); try { window.scrollTo(0, 0); } catch (x) {}
+    const fail = text => { const h = `<div class="msg err">${esc(text)}</div>`; msg.innerHTML = h; showTab('data'); flash('data-flash', 'err', esc(text)); };
     try {
       const buf = new Uint8Array(await f.arrayBuffer()); const isPdf = buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46;
       const reg = await registerShas();
       const res = await Core.openRecord(isPdf ? { pdf: buf, registerShas: reg } : { json: new TextDecoder('utf-8').decode(buf), expectedSha: $('open-sha').value, registerShas: reg });
-      if (res.error) { msg.innerHTML = `<div class="msg err">${esc(t('open_err_' + res.error, { sha: res.sha || '', expected: res.expected || '' }))}</div>`; return; }
-      const r = await Lib.add(Core.libraryEntry({ audit: res.audit, auditText: res.auditText, sha: res.sha, at: new Date().toISOString(), origin: 'opened' }));
-      if (r.error) { msg.innerHTML = `<div class="msg err">${esc(t('open_err_other', { rid: res.audit.record_id }))}</div>`; return; }
-      await setActive(res.audit.record_id);
-      const usage = res.mode === 'usage';
-      msg.innerHTML = `<div class="msg ok">${esc(t('open_ok', { rid: res.audit.record_id, survey: t(usage ? 'mode_usage' : 'mode_pou'), n: res.audit.water_points.length, r: (usage ? res.audit.reserves : res.audit.replacements).length, rlabel: t(usage ? 'open_reserves' : 'open_replacements'), sha: res.sha, reg: t(res.registered ? 'open_reg_yes' : 'open_reg_no'), same: r.same ? t('open_same') : '' }))}</div>`;
-    } catch (e) { msg.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+      const lib = res.error ? null : await Lib.add(Core.libraryEntry({ audit: res.audit, auditText: res.auditText, sha: res.sha, at: new Date().toISOString(), origin: 'opened' }));
+      const plan = Core.openOutcome(res, lib); const vars = Object.assign({}, plan.vars); Object.keys(plan.tkeys).forEach(k => { vars[k] = t(plan.tkeys[k]); });
+      const text = t(plan.key, vars);
+      if (!plan.ok) return fail(text);
+      await setActive(plan.select);
+      const v = fieldRound(); const extra = (v ? `<br><small>${esc(posLine(v))}</small>` : '') + (plan.warn ? `<br><small>${esc(t(plan.warn))}</small>` : '');
+      msg.innerHTML = `<div class="msg ok">${esc(text)}</div>`; flash('data-flash', '', '');
+      showTab(plan.tab); flash('flash', 'ok', esc(text) + extra);
+    } catch (e) { fail(e.message); }
     finally { ev.target.value = ''; }
   };
+  $('round-sel').addEventListener('change', () => flash('flash', '', ''));
 
   /* ---------- offline / service worker ---------- */
   function onlineBadge() { $('offline-badge').textContent = navigator.onLine ? t('online') : '⚠ ' + t('offline'); }
