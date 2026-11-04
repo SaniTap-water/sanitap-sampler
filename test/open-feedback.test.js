@@ -7,7 +7,8 @@ const C = require('../app.js'); const { EVIDENCE, REC, skipNoEvidence } = requir
 let PDFLib; try { PDFLib = require(path.join(process.env.PDFLIB_DIR || '/nonexistent', 'node_modules', 'pdf-lib')); } catch (e) { PDFLib = null; }
 const skip = () => { console.log('  (pdf-lib not available: set PDFLIB_DIR) — skipped'); };
 // the two usage records James Walker drew and confirmed with v2.7.0 on 30 Oct 2026 (filed by him in Evidence/2026/Random sample)
-const FIELD_DIR = process.env.FIELD_PDF_DIR || (EVIDENCE ? path.join(EVIDENCE, '..', '2026', 'Random sample') : null);
+// the field PDFs were moved into Random sample/_Archive in November 2026: look in both
+const FIELD_DIR = process.env.FIELD_PDF_DIR || (EVIDENCE ? [path.join(EVIDENCE, '..', '2026', 'Random sample'), path.join(EVIDENCE, '..', '2026', 'Random sample', '_Archive')].find(d => fs.existsSync(path.join(d, 'sanitap-2026_R1_FTU-HP-FD-usage-record.pdf'))) || path.join(EVIDENCE, '..', '2026', 'Random sample') : null);
 const FIELD = [
   { file: 'sanitap-2026_R1_FTU-HP-FD-usage-record.pdf', rid: '2026_R1_FTU-HP-FD-2026_R1_FTU-HP-FD-U', sha: '9991cb6a62aa5db9723e7cdff1270d45247d24e1c791c3fec47dbcc69c52fccc' },
   { file: 'sanitap-2026_R1_Maro-HP-MA-usage-record.pdf', rid: '2026_R1_Maro-HP-MA-2026_R1_Maro-HP-MA-U', sha: 'c6b8141f7efffcc60cc91d304bcd7a76e1c8814319f2da52481a083a88974699' }

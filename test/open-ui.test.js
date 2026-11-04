@@ -8,7 +8,8 @@ const C = require('../app.js'); const { EVIDENCE, REC } = require('./evidence.js
 const req = (env, mod) => { try { return require(path.join(process.env[env] || '/nonexistent', 'node_modules', mod)); } catch (e) { return null; } };
 const pw = req('PLAYWRIGHT_DIR', 'playwright'); const PDFLib = req('PDFLIB_DIR', 'pdf-lib');
 const ROOT = path.join(__dirname, '..'); const BROWSERS = (process.env.UI_BROWSERS || 'chromium').split(',');
-const FIELD_DIR = process.env.FIELD_PDF_DIR || (EVIDENCE ? path.join(EVIDENCE, '..', '2026', 'Random sample') : null);
+// the field PDFs were moved into Random sample/_Archive in November 2026: look in both
+const FIELD_DIR = process.env.FIELD_PDF_DIR || (EVIDENCE ? [path.join(EVIDENCE, '..', '2026', 'Random sample'), path.join(EVIDENCE, '..', '2026', 'Random sample', '_Archive')].find(d => fs.existsSync(path.join(d, 'sanitap-2026_R1_FTU-HP-FD-usage-record.pdf'))) || path.join(EVIDENCE, '..', '2026', 'Random sample') : null);
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.csv': 'text/csv', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' };
 function serve() { return new Promise(res => { const s = http.createServer((q, r) => { let p = decodeURIComponent(new URL(q.url, 'http://x').pathname); if (p.endsWith('/')) p += 'index.html'; const f = path.join(ROOT, path.normalize(p)); if (!f.startsWith(ROOT) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-store' }); fs.createReadStream(f).pipe(r); }); s.listen(0, '127.0.0.1', () => res(s)); }); }
 // a usage record made here (so the test never depends on the evidence folder) and a copy whose Info SHA-256 was changed

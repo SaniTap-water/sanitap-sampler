@@ -195,7 +195,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
   <div class="card" id="open-card">
     <h2 data-i18n="open_title">Open a confirmed round</h2>
     <p class="muted" data-i18n="open_intro">Load the sampling record PDF (or its audit.json) of a confirmed round to run its field stage on this device.</p>
-    <label data-i18n="open_file">Sampling record (PDF) or audit.json</label>
+    <label data-i18n="open_file">Sampling record (PDF), audit.json, or a field pack (.json, after its PDF)</label>
     <input type="file" id="open-file" accept=".pdf,.json,application/pdf,application/json">
     <label><span data-i18n="open_sha">Audit SHA-256</span> <small data-i18n="open_sha_hint">(for audit.json only)</small></label>
     <input type="text" id="open-sha" autocomplete="off" spellcheck="false" inputmode="text">
@@ -317,7 +317,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
 
 <!-- ============ FIELD (usage survey, phone) ============ -->
 <section class="tab" id="tab-field">
-  <div class="card noprint" id="f-tools"><div id="f-round" class="muted"></div><div class="btnrow"><button class="btn" id="btn-prepare" type="button" data-i18n="btn_prepare">Prepare households</button><button class="btn secondary" id="btn-outcomes" type="button" data-i18n="btn_outcomes">Outcome log (CSV)</button><button class="btn secondary" id="btn-areas" type="button" data-i18n="btn_areas">Service areas (CSV)</button></div><div id="u-msg"></div></div>
+  <div class="card noprint" id="f-tools"><div id="f-round" class="muted"></div><div class="btnrow"><button class="btn" id="btn-prepare" type="button" data-i18n="btn_prepare">Prepare households</button><button class="btn secondary" id="btn-outcomes" type="button" data-i18n="btn_outcomes">Outcome log (CSV)</button><button class="btn secondary" id="btn-areas" type="button" data-i18n="btn_areas">Service areas (CSV)</button><button class="btn secondary" id="btn-fpack" type="button" data-i18n="btn_fpack">Field pack for other tablets (JSON)</button></div><div id="u-msg"></div></div>
   <div class="card field-top"><label for="f-wp" data-i18n="f_choose">Water point</label><select id="f-wp"></select><div id="f-status" class="muted"></div></div>
   <div class="card" id="f-next"></div>
   <div id="fmap"></div>
