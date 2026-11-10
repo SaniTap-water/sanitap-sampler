@@ -17,8 +17,10 @@
 // Usage records (v2.8.2): the audit is never changed (--form/--k-register/--reason refused); the folder is <round>/<scenario>-U/.
 // Checks: audit byte-identical, zones/water points/reserves/household settings, the selection CSV, and sections 1-8 of a
 // check copy built without the map in the filed PDF's language, run for run against the filed PDF (footers aside).
+// Stroke-test records (v2.10.0): the same checks (sections 1-7, folder <round>/<stratum>-ST/), audit never changed.
+// v2.10.0: refused when another filed record (any survey, any other folder) holds the same record id: a sample is never overwritten.
 const fs = require('fs'); const path = require('path'); const assert = require('assert'); const crypto = require('crypto');
-const C = require('../app.js'); const { pdfTextRuns } = require('./pdf-text.js'); const { loadConfig, appendIndex } = require('./config.js');
+const C = require('../app.js'); const { pdfTextRuns } = require('./pdf-text.js'); const { loadConfig, appendIndex, filedRecords } = require('./config.js');
 
 const args = process.argv.slice(2); const src = args[0];
 const opt = k => { const i = args.indexOf(k); return i < 0 ? undefined : args[i + 1]; };
@@ -32,9 +34,12 @@ const sha = b => crypto.createHash('sha256').update(b).digest('hex');
   const dir = fs.existsSync(src) && fs.statSync(src).isDirectory() ? src : path.join(RD || loadConfig().recordsDir, src);
   const oldText = fs.readFileSync(path.join(dir, 'audit.json'), 'utf8'); const oldAudit = JSON.parse(oldText);
   const oldPdf = fs.readFileSync(path.join(dir, 'sampling-record.pdf'));
-  const usage = C.recordMode(oldAudit) === 'usage';
+  const mode = C.recordMode(oldAudit); const stroke = mode === 'stroke'; const usage = mode === 'usage' || stroke;
   const changeAudit = !!(opt('--form') || args.includes('--k-register') || opt('--reason'));
-  if (usage && changeAudit) throw new Error('usage-survey records are reissued only with the audit unchanged (no --form, --k-register or --reason)');
+  if (usage && changeAudit) throw new Error((stroke ? 'stroke-test' : 'usage-survey') + ' records are reissued only with the audit unchanged (no --form, --k-register or --reason)');
+  // the folder the new version goes to; another filed record holding this record id elsewhere is refused (never overwrite another sample)
+  const P0 = oldAudit.parameters; const sub = stroke ? P0.stratum + '-ST' : mode === 'usage' ? P0.scenario + '-U' : P0.stratum; const roundDir = String(P0.round || '').replace(/\s+/g, '');
+  if (RD) { const base = path.join(roundDir, sub); const held = C.recordIdTaken(filedRecords(RD).filter(f => !(f.where === base || f.where.startsWith(base + path.sep))), oldAudit.record_id, null); if (held.length) throw new Error('record id ' + oldAudit.record_id + ' is also held by ' + held.map(f => f.where + ' (' + f.mode + ')').join('; ') + ': refused, a sample is never overwritten'); }
   const commit = (() => { try { return require('child_process').execSync('git rev-parse --short HEAD', { cwd: path.join(__dirname, '..') }).toString().trim(); } catch (e) { return 'dev'; } })();
   const at = opt('--at') || new Date().toISOString().slice(0, 10);
   let a = oldAudit, text = oldText;
@@ -54,8 +59,8 @@ const sha = b => crypto.createHash('sha256').update(b).digest('hex');
   const kValues = {}; (a.field_rule_numbers || []).forEach(x => { kValues[x.water_point_id] = x.K; });
   const fetchTile = args.includes('--offline') ? null : C.tileFetcher(fetch);
   const ctx = { PDFLib, audit: a, auditText: text, auditSha, lang: opt('--lang') || 'fr', url: C.APP_URL, kValues, map: { positions, fetchTile, reissue: { at, version: C.APP_VERSION, commit } } };
-  const bytes = Buffer.from(await (usage ? C.buildUsageRecordPdf(ctx) : C.buildSamplingRecordPdf(ctx)));
-  if (usage) return usageChecksAndWrite({ a, text, oldText, oldAudit, oldPdf, bytes, ids, positions, ctx, at, dir, RD, out, auditSha });
+  const bytes = Buffer.from(await (stroke ? C.buildStrokeRecordPdf(ctx) : usage ? C.buildUsageRecordPdf(ctx) : C.buildSamplingRecordPdf(ctx)));
+  if (usage) return usageChecksAndWrite({ a, text, oldText, oldAudit, oldPdf, bytes, ids, positions, ctx, at, dir, RD, out, auditSha, stroke, sub });
 
   // ---- identical-draw check
   const pick = x => ({ record_id: x.record_id, seed: x.seed, seed_word_uint32: x.seed_word_uint32, timestamp: x.timestamp, stage1: x.stage1, statistics: x.statistics, water_points: x.water_points, replacements: x.replacements, field_rule_numbers: x.field_rule_numbers, reach_check: x.reach_check });
@@ -94,10 +99,10 @@ const sha = b => crypto.createHash('sha256').update(b).digest('hex');
     assert.ok(C.extractAudit(bytes, require('zlib').inflateSync) === text, 'attached audit differs'); assert.ok(!C.hasCoordinateKeys(a), 'coordinates in the audit');
     const txt = bytes.toString('latin1'); assert.strictEqual(C.pdfInfoValue(txt, 'AuditSHA256'), o.auditSha); assert.strictEqual(C.pdfInfoValue(txt, 'RecordId'), a.record_id); assert.ok(!txt.includes('/Type /ObjStm'));
     // sections 1-8 of the filed PDF, run for run, against a check copy in the filed PDF's language without the map (footers left out)
-    const oldRuns = pdfTextRuns(oldPdf); const oldLang = /^Usage survey/.test(oldRuns[0]) ? 'en' : 'fr';
-    const check = Buffer.from(await C.buildUsageRecordPdf({ PDFLib, audit: a, auditText: text, auditSha: o.auditSha, lang: oldLang, url: C.APP_URL }));
+    const oldRuns = pdfTextRuns(oldPdf); const oldLang = (o.stroke ? /^Stroke test/ : /^Usage survey/).test(oldRuns[0]) ? 'en' : 'fr';
+    const check = Buffer.from(await (o.stroke ? C.buildStrokeRecordPdf : C.buildUsageRecordPdf)({ PDFLib, audit: a, auditText: text, auditSha: o.auditSha, lang: oldLang, url: C.APP_URL }));
     // sections 1-8 (9 = warnings when present); a v2.8.x original already has the map section 10, which is left out of the comparison
-    const body = runs => { const b = runs.filter(r => !/^SaniTap Sampler v.* · |^(Record|Enregistrement|Registre) .*SHA-256/.test(r)); const m = b.findIndex(r => /^10\. /.test(r)); return m < 0 ? b : b.slice(0, m); };
+    const body = runs => { const b = runs.filter(r => !/^SaniTap Sampler v.* · |^(Record|Enregistrement|Registre) .*SHA-256/.test(r)); const m = b.findIndex(r => (o.stroke ? /^[78]\. (Map and stop list|Carte et liste des arr)/ : /^10\. /).test(r)); return m < 0 ? b : b.slice(0, m); };
     const before = body(oldRuns), after = body(pdfTextRuns(check)); assert.ok(before.length > 50, 'filed PDF text not found');
     assert.deepStrictEqual(after, before, 'sections 1-8 differ from the filed PDF (' + oldLang + ')');
     const csv = C.recordCsv(a); const filedCsv = path.join(o.dir, 'selection.csv'); if (fs.existsSync(filedCsv)) assert.strictEqual(csv, fs.readFileSync(filedCsv, 'utf8'), 'selection CSV differs from the filed one');
@@ -105,13 +110,13 @@ const sha = b => crypto.createHash('sha256').update(b).digest('hex');
     let target;
     if (o.out) { fs.writeFileSync(o.out, bytes); fs.writeFileSync(o.out.replace(/\.pdf$/, '') + '.audit.json', text); target = o.out; }
     else {
-      const P = a.parameters; const round = String(P.round || '').replace(/\s+/g, ''); const sub = P.scenario + '-U'; const name = 'reissue-' + at + '-v' + C.APP_VERSION;
+      const P = a.parameters; const round = String(P.round || '').replace(/\s+/g, ''); const sub = o.sub; const name = 'reissue-' + at + '-v' + C.APP_VERSION;
       const vdir = path.join(o.RD, round, sub, name); if (fs.existsSync(vdir)) throw new Error('already reissued: ' + vdir + ' (append-only)');
       fs.mkdirSync(vdir, { recursive: true }); fs.writeFileSync(path.join(vdir, 'sampling-record.pdf'), bytes); fs.writeFileSync(path.join(vdir, 'audit.json'), text); fs.writeFileSync(path.join(vdir, 'selection.csv'), csv);
       const rel = round + '/' + sub + '/' + name;
       appendIndex(o.RD, `| ${round} | ${sub} (reissue ${at}, v${C.APP_VERSION}) | ${a.timestamp} | \`${a.seed}\` | \`${o.auditSha}\` | \`${(a.input || {}).frame_sha256 || ''}\` | [PDF](${rel}/sampling-record.pdf) · [audit](${rel}/audit.json) · [CSV](${rel}/selection.csv) |\n`);
       target = vdir;
     }
-    console.log(JSON.stringify({ out: target, mode: 'usage', lang: ctx.lang, pdf_sha256: sha(bytes), audit_sha256: o.auditSha, audit_unchanged: true, water_points: a.water_points.map(w => w.water_point_id), reserves: a.reserves.map(w => w.water_point_id), zones: a.zones.map(z => z.name), household_settings: [a.parameters.households_per_point, a.parameters.household_reserves], sections_1_8_runs_identical: before.length + ' (' + oldLang + ')', csv_identical: true, positions: Object.keys(positions).filter(k => ids.includes(k)).length + '/' + ids.length, map: ctx.mapResult, draw_identical: true }));
+    console.log(JSON.stringify({ out: target, mode: o.stroke ? 'stroke' : 'usage', lang: ctx.lang, pdf_sha256: sha(bytes), audit_sha256: o.auditSha, audit_unchanged: true, water_points: a.water_points.map(w => w.water_point_id), reserves: a.reserves.map(w => w.water_point_id), zones: (a.zones || []).map(z => z.name), household_settings: [a.parameters.households_per_point, a.parameters.household_reserves], sections_1_8_runs_identical: before.length + ' (' + oldLang + ')', csv_identical: true, positions: Object.keys(positions).filter(k => ids.includes(k)).length + '/' + ids.length, map: ctx.mapResult, draw_identical: true }));
   }
 })().catch(e => { console.error(e.message); process.exit(1); });

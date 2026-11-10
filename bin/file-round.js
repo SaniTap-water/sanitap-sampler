@@ -4,12 +4,14 @@
  * <records_dir> is the SharePoint evidence folder named in sampler.local.json (gitignored; see bin/config.js). Nothing is
  * committed or pushed: the public repo holds the app only; all evidence lives in SharePoint.
  * Append-only: an existing record folder is never overwritten (except round "test").
- * SDWS 18 records go to <round>/<stratum>/, usage-survey (SDWS 26) records (seed suffix -U) to <round>/<scenario>-U/.
+ * SDWS 18 records go to <round>/<stratum>/, usage-survey (SDWS 26) records (seed suffix -U) to <round>/<scenario>-U/,
+ * stroke-test (SDWS 28) records (seed and record id <round>-<stratum>-ST) to <round>/<stratum>-ST/.
+ * v2.10.0: a record id that any filed record already holds (any survey, any folder) is refused: a sample is never overwritten.
  * Usage: node bin/file-round.js [--pdf f] [--xlsx f] [--frame f] [--round NAME] [--dry-run]
  * Without paths the newest sanitap-*-record.pdf (and -selection.xlsx) in ~/Downloads are used. --frame verifies the frame CSV hash; it is never published. */
 'use strict';
 const fs = require('fs'), path = require('path'), os = require('os'), crypto = require('crypto'), zlib = require('zlib');
-const { loadConfig, appendIndex } = require('./config.js');
+const { loadConfig, appendIndex, filedRecords } = require('./config.js');
 const ROOT = path.resolve(__dirname, '..');
 const C = require(path.join(ROOT, 'app.js'));
 const sha = buf => crypto.createHash('sha256').update(buf).digest('hex');
@@ -31,19 +33,24 @@ if (require.main === module) {
   if (footerSha !== auditSha) fail('the attached audit (SHA-256 ' + auditSha + ') does not match the PDF footer (' + footerSha + ')');
   if (rid !== audit.record_id) fail('record id mismatch between PDF (' + rid + ') and audit (' + audit.record_id + ')');
   if (C.hasCoordinateKeys(audit)) fail('the audit contains coordinate fields; records must not carry coordinates');
-  const usage = C.recordMode(audit) === 'usage';
+  const mode = C.recordMode(audit); const usage = mode === 'usage'; const stroke = mode === 'stroke';
   if (usage && !/-U$/.test(String(audit.seed || ''))) fail('a usage-survey record must have a seed ending in -U: ' + audit.seed);
   if (!usage && /-U$/.test(String(audit.seed || ''))) fail('seed ' + audit.seed + ' ends in -U but the record is not a usage-survey record');
-  const round = String(args.round || audit.parameters.round || '').replace(/\s+/g, ''); const stratum = usage ? String(audit.parameters.scenario || '') + '-U' : String(audit.parameters.stratum || '');
+  if (stroke && (audit.seed !== C.strokeSeed(audit.parameters.round, audit.parameters.stratum) || audit.record_id !== audit.seed)) fail('a stroke-test record must have seed = record id = <round>-<stratum>-ST: ' + audit.seed + ' / ' + audit.record_id);
+  if (!stroke && /-ST$/.test(String(audit.seed || ''))) fail('seed ' + audit.seed + ' ends in -ST but the record is not a stroke-test record');
+  const round = String(args.round || audit.parameters.round || '').replace(/\s+/g, ''); const stratum = usage ? String(audit.parameters.scenario || '') + '-U' : stroke ? String(audit.parameters.stratum || '') + '-ST' : String(audit.parameters.stratum || '');
   if (!/^[A-Za-z0-9_.-]+$/.test(round) || !/^[A-Za-z0-9_.-]+$/.test(stratum)) fail('round/stratum must be plain names: ' + round + ' / ' + stratum);
   let cfg; try { cfg = loadConfig(); } catch (e) { fail(e.message); }
   const RD = cfg.recordsDir; const dir = path.join(RD, round, stratum);
   if (fs.existsSync(dir) && round !== 'test') fail('record folder already exists: ' + round + '/' + stratum + ' in ' + RD + ' — records are append-only; a re-draw gets a new seed and a new round name');
-  const frameSha = audit.input && (usage ? audit.input.frame_sha256 : audit.input.water_points_sha256); const framePath = args.frame || null;
+  // v2.10.0: never overwrite another sample: the record id must not be held by any filed record (round "test" may refile its own test folder)
+  const held = C.recordIdTaken(filedRecords(RD).filter(f => !(round === 'test' && f.where.split(path.sep)[0] === 'test')), audit.record_id, null);
+  if (held.length) fail('record id ' + audit.record_id + ' is already filed (' + held.map(f => f.where + ', ' + f.mode).join('; ') + ') — a sample is never overwritten; a re-draw gets a new round name');
+  const frameSha = audit.input && (usage || stroke ? audit.input.frame_sha256 : audit.input.water_points_sha256); const framePath = args.frame || null;
   if (framePath) { if (!fs.existsSync(framePath)) fail('missing frame file ' + framePath); if (sha(fs.readFileSync(framePath)) !== frameSha) fail('frame file SHA-256 does not match the audit record (' + frameSha + ')'); }
   const csv = C.recordCsv(audit);
   const hasXlsx = xlsxPath && fs.existsSync(xlsxPath);
-  console.log((usage ? 'Usage-survey (SDWS 26) record ' : 'Record ') + audit.record_id + ' -> ' + round + '/' + stratum + '/ in ' + RD); console.log('  audit SHA-256 ' + auditSha + ' (attached in the PDF, matches the footer)'); console.log('  frame SHA-256 ' + frameSha + (framePath ? ' (frame file verified, not published)' : ' (frame file not supplied)')); console.log('  Excel file: ' + (hasXlsx ? xlsxPath : 'none'));
+  console.log((usage ? 'Usage-survey (SDWS 26) record ' : stroke ? 'Stroke-test (SDWS 28) record ' : 'Record ') + audit.record_id + ' -> ' + round + '/' + stratum + '/ in ' + RD); console.log('  audit SHA-256 ' + auditSha + ' (attached in the PDF, matches the footer)'); console.log('  frame SHA-256 ' + frameSha + (framePath ? ' (frame file verified, not published)' : ' (frame file not supplied)')); console.log('  Excel file: ' + (hasXlsx ? xlsxPath : 'none'));
   if (args['dry-run']) { console.log('dry run: nothing written'); process.exit(0); }
   fs.mkdirSync(dir, { recursive: true });
   fs.copyFileSync(pdfPath, path.join(dir, 'sampling-record.pdf')); if (hasXlsx) fs.copyFileSync(xlsxPath, path.join(dir, 'selection.xlsx')); fs.writeFileSync(path.join(dir, 'selection.csv'), csv); fs.writeFileSync(path.join(dir, 'audit.json'), auditText);

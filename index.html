@@ -140,7 +140,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
   <button data-tab="confirm" data-i18n="tab_confirm">4 Confirm</button>
   <button data-tab="map" data-i18n="tab_map">5 Map</button>
   <button data-tab="sheet" data-i18n="tab_sheet" class="pou-only">6 Field sheet</button>
-  <button data-tab="field" data-i18n="tab_field" class="usage-only hidden">6 Field</button>
+  <button data-tab="field" data-i18n="tab_field" class="usage-only stroke-too hidden">6 Field</button>
   <button data-tab="how" data-i18n="tab_how">How it works</button>
 </nav>
 <div id="round-bar" class="hidden noprint"><label for="round-sel" data-i18n="rb_label">Confirmed round</label><select id="round-sel"></select><span id="round-info" class="muted"></span></div>
@@ -222,16 +222,20 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
   <div class="card">
     <h2 data-i18n="params_title">Round parameters</h2>
     <div class="grid">
-      <div><label data-i18n="p_mode">Survey</label><select id="p-mode"><option value="pou" data-i18n="mode_pou">SDWS 18 point-of-use (water quality)</option><option value="usage" data-i18n="mode_usage">Usage survey (SDWS 26)</option></select></div>
+      <div><label data-i18n="p_mode">Survey</label><select id="p-mode"><option value="pou" data-i18n="mode_pou">SDWS 18 point-of-use (water quality)</option><option value="usage" data-i18n="mode_usage">Usage survey (SDWS 26)</option><option value="stroke" data-i18n="mode_stroke">Stroke test (SDWS 28)</option></select></div>
       <div><label data-i18n="p_round">Round name</label><input type="text" id="p-round" value="2026 R1"></div>
       <div><label data-i18n="p_drawn_by">Drawn by (name, role)</label><input type="text" id="p-drawn-by" autocomplete="name"></div>
       <div class="pou-only"><label data-i18n="p_target">Target PoU samples</label><input type="number" id="p-target" value="58" min="1"></div>
       <div class="pou-only"><label data-i18n="p_hh">Households per source</label><input type="number" id="p-hh" value="5" min="1"></div>
       <div class="pou-only"><label data-i18n="p_form">mWater form name (printed on the sheet)</label><input type="text" id="p-form" value="SDWS18"></div>
+      <div class="stroke-only hidden"><label data-i18n="p_st_n">Water points per stratum</label><input type="number" id="p-st-n" value="50" min="1" inputmode="numeric"></div>
+      <div class="stroke-only hidden"><label data-i18n="p_st_r">Reserves</label><input type="number" id="p-st-r" value="10" min="0" inputmode="numeric"></div>
+      <div class="stroke-only hidden"><label data-i18n="p_st_f">Filmed (first in draw order)</label><input type="number" id="p-st-f" value="10" min="0" inputmode="numeric"></div>
       <div class="pou-only"><label><input type="checkbox" id="p-kreg"> <span data-i18n="p_kreg">K pre-filled from the register "Ménages" figure (no counting)</span></label></div>
     </div>
     <p style="margin:.6rem 0 .2rem"><b data-i18n="p_stratum_loaded">Stratum (loaded on the Data tab)</b>: <span id="p-stratum-text" class="pill">—</span><select id="p-stratum" class="hidden"></select></p>
     <div id="usage-intro" class="msg usage-only hidden"></div>
+    <div id="stroke-intro" class="msg stroke-only hidden"></div>
     <p class="muted" id="p-repro"></p>
     <div id="params-preview" class="muted"></div>
     <details id="adv-stats" class="pou-only" style="margin-top:.6rem">
@@ -265,6 +269,18 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
     </div>
     <div class="card"><h2 data-i18n="u_zones_drawn">Zones drawn</h2><div class="tablewrap" id="u-communes"></div></div>
     <div class="card"><h2 data-i18n="u_points">Water points</h2><div class="tablewrap" id="u-points"></div></div>
+  </div>
+  <div id="stroke-results" class="hidden">
+    <div class="card">
+      <h2 data-i18n="stroke_res_title">Stroke test draw</h2>
+      <div id="s-head" class="muted"></div>
+      <div class="stat" id="s-stats"></div>
+      <div id="s-warn"></div>
+      <div class="btnrow" style="margin-top:.6rem">
+        <button class="btn" id="btn-snext-confirm" type="button" data-i18n="next_confirm">Next: confirm the sample</button>
+      </div>
+    </div>
+    <div class="card"><h2 data-i18n="st_points">Water points</h2><div class="tablewrap" id="s-points"></div></div>
   </div>
   <div id="results" class="hidden">
     <div class="card">
@@ -306,7 +322,7 @@ details summary{list-style:none;display:inline-flex;cursor:pointer}details summa
   <div id="map"></div>
   <div class="card" id="map-legend-bottom"></div>
   <div class="card" id="map-list"></div>
-  <div class="card"><div class="btnrow"><button class="btn pou-only" id="btn-next-sheet" type="button" data-i18n="next_sheet">Next: field sheet</button><button class="btn usage-only hidden" id="btn-next-ufield" type="button" data-i18n="next_field">Next: field</button></div></div>
+  <div class="card"><div class="btnrow"><button class="btn pou-only" id="btn-next-sheet" type="button" data-i18n="next_sheet">Next: field sheet</button><button class="btn usage-only stroke-too hidden" id="btn-next-ufield" type="button" data-i18n="next_field">Next: field</button></div></div>
 </section>
 
 <!-- ============ FIELD SHEET ============ -->

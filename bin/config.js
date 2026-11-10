@@ -13,4 +13,12 @@ function loadConfig() {
 }
 const INDEX_HEAD = '# Sampling records\n\nAppend-only register of sampling rounds drawn with SaniTap Sampler. Each folder holds the sampling record (PDF, with the audit attached), the audit JSON, the selection CSV and, when filed, the selection Excel file.\n\n| Round | Stratum | Drawn (UTC) | Seed | Audit JSON SHA-256 | Frame SHA-256 | Files |\n|---|---|---|---|---|---|---|\n';
 function appendIndex(recordsDir, row) { const idx = path.join(recordsDir, 'index.md'); if (!fs.existsSync(idx)) fs.writeFileSync(idx, INDEX_HEAD); fs.appendFileSync(idx, row); return idx; }
-module.exports = { loadConfig, appendIndex, ROOT };
+// v2.10.0: every audit.json under the records folder (originals and reissues), with its record id, survey and SHA-256, so that
+// filing and reissue can refuse a record id that another sample already holds, whatever its survey
+function filedRecords(recordsDir) {
+  const crypto = require('crypto'); const out = [];
+  const walk = d => { for (const n of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, n.name); if (n.isDirectory()) walk(f); else if (n.name === 'audit.json') { try { const text = fs.readFileSync(f, 'utf8'); const a = JSON.parse(text); out.push({ record_id: a.record_id, mode: a.mode || 'pou', audit_sha256: crypto.createHash('sha256').update(text, 'utf8').digest('hex'), where: path.relative(recordsDir, path.dirname(f)) || '.' }); } catch (e) { /* not an audit record */ } } } };
+  if (recordsDir && fs.existsSync(recordsDir)) walk(recordsDir);
+  return out;
+}
+module.exports = { loadConfig, appendIndex, filedRecords, ROOT };

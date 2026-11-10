@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.9.0';
+const APP_VERSION = '2.10.0';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -627,12 +627,12 @@ const Core = (function () {
       y -= 6;
     };
     const stops = o.stops; const placed = stops.filter(s => isFinite(s.lat) && isFinite(s.lon));
-    const BLUE = hexRgb(rgb, '#0b5e8a'), GREY = hexRgb(rgb, '#9aa3ad'), ORANGE = hexRgb(rgb, '#e07b00'), WHITE = rgb(1, 1, 1), INK = rgb(0.1, 0.1, 0.1);
+    const BLUE = hexRgb(rgb, '#0b5e8a'), GREY = hexRgb(rgb, '#9aa3ad'), ORANGE = hexRgb(rgb, '#e07b00'), PURPLE = hexRgb(rgb, '#7c3aed'), WHITE = rgb(1, 1, 1), INK = rgb(0.1, 0.1, 0.1);
     const zoneColour = {}; (o.zones || []).forEach((z, i) => { zoneColour[z] = hexRgb(rgb, MAP_PALETTE[i % MAP_PALETTE.length]); });
     let basemapMissing = 0;
     const marker = (x, yy, s) => {
       const r = s.label.length > 2 ? 8.5 : 7.5; const usage = o.mode === 'usage'; const zc = usage ? zoneColour[s.zone] || BLUE : null;
-      const fill = s.kind === 'rep' ? GREY : (usage ? zc : BLUE); const border = s.kind === 'rep' && usage ? zc : WHITE;
+      const fill = s.kind === 'rep' ? GREY : (usage ? zc : s.filmed ? PURPLE : BLUE); const border = s.kind === 'rep' && usage ? zc : WHITE;
       page.drawCircle({ x, y: yy, size: r, color: fill, borderColor: border, borderWidth: s.kind === 'rep' && usage ? 1.8 : 1 });
       const fs = 6.5; const tw = bold.widthOfTextAtSize(s.label, fs); page.drawText(s.label, { x: x - tw / 2, y: yy - fs * 0.35, size: fs, font: bold, color: WHITE });
       if (s.far) { page.drawLine({ start: { x: x + r - 1, y: yy + r - 2 }, end: { x: x + r - 1, y: yy + r + 9 }, thickness: 0.9, color: INK }); page.drawSvgPath('M 0 0 L 8 2.5 L 0 5 Z', { x: x + r - 0.6, y: yy + r + 9, color: ORANGE, borderColor: INK, borderWidth: 0.4 }); }
@@ -665,7 +665,7 @@ const Core = (function () {
       return lines.length ? 9 + lines.length * 6.5 : 4;
     }
     const legend = () => {
-      const items = o.mode === 'usage' ? [{ kind: 'sel', label: '1', text: T.lg_point }, { kind: 'rep', label: 'R1', text: T.lg_reserve }] : [{ kind: 'sel', label: '1', text: T.lg_selected }, { kind: 'rep', label: 'R1', text: T.lg_replacement }, { kind: 'sel', label: '1', far: true, text: T.lg_far }];
+      const items = o.mode === 'stroke' ? [{ kind: 'sel', label: '11', text: T.lg_stroke }, { kind: 'sel', label: '1', filmed: true, text: T.lg_filmed }, { kind: 'rep', label: 'R1', text: T.lg_reserve_st }, { kind: 'sel', label: '1', far: true, text: T.lg_far_st }] : o.mode === 'usage' ? [{ kind: 'sel', label: '1', text: T.lg_point }, { kind: 'rep', label: 'R1', text: T.lg_reserve }] : [{ kind: 'sel', label: '1', text: T.lg_selected }, { kind: 'rep', label: 'R1', text: T.lg_replacement }, { kind: 'sel', label: '1', far: true, text: T.lg_far }];
       items.forEach(it => { ensure(20); marker(M + 9, y - 9, it); page.drawText(pdfSafe(it.text), { x: M + 26, y: y - 12, size: 8, font, color: INK }); y -= 20; });
       if (o.town) { ensure(14); page.drawRectangle({ x: M + 5.5, y: y - 12, width: 7, height: 7, color: INK }); page.drawText(pdfSafe(T.lg_town.replace('{town}', o.town.name)), { x: M + 26, y: y - 11, size: 8, font, color: INK }); y -= 16; }
       if (o.mode === 'usage') (o.zones || []).forEach(z => { ensure(12); page.drawRectangle({ x: M + 5, y: y - 10, width: 8, height: 8, color: zoneColour[z] }); page.drawText(pdfSafe(T.lg_zone + ' ' + z), { x: M + 26, y: y - 9, size: 8, font, color: INK }); y -= 12; });
@@ -674,6 +674,7 @@ const Core = (function () {
     // ---- overview
     newPage(); heading(T.h_map.replace('{n}', o.sectionNo));
     para(T.map_intro.replace('{stratum}', o.stratum).replace('{rid}', o.rid));
+    if (o.mode === 'stroke') para(T.stroke_map_note);
     if (o.reissueNote) para(o.reissueNote);
     if (o.positionsNote) para(o.positionsNote, { color: rgb(0.55, 0.3, 0.0) });
     if (placed.length) {
@@ -681,9 +682,10 @@ const Core = (function () {
       legend();
     } else para(T.no_positions, { bold: true });
     // ---- stop list
-    ensure(140); heading(T.h_stops); para(T.stops_note);
+    ensure(140); heading(T.h_stops); para(o.mode === 'stroke' ? T.stops_note_st : T.stops_note);
     const c5 = v => (isFinite(v) ? Number(v).toFixed(5) : '—');
-    table([T.s_no, T.s_id, T.s_name, T.s_commune, T.s_fokontany, T.s_lat, T.s_lon, T.s_k, T.s_numbers], stops.map(s => [s.label + (s.far ? ' !' : ''), s.water_point_id, s.name || '', s.commune || '', s.fokontany || '', c5(s.lat), c5(s.lon), s.K ? String(s.K) : '—', s.numbers || '—']), [24, 58, 70, 60, 62, 42, 42, 24, 113]);
+    if (o.mode === 'stroke') table([T.s_no, T.s_id, T.s_name, T.s_commune, T.s_fokontany, T.s_lat, T.s_lon, T.s_filmed], stops.map(s => [s.label + (s.far ? ' !' : ''), s.water_point_id, s.name || '', s.commune || '', s.fokontany || '', c5(s.lat), c5(s.lon), s.filmed ? T.filmed_yes : '']), [24, 62, 90, 70, 70, 48, 48, 83]);
+    else table([T.s_no, T.s_id, T.s_name, T.s_commune, T.s_fokontany, T.s_lat, T.s_lon, T.s_k, T.s_numbers], stops.map(s => [s.label + (s.far ? ' !' : ''), s.water_point_id, s.name || '', s.commune || '', s.fokontany || '', c5(s.lat), c5(s.lon), s.K ? String(s.K) : '—', s.numbers || '—']), [24, 58, 70, 60, 62, 42, 42, 24, 113]);
     // ---- zoomed pages, one per cluster of sources within REACH_KM
     const clusters = mapClusters(placed); const order = s => (s.kind === 'rep' ? 1000 : 0) + (parseInt(String(s.label).replace(/\D/g, ''), 10) || 0);
     for (let i = 0; i < clusters.length; i++) {
@@ -696,12 +698,12 @@ const Core = (function () {
   }
   // stops of an SDWS 18 or usage audit, with positions and the household numbers as on the field sheet
   function recordStops(a, positions, numbersFor) {
-    const pos = positions || {}; const usage = recordMode(a) === 'usage';
+    const pos = positions || {}; const mode = recordMode(a); const usage = mode === 'usage' || mode === 'stroke';
     const farIds = new Set(((a.reach_check || {}).sources || []).filter(x => x.far).map(x => x.water_point_id));
     const list = usage ? a.water_points.map(w => [w, 'sel']).concat(a.reserves.map(w => [w, 'rep'])) : a.water_points.map(w => [w, 'sel']).concat(a.replacements.map(w => [w, 'rep']));
-    const stops = list.map(([w, kind]) => { const q = pos[String(w.water_point_id)]; const n = numbersFor ? numbersFor(w) : null; return { label: (kind === 'rep' ? 'R' : '') + w.order, kind, water_point_id: String(w.water_point_id), name: w.name || '', commune: w.commune || w.cluster || '', fokontany: w.fokontany || '', zone: w.zone, lat: q ? Number(q.lat) : NaN, lon: q ? Number(q.lon) : NaN, K: n ? n.K : null, numbers: n ? n.text : null, far: farIds.has(w.water_point_id) }; });
-    // usage records have no reach check in the audit: flag a drawn point more than REACH_KM from every other drawn point and from the town
-    if (usage) { const town = (MWATER.strata[a.parameters.scenario] || {}).town; const sel = stops.filter(s => s.kind === 'sel' && isFinite(s.lat)); sel.forEach(s => { const near = sel.some(o2 => o2 !== s && haversineKm(s, o2) <= REACH_KM); s.far = !near && !(town && haversineKm(s, town) <= REACH_KM); }); }
+    const stops = list.map(([w, kind]) => { const q = pos[String(w.water_point_id)]; const n = numbersFor ? numbersFor(w) : null; const st = { label: (kind === 'rep' ? 'R' : '') + w.order, kind, water_point_id: String(w.water_point_id), name: w.name || '', commune: w.commune || w.cluster || '', fokontany: w.fokontany || '', zone: w.zone, lat: q ? Number(q.lat) : NaN, lon: q ? Number(q.lon) : NaN, K: n ? n.K : null, numbers: n ? n.text : null, far: farIds.has(w.water_point_id) }; if (kind === 'sel' && w.filmed === true) st.filmed = true; return st; });
+    // usage and stroke records have no reach check in the audit: flag a drawn point more than REACH_KM from every other drawn point and from the town
+    if (usage) { const town = (MWATER.strata[mode === 'stroke' ? a.parameters.stratum : a.parameters.scenario] || {}).town; const sel = stops.filter(s => s.kind === 'sel' && isFinite(s.lat)); sel.forEach(s => { const near = sel.some(o2 => o2 !== s && haversineKm(s, o2) <= REACH_KM); s.far = !near && !(town && haversineKm(s, town) <= REACH_KM); }); }
     return stops;
   }
   function positionsNote(T, stops) { const missing = stops.filter(s => !isFinite(s.lat)).length; if (!missing) return ''; return missing === stops.length ? T.pos_none : T.pos_some.replace('{n}', missing).replace('{of}', stops.length); }
@@ -969,6 +971,112 @@ const Core = (function () {
   }
   function auditUsageWp(w) { const o = {}; ['order', 'reserve', 'water_point_id', 'alt_id', 'name', 'zone', 'commune', 'fokontany', 'pi_zone', 'p_fokontany', 'p_point', 'pi', 'weight', 'p_conditional', 'fokontany_points'].forEach(k => { if (w[k] !== undefined) o[k] = w[k]; }); return o; }
 
+  /* =====================================================================
+   *  STROKE TEST (SDWS 28, option 3) — v2.10.0
+   *  SOP-MAD-SDWS28-StrokeTest v2.7 section 2 (James Walker, 9 and 10 Nov 2026): per stratum, a simple random sample of
+   *  50 water points plus 10 reserves from the same frame as the usage survey (carbon fleet, not-creditable SDWS 3 points out),
+   *  kept apart from every other sample: its seed and record id end in -ST. The first 10 drawn are filmed for one day.
+   *  Nothing above changes: SDWS 18 and usage draws, audits and records are untouched.
+   * ===================================================================*/
+  const STROKE = { mode: 'stroke_sdws28', suffix: '-ST', points: 50, reserves: 10, filmed: 10 };
+  const STROKE_ALGORITHM = 'seed string <round>-<stratum>-ST -> xmur3 32-bit hash -> mulberry32 PRNG (v1.2.0); frame sorted by water_point_id; simple random sampling without replacement of n + r water points: each step takes one point at equal probability among those not yet drawn (index = floor(u x remaining)); the first n drawn are the sample in draw order, the next r the reserves in draw order (used strictly in order); the first f of the sample in draw order are filmed for one day';
+  // seed = record id: round (spaces removed) + stratum + -ST, so a stroke record can never share an id with an SDWS 18 or usage record
+  const strokeSeed = (round, stratum) => String(round || 'round').replace(/\s+/g, '') + '-' + stratum + STROKE.suffix;
+  const strokeRecordId = strokeSeed;
+  const posInt = (v, d) => { const n = parseInt(v, 10); return n >= 0 && String(n) === String(v).trim() ? n : d; };
+  function drawStroke(params, framePoints) {
+    const p = Object.assign({}, params); const warnings = [];
+    const n = Math.max(1, posInt(p.points, STROKE.points)), r = posInt(p.reserves, STROKE.reserves), f = Math.min(posInt(p.filmed, STROKE.filmed), n);
+    p.seed = strokeSeed(p.roundName, p.stratum);
+    const rng = makeRng(p.seed);
+    const frame = framePoints.slice().sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id)));
+    if (!frame.length) return { error: 'no_eligible', warnings };
+    const N = frame.length;
+    if (N < n + r) warnings.push({ code: 'short_frame', have: N, needed: n + r });
+    const noCoords = frame.filter(pt => !isFinite(pt.lat) || !isFinite(pt.lon)).length; if (noCoords) warnings.push({ code: 'no_coords', n: noCoords });
+    const drawn = srsWithoutReplacement(rng, frame, Math.min(n + r, N));
+    const ns = Math.min(n, drawn.length); const pi = ns / N;
+    const base = w => ({ water_point_id: String(w.water_point_id), alt_id: w.alt_id || '', name: w.name || '', commune: w.commune || '', fokontany: w.fokontany || '', village: w.village || '', lat: w.lat, lon: w.lon });
+    const points = drawn.slice(0, ns).map((w, i) => Object.assign({ order: i + 1, reserve: false }, base(w), { filmed: i < f, pi: +pi.toFixed(6), weight: +(1 / pi).toFixed(3) }));
+    const reserves = drawn.slice(ns).map((w, i) => Object.assign({ order: i + 1, reserve: true }, base(w)));
+    const audit = {
+      tool: 'SaniTap Sampler', version: APP_VERSION, commit: APP_COMMIT, mode: STROKE.mode, methodology: 'Gold Standard SDWS v2.0, SDWS 28 option 3 (measured volume for handpumps by a recognised method), section 14.5.3; SOP-MAD-SDWS28-StrokeTest v2.7, section 2: simple random sample of ' + n + ' water points + ' + r + ' reserves per stratum, the first ' + f + ' filmed for one day',
+      record_id: strokeRecordId(p.roundName, p.stratum), timestamp: p.timestamp || new Date().toISOString(), drawn_by: p.drawnBy || null,
+      seed: p.seed, seed_word_uint32: rng.seedWord, algorithm: STROKE_ALGORITHM,
+      input: { source: p.source || 'csv', frame_sha256: p.frameHash || null, frame_file: p.frameFile || null, fleet: p.fleet || null, counts: p.frameCounts || null, mwater: p.source === 'mwater' ? (p.mwater || null) : null },
+      parameters: { round: p.roundName, stratum: p.stratum, sample_size: n, reserves: r, filmed: f, selection: 'simple random sample without replacement, equal probability' },
+      frame: { points: N, communes: new Set(frame.map(w => w.commune || '')).size, fokontany: new Set(frame.map(w => (w.commune || '') + '|' + (w.fokontany || ''))).size },
+      water_points: points.map(auditStrokeWp), reserves: reserves.map(auditStrokeWp), warnings
+    };
+    return { params: p, frame, points, reserves, warnings, audit };
+  }
+  function auditStrokeWp(w) { const o = {}; ['order', 'reserve', 'water_point_id', 'alt_id', 'name', 'commune', 'fokontany', 'filmed', 'pi', 'weight'].forEach(k => { if (w[k] !== undefined) o[k] = w[k]; }); return o; }
+  function strokeSelectionCsv(audit) {
+    const P = audit.parameters;
+    const rows = [['round', 'stratum', 'record_id', 'water_point_id', 'order', 'role', 'filmed', 'alt_id', 'name', 'commune', 'fokontany', 'probability', 'weight']];
+    audit.water_points.forEach(w => rows.push([P.round, P.stratum, audit.record_id, w.water_point_id, w.order, 'sample', w.filmed ? 'yes' : 'no', w.alt_id, w.name, w.commune, w.fokontany, w.pi, w.weight]));
+    audit.reserves.forEach(w => rows.push([P.round, P.stratum, audit.record_id, w.water_point_id, 'R' + w.order, 'reserve', 'no', w.alt_id, w.name, w.commune, w.fokontany, '', '']));
+    return rows.map(r => r.map(csvEscape).join(',')).join('\r\n') + '\r\n';
+  }
+  function strokeSelectionWorkbook(audit, lang) {
+    const T = (I18N[lang] && I18N[lang].sxlsx) || I18N.en.sxlsx; const P = audit.parameters; const inp = audit.input || {};
+    const head = [T.order, T.id, T.alt, T.name, T.commune, T.fokontany, T.filmed, T.pi, T.weight];
+    const rhead = [T.order, T.id, T.alt, T.name, T.commune, T.fokontany];
+    const params = [[T.param, T.value], [T.round, P.round], [T.stratum, P.stratum], [T.drawn_by, audit.drawn_by || ''], [T.drawn_at, audit.timestamp], [T.record_id, audit.record_id], [T.seed, audit.seed], [T.frame_sha, inp.frame_sha256 || ''], [T.frame_source, inp.source || ''], [T.fleet_sha, (inp.fleet || {}).sha256 || ''], [T.frame_n, (audit.frame || {}).points], [T.n, P.sample_size], [T.r, P.reserves], [T.f, P.filmed], [T.tool, 'SaniTap Sampler v' + audit.version + ' (' + (audit.commit || 'dev') + ')'], [T.protocol, audit.methodology || '']];
+    return [{ name: T.sheet_points, rows: [head].concat(audit.water_points.map(w => [w.order, w.water_point_id, w.alt_id || '', w.name || '', w.commune, w.fokontany, w.filmed ? T.yes : '', w.pi, w.weight])) }, { name: T.sheet_reserves, rows: [rhead].concat(audit.reserves.map(w => ['R' + w.order, w.water_point_id, w.alt_id || '', w.name || '', w.commune, w.fokontany])) }, { name: T.sheet_params, rows: params }];
+  }
+  // Stroke test sampling record (SDWS 28): same page furniture as the other records, its own content. Deterministic; no coordinates in audit.json.
+  async function buildStrokeRecordPdf(ctx) {
+    const { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PageSizes, AFRelationship } = ctx.PDFLib;
+    const a = ctx.audit; const lang = ctx.lang === 'fr' ? 'fr' : 'en'; const T = (I18N[lang] && I18N[lang].spdf) || I18N.en.spdf; const P = a.parameters;
+    const rid = a.record_id;
+    const doc = await PDFDocument.create({ updateMetadata: false });
+    const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const W = 595.28, H = 841.89, M = 50, CW = W - 2 * M; let page = null, y = 0;
+    const newPage = () => { page = doc.addPage(PageSizes && PageSizes.A4 ? PageSizes.A4 : [W, H]); y = H - M; };
+    const ensure = h => { if (!page || y - h < M + 22) newPage(); };
+    const wrap = (text, f, size, width) => { const out = []; String(text).split(/\n/).forEach(par => { const words = par.split(/\s+/); let line = ''; words.forEach(wd => { const cand = line ? line + ' ' + wd : wd; if (f.widthOfTextAtSize(cand, size) <= width) line = cand; else { if (line) out.push(line); line = wd; while (f.widthOfTextAtSize(line, size) > width && line.length > 1) { let cut = line.length - 1; while (cut > 1 && f.widthOfTextAtSize(line.slice(0, cut), size) > width) cut--; out.push(line.slice(0, cut)); line = line.slice(cut); } } }); out.push(line); }); return out; };
+    const para = (text, o) => { o = o || {}; const f = o.bold ? bold : font, size = o.size || 9.5, lh = size * 1.35; wrap(pdfSafe(text), f, size, CW - (o.indent || 0)).forEach(l => { ensure(lh); page.drawText(l, { x: M + (o.indent || 0), y: y - size, size, font: f, color: rgb(0.1, 0.1, 0.1) }); y -= lh; }); y -= 4; };
+    const heading = text => { ensure(30); y -= 6; page.drawText(pdfSafe(text), { x: M, y: y - 12, size: 12.5, font: bold, color: rgb(0.04, 0.37, 0.54) }); y -= 18; page.drawLine({ start: { x: M, y }, end: { x: M + CW, y }, thickness: 0.6, color: rgb(0.04, 0.37, 0.54) }); y -= 6; };
+    const kvRow = (label, value) => { const size = 9.5, lw = 150; const lines = wrap(pdfSafe(value), font, size, CW - lw - 6); const h = Math.max(1, lines.length) * size * 1.35; ensure(h); page.drawText(pdfSafe(label), { x: M, y: y - size, size, font: bold }); lines.forEach((l, i) => page.drawText(l, { x: M + lw, y: y - size - i * size * 1.35, size, font })); y -= h + 2; };
+    const table = (headers, rows, widths) => {
+      const size = 8.5, lh = size * 1.3, pad = 3; const drawHead = () => { ensure(lh + 2 * pad + 10); page.drawRectangle({ x: M, y: y - lh - 2 * pad, width: CW, height: lh + 2 * pad, color: rgb(0.93, 0.95, 0.97) }); let x = M; headers.forEach((h, i) => { page.drawText(pdfSafe(h), { x: x + pad, y: y - pad - size, size, font: bold }); x += widths[i]; }); y -= lh + 2 * pad; };
+      drawHead();
+      rows.forEach(r => { const cells = r.map((c, i) => wrap(pdfSafe(c), font, size, widths[i] - 2 * pad)); const n = Math.max.apply(null, cells.map(c => c.length)); const h = n * lh + 2 * pad; if (y - h < M + 22) { newPage(); drawHead(); } let x = M; cells.forEach((lines, i) => { lines.forEach((l, j) => page.drawText(l, { x: x + pad, y: y - pad - size - j * lh, size, font })); x += widths[i]; }); y -= h; page.drawLine({ start: { x: M, y }, end: { x: M + CW, y }, thickness: 0.3, color: rgb(0.8, 0.82, 0.85) }); });
+      y -= 6;
+    };
+    const num = (v, d) => (v === undefined || v === null || v === '' || isNaN(v)) ? '—' : Number(v).toFixed(d === undefined ? 0 : d);
+    const fill = s => String(s).split('{n}').join(P.sample_size).split('{r}').join(P.reserves).split('{f}').join(P.filmed);
+    newPage();
+    page.drawText(pdfSafe(T.title), { x: M, y: y - 18, size: 18, font: bold, color: rgb(0.04, 0.37, 0.54) }); y -= 26;
+    page.drawText(pdfSafe(P.round + ' / ' + P.stratum + ' — ' + T.record + ' ' + rid), { x: M, y: y - 11, size: 11, font }); y -= 22;
+    heading(T.h_id);
+    kvRow(T.programme, T.programme_v); kvRow(T.stratum, P.stratum + (MWATER.strata[P.stratum] ? ' — ' + MWATER.strata[P.stratum].label : '')); kvRow(T.round, P.round); kvRow(T.drawn_at, a.timestamp); kvRow(T.drawn_by, a.drawn_by || '—'); kvRow(T.record_id, rid); kvRow(T.tool, 'SaniTap Sampler v' + a.version + ' (' + (a.commit || 'dev') + ') — ' + (ctx.url || APP_URL));
+    heading(T.h_method); T.method.forEach(t => para(fill(t)));
+    heading(T.h_frame); para(T.frame_rule);
+    const inp = a.input || {}; const fc = inp.counts || {}; const fl = inp.fleet || {};
+    kvRow(T.frame_source, inp.source === 'mwater' ? T.frame_source_mwater : T.frame_source_csv);
+    if (fl.url) { kvRow(T.fleet_url, fl.url); kvRow(T.fleet_sha, fl.sha256 || '—'); kvRow(T.fleet_fetched, fl.fetched_at || '—'); }
+    table([T.c_item, T.c_value], [[T.c_group, num(fc.group_points)], [T.c_fleet, num(fc.fleet_in_group)], [T.c_stratum, num(fc.in_scenario)], [T.c_notfleet, num(fc.not_in_fleet)], [T.c_notcredit, num(fc.not_creditable)], [T.c_frame, num((a.frame || {}).points)], [T.c_communes, num((a.frame || {}).communes)], [T.c_fokontany, num((a.frame || {}).fokontany)]].filter(r => r[1] !== '—'), [CW - 120, 120]);
+    kvRow(T.frame_sha, inp.frame_sha256 || '—');
+    heading(T.h_random);
+    kvRow(T.seed, a.seed); kvRow(T.seed_word, String(a.seed_word_uint32)); kvRow(T.frame_sha, inp.frame_sha256 || '—'); kvRow(T.algorithm, a.algorithm);
+    para(T.reproducible);
+    heading(T.h_points); para(fill(T.points_note));
+    table([T.t_no, T.t_id, T.t_name, T.t_commune, T.t_filmed, T.t_pi], a.water_points.map(w => [String(w.order), w.water_point_id + (w.alt_id ? ' / ' + w.alt_id : ''), w.name || '', w.commune + ' / ' + w.fokontany, w.filmed ? T.filmed_yes : '', num(w.pi, 4)]), [30, 90, 90, 165, 60, CW - 435]);
+    heading(T.h_reserves); para(T.reserves_note);
+    table([T.t_no, T.t_id, T.t_name, T.t_commune], a.reserves.map(w => ['R' + w.order, w.water_point_id + (w.alt_id ? ' / ' + w.alt_id : ''), w.name || '', w.commune + ' / ' + w.fokontany]), [30, 110, 110, CW - 250]);
+    if (a.warnings && a.warnings.length) { heading(T.h_warnings); a.warnings.forEach(wn => para('- ' + JSON.stringify(wn))); }
+    if (ctx.map) { const TM = (I18N[lang] && I18N[lang].pmap) || I18N.en.pmap; const stops = recordStops(a, ctx.map.positions, null); ctx.mapResult = await addMapPages({ doc, font, bold, PDFLib: ctx.PDFLib, T: TM, stops, mode: 'stroke', town: (MWATER.strata[P.stratum] || {}).town || null, stratum: P.stratum, rid, sectionNo: a.warnings && a.warnings.length ? 8 : 7, positionsNote: positionsNote(TM, stops), reissueNote: ctx.map.reissue ? TM.reissued.replace('{at}', ctx.map.reissue.at).replace('{v}', ctx.map.reissue.version).replace('{c}', ctx.map.reissue.commit || 'dev') : '', fetchTile: ctx.map.fetchTile || null }); }
+    const pages = doc.getPages(); const n = pages.length;
+    pages.forEach((pg, i) => { const left = pdfSafe(T.footer_record + ' ' + rid + ' · ' + T.footer_sha + ' ' + (ctx.auditSha || '')); const right = pdfSafe('SaniTap Sampler v' + a.version + ' (' + (a.commit || 'dev') + ') · ' + T.page.replace('{x}', i + 1).replace('{y}', n)); pg.drawLine({ start: { x: M, y: M - 8 }, end: { x: W - M, y: M - 8 }, thickness: 0.4, color: rgb(0.7, 0.7, 0.7) }); pg.drawText(left, { x: M, y: M - 18, size: 6.5, font, color: rgb(0.35, 0.35, 0.35) }); pg.drawText(right, { x: W - M - font.widthOfTextAtSize(right, 6.5), y: M - 28, size: 6.5, font, color: rgb(0.35, 0.35, 0.35) }); });
+    const when = new Date(a.timestamp);
+    doc.setTitle(pdfSafe(T.title + ' ' + rid)); doc.setAuthor(pdfSafe(a.drawn_by || 'SaniTap Sampler')); doc.setSubject(rid); doc.setKeywords(['record:' + rid, 'audit-sha256:' + (ctx.auditSha || ''), 'mode:' + STROKE.mode]); doc.setProducer('SaniTap Sampler v' + a.version); doc.setCreator('SaniTap Sampler v' + a.version); doc.setCreationDate(when); doc.setModificationDate(when);
+    const info = doc.context.lookup(doc.context.trailerInfo.Info); if (info && info.set) { info.set(PDFName.of('RecordId'), PDFString.of(rid)); info.set(PDFName.of('AuditSHA256'), PDFString.of(ctx.auditSha || '')); info.set(PDFName.of('FrameSHA256'), PDFString.of(inp.frame_sha256 || '')); info.set(PDFName.of('Seed'), PDFString.of(String(a.seed))); info.set(PDFName.of('Mode'), PDFString.of(STROKE.mode)); }
+    if (ctx.auditText) { const bytes = utf8Bytes(ctx.auditText); await doc.attach(bytes, 'audit.json', { mimeType: 'application/json', description: 'SaniTap Sampler stroke-test audit record ' + rid, creationDate: when, modificationDate: when, afRelationship: AFRelationship ? AFRelationship.Data : undefined }); }
+    return doc.save({ useObjectStreams: false, addDefaultPage: false, updateFieldAppearances: false });
+  }
+
   /* ---------- service area: barrier clip on a 10 m raster, buildings, household draw ---------- */
   // Overpass query for the barrier network and its crossings around one water point (the report's sdws1_barrier_clip.py rule)
   function overpassQuery(lat, lon, radiusM) {
@@ -1093,7 +1201,9 @@ const Core = (function () {
    *  CONFIRMED ROUNDS (v2.7.0): the sampling stage ends at Confirm; the field stage opens from the confirmed record.
    *  Nothing here changes a draw, an audit or a record PDF: confirmation is held on the device, beside the record.
    * ===================================================================*/
-  const recordMode = audit => (audit && audit.mode === USAGE.mode ? 'usage' : 'pou');
+  const recordMode = audit => (audit && audit.mode === USAGE.mode ? 'usage' : audit && audit.mode === STROKE.mode ? 'stroke' : 'pou');
+  // usage and stroke rounds list water points + reserves; SDWS 18 rounds list selected + replacements
+  const withReserves = mode => mode === 'usage' || mode === 'stroke';
   // bytes (Buffer or Uint8Array) as a latin1 string, one character per byte
   function bytesLatin1(b) { if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(b)) return b.toString('latin1'); let s = ''; for (let i = 0; i < b.length; i += 8192) s += String.fromCharCode.apply(null, b.subarray(i, i + 8192)); return s; }
   function utf8Text(u8) { if (typeof TextDecoder !== 'undefined') return new TextDecoder('utf-8').decode(u8); return Buffer.from(u8).toString('utf8'); }
@@ -1128,7 +1238,7 @@ const Core = (function () {
     } else if (typeof o.json === 'string') auditText = o.json; else return { error: 'no_input' };
     let audit; try { audit = JSON.parse(auditText); } catch (e) { return { error: 'not_json' }; }
     const mode = recordMode(audit);
-    if (!audit || !audit.record_id || !audit.seed || !audit.parameters || !Array.isArray(audit.water_points) || !Array.isArray(mode === 'usage' ? audit.reserves : audit.replacements)) return { error: 'not_record' };
+    if (!audit || !audit.record_id || !audit.seed || !audit.parameters || !Array.isArray(audit.water_points) || !Array.isArray(withReserves(mode) ? audit.reserves : audit.replacements)) return { error: 'not_record' };
     const sha = await sha256(auditText); const expected = String(o.expectedSha || '').trim().toLowerCase(); const registered = (o.registerShas || []).includes(sha);
     if (o.pdf && footerSha !== sha) return { error: 'sha_mismatch', sha, expected: footerSha || '—' };
     if (expected && expected !== sha) return { error: 'sha_mismatch', sha, expected };
@@ -1141,20 +1251,24 @@ const Core = (function () {
   // when the draw pre-filled K) is authoritative; K typed later in the field (opts.kValues) fills only the sources without one.
   function roundFromAudit(audit, opts) {
     const o = opts || {}; const P = audit.parameters || {}; const mode = recordMode(audit); const base = { mode, record_id: audit.record_id, seed: audit.seed, audit };
+    if (mode === 'stroke') return Object.assign(base, { params: { roundName: P.round, stratum: P.stratum, seed: audit.seed }, points: audit.water_points.map(w => Object.assign({}, w, { reserve: false })), reserves: audit.reserves.map(w => Object.assign({}, w, { reserve: true })) });
     if (mode === 'usage') return Object.assign(base, { params: { roundName: P.round, stratum: P.scenario, seed: audit.seed }, zones: audit.zones || [], points: audit.water_points.map(w => Object.assign({}, w, { reserve: false })), reserves: audit.reserves.map(w => Object.assign({}, w, { reserve: true })) });
     const rec = {}; (audit.field_rule_numbers || []).forEach(x => { rec[x.water_point_id] = x.K; }); const typed = o.kValues || {};
     const mk = (w, rep) => { const kr = kFor(w, rec, P.k_source); const K = kr || (parseInt(typed[w.water_point_id], 10) > 0 ? parseInt(typed[w.water_point_id], 10) : undefined); const fn = K ? fieldNumbers(audit.seed, w.water_point_id, K, w.households.n, w.households.extra) : null; return Object.assign({}, w, { replacement: rep, K: K || null, K_recorded: !!kr, numbers: fn ? fn.primary : null, reserve_numbers: fn ? fn.replacements : null }); };
     return Object.assign(base, { params: { roundName: P.round, stratum: P.stratum, seed: audit.seed, mwaterForm: P.mwater_form, kSource: P.k_source, wpFileHash: (audit.input || {}).water_points_sha256 }, stats: audit.statistics, selected: audit.water_points.map(w => mk(w, false)), replacements: audit.replacements.map(w => mk(w, true)), reach: (audit.reach_check || {}).sources || [] });
   }
-  const roundIds = v => (v.mode === 'usage' ? v.points.concat(v.reserves) : v.selected.concat(v.replacements)).map(w => String(w.water_point_id));
+  const roundIds = v => (withReserves(v.mode) ? v.points.concat(v.reserves) : v.selected.concat(v.replacements)).map(w => String(w.water_point_id));
   // positions are device-only (never in a record): from the draw made here, or from a frame loaded on this device
   function positionsFromPoints(points, ids) { const want = new Set(ids.map(String)); const out = {}; (points || []).forEach(p => { const id = String(p.water_point_id); if (want.has(id) && isFinite(p.lat) && isFinite(p.lon) && p.lat !== '' && p.lon !== '') out[id] = { lat: Number(p.lat), lon: Number(p.lon), village: p.village || '' }; }); return out; }
-  function withPositions(v, pos) { const put = w => { const q = pos[String(w.water_point_id)]; if (q) Object.assign(w, { lat: q.lat, lon: q.lon, village: w.village || q.village }); else Object.assign(w, { lat: NaN, lon: NaN }); }; (v.mode === 'usage' ? v.points.concat(v.reserves) : v.selected.concat(v.replacements)).forEach(put); return v; }
+  function withPositions(v, pos) { const put = w => { const q = pos[String(w.water_point_id)]; if (q) Object.assign(w, { lat: q.lat, lon: q.lon, village: w.village || q.village }); else Object.assign(w, { lat: NaN, lon: NaN }); }; (withReserves(v.mode) ? v.points.concat(v.reserves) : v.selected.concat(v.replacements)).forEach(put); return v; }
   // the library of confirmed rounds on a device, keyed by record id: the same record again is a no-op, a different record under a
   // confirmed id is refused, and a fresh draw under a confirmed id is refused (a redraw needs a new round name)
-  function libraryEntry(o) { const a = o.audit; const mode = recordMode(a); const P = a.parameters; return { record_id: a.record_id, mode, round: P.round, stratum: mode === 'usage' ? P.scenario : P.stratum, seed: a.seed, drawn_at: a.timestamp, frame_sha256: (mode === 'usage' ? (a.input || {}).frame_sha256 : (a.input || {}).water_points_sha256) || null, audit_sha256: o.sha, audit_text: o.auditText, confirmed_at: o.at, origin: o.origin || 'here', positions: o.positions || null }; }
+  function libraryEntry(o) { const a = o.audit; const mode = recordMode(a); const P = a.parameters; if (mode === 'stroke') return { record_id: a.record_id, mode, round: P.round, stratum: P.stratum, seed: a.seed, drawn_at: a.timestamp, frame_sha256: (a.input || {}).frame_sha256 || null, audit_sha256: o.sha, audit_text: o.auditText, confirmed_at: o.at, origin: o.origin || 'here', positions: o.positions || null }; return { record_id: a.record_id, mode, round: P.round, stratum: mode === 'usage' ? P.scenario : P.stratum, seed: a.seed, drawn_at: a.timestamp, frame_sha256: (mode === 'usage' ? (a.input || {}).frame_sha256 : (a.input || {}).water_points_sha256) || null, audit_sha256: o.sha, audit_text: o.auditText, confirmed_at: o.at, origin: o.origin || 'here', positions: o.positions || null }; }
   function libraryAdd(lib, entry) { const cur = lib[entry.record_id]; if (cur && cur.audit_sha256 !== entry.audit_sha256) return { error: 'confirmed_other', existing: cur }; if (cur) return { ok: true, same: true, entry: cur }; lib[entry.record_id] = entry; return { ok: true, entry }; }
   const libraryCanDraw = (lib, rid) => !(lib && Object.prototype.hasOwnProperty.call(lib, rid));
+  // v2.10.0: never overwrite another sample. filed: [{ record_id, audit_sha256, where }] from the library and/or the records folder;
+  // returns the entries that hold this record id under a different audit (whatever their survey), or every holder when sha is null
+  function recordIdTaken(filed, rid, sha) { return (filed || []).filter(f => f && f.record_id === rid && (sha == null || f.audit_sha256 !== sha)); }
   // usage-survey selection: CSV in the same mWater import layout as SDWS 18 (households are drawn by position in the field), and an Excel workbook
   function usageSelectionCsv(audit) {
     const P = audit.parameters; const rule = 'RULE: ' + P.households_per_point + ' buildings of the service area by draw position (+' + P.household_reserves + ' reserves)';
@@ -1171,18 +1285,19 @@ const Core = (function () {
     return [{ name: T.sheet_points, rows: [head].concat(audit.water_points.map(w => [w.order, w.water_point_id, w.alt_id || '', w.name || '', w.zone, w.commune, w.fokontany, w.pi_zone, w.p_fokontany, w.p_point, w.pi, w.weight])) }, { name: T.sheet_reserves, rows: [rhead].concat(audit.reserves.map(w => ['R' + w.order, w.water_point_id, w.alt_id || '', w.name || '', w.zone, w.commune, w.fokontany, w.p_conditional])) }, { name: T.sheet_params, rows: params }];
   }
   // selection CSV of a record, either survey (bin/file-round.js writes it; the evidence pack downloads the same text)
-  const recordCsv = audit => (recordMode(audit) === 'usage' ? usageSelectionCsv(audit) : auditToCsv(audit));
-  function packNames(audit) { const P = audit.parameters; const usage = recordMode(audit) === 'usage'; const base = 'sanitap-' + String(P.round || 'round').replace(/\s+/g, '') + '-' + (usage ? P.scenario + '-usage' : P.stratum); return { pdf: base + '-record.pdf', xlsx: base + '-selection.xlsx', csv: base + '-selection.csv' }; }
+  const recordCsv = audit => (recordMode(audit) === 'usage' ? usageSelectionCsv(audit) : recordMode(audit) === 'stroke' ? strokeSelectionCsv(audit) : auditToCsv(audit));
+  function packNames(audit) { const P = audit.parameters; const usage = recordMode(audit) === 'usage'; if (recordMode(audit) === 'stroke') { const b = 'sanitap-' + String(P.round || 'round').replace(/\s+/g, '') + '-' + P.stratum + '-stroke'; return { pdf: b + '-record.pdf', xlsx: b + '-selection.xlsx', csv: b + '-selection.csv' }; } const base = 'sanitap-' + String(P.round || 'round').replace(/\s+/g, '') + '-' + (usage ? P.scenario + '-usage' : P.stratum); return { pdf: base + '-record.pdf', xlsx: base + '-selection.xlsx', csv: base + '-selection.csv' }; }
   // the evidence pack downloaded at Confirm: the sampling record PDF (audit.json attached), the selection workbook (sheets) and CSV
   async function evidencePack(ctx) {
-    const audit = JSON.parse(ctx.auditText); const sha = await sha256(ctx.auditText); const usage = recordMode(audit) === 'usage';
+    const audit = JSON.parse(ctx.auditText); const sha = await sha256(ctx.auditText); const usage = recordMode(audit) === 'usage'; const stroke = recordMode(audit) === 'stroke';
     if (hasCoordinateKeys(audit)) throw new Error('coordinates in the audit');
     // v2.8.0: the PDF gains the map pages; positions (from this device) and the tile fetcher are passed in, the audit text is unchanged
     const c = { PDFLib: ctx.PDFLib, audit, auditText: ctx.auditText, auditSha: sha, lang: ctx.lang, url: ctx.url || APP_URL, kValues: ctx.kValues || {}, map: { positions: ctx.positions || {}, fetchTile: ctx.fetchTile || null } };
-    const pdf = usage ? await buildUsageRecordPdf(c) : await buildSamplingRecordPdf(c);
-    const sheets = usage ? usageSelectionWorkbook(audit, ctx.lang) : selectionWorkbook(audit, ctx.kValues || {}, ctx.lang);
+    const pdf = stroke ? await buildStrokeRecordPdf(c) : usage ? await buildUsageRecordPdf(c) : await buildSamplingRecordPdf(c);
+    const sheets = stroke ? strokeSelectionWorkbook(audit, ctx.lang) : usage ? usageSelectionWorkbook(audit, ctx.lang) : selectionWorkbook(audit, ctx.kValues || {}, ctx.lang);
     const TM = (I18N[ctx.lang] && I18N[ctx.lang].pmap) || I18N.en.pmap; const stops = recordStops(audit, ctx.positions || {}, null);
-    if (stops.some(s => isFinite(s.lat))) sheets.push({ name: TM.h_stops, rows: [[TM.s_no, TM.s_id, TM.s_name, TM.s_commune, TM.s_fokontany, TM.s_lat, TM.s_lon]].concat(stops.map(s => [s.label, s.water_point_id, s.name, s.commune, s.fokontany, isFinite(s.lat) ? Number(s.lat.toFixed(5)) : '', isFinite(s.lon) ? Number(s.lon.toFixed(5)) : ''])) });
+    if (stroke && stops.some(s => isFinite(s.lat))) sheets.push({ name: TM.h_stops, rows: [[TM.s_no, TM.s_id, TM.s_name, TM.s_commune, TM.s_fokontany, TM.s_lat, TM.s_lon, TM.s_filmed]].concat(stops.map(s => [s.label, s.water_point_id, s.name, s.commune, s.fokontany, isFinite(s.lat) ? Number(s.lat.toFixed(5)) : '', isFinite(s.lon) ? Number(s.lon.toFixed(5)) : '', s.filmed ? TM.filmed_yes : ''])) });
+    else if (stops.some(s => isFinite(s.lat))) sheets.push({ name: TM.h_stops, rows: [[TM.s_no, TM.s_id, TM.s_name, TM.s_commune, TM.s_fokontany, TM.s_lat, TM.s_lon]].concat(stops.map(s => [s.label, s.water_point_id, s.name, s.commune, s.fokontany, isFinite(s.lat) ? Number(s.lat.toFixed(5)) : '', isFinite(s.lon) ? Number(s.lon.toFixed(5)) : ''])) });
     return { sha, record_id: audit.record_id, names: packNames(audit), pdf, csv: recordCsv(audit), sheets, map: c.mapResult || null };
   }
   // service areas prepared for a confirmed usage round (counts and hashes, no positions), for filing with the outcome log
@@ -1223,10 +1338,10 @@ const Core = (function () {
     if (!res || res.error) return { ok: false, tab: 'data', cls: 'err', key: 'open_err_' + ((res && res.error) || 'no_input'), vars: { sha: (res && res.sha) || '', expected: (res && res.expected) || '' }, tkeys: {} };
     const rid = res.audit.record_id;
     if (lib && lib.error) return { ok: false, tab: 'data', cls: 'err', key: 'open_err_other', vars: { rid }, tkeys: {} };
-    const usage = res.mode === 'usage';
+    const usage = withReserves(res.mode);
     return { ok: true, tab: usage ? 'field' : 'sheet', select: rid, cls: 'ok', key: 'open_ok',
       vars: { rid, n: res.audit.water_points.length, r: (usage ? res.audit.reserves : res.audit.replacements).length, sha: res.sha },
-      tkeys: { survey: usage ? 'mode_usage' : 'mode_pou', rlabel: usage ? 'open_reserves' : 'open_replacements', reg: res.registered ? 'open_reg_yes' : 'open_reg_no', same: lib && lib.same ? 'open_same' : 'open_new' },
+      tkeys: { survey: res.mode === 'stroke' ? 'mode_stroke' : usage ? 'mode_usage' : 'mode_pou', rlabel: usage ? 'open_reserves' : 'open_replacements', reg: res.registered ? 'open_reg_yes' : 'open_reg_no', same: lib && lib.same ? 'open_same' : 'open_new' },
       warn: lib && lib.local ? 'open_local' : null };
   }
 
@@ -1279,7 +1394,8 @@ const Core = (function () {
   // the household numbers of a round in one comparable form: water point -> [position, reserve, building] in draw order
   function householdSummary(areas, ids) { const o = {}; ids.forEach(id => { const a = areas[id]; o[id] = a ? a.draw.map(d => [d.position, !!d.reserve, d.key]) : null; }); return o; }
 
-  return { FIELD_PACK_KIND, fieldPack, isFieldPackText, openFieldPack, householdSummary, translate, idbOpen, openOutcome, recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
+  return { STROKE, STROKE_ALGORITHM, strokeSeed, strokeRecordId, drawStroke, strokeSelectionCsv, strokeSelectionWorkbook, buildStrokeRecordPdf, withReserves, recordIdTaken,
+    FIELD_PACK_KIND, fieldPack, isFieldPackText, openFieldPack, householdSummary, translate, idbOpen, openOutcome, recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
     TILES, MAP_PALETTE, tileUrl, tileFetcher, mercX, mercY, mapClusters, mapView, viewTiles, addMapPages, recordStops,
     SDWS3_RULE, SDWS3_RULE_JSON, sdws3Creditable, isNotCreditable, CREDIT_RULE_TEXT, USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, kFor, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
 })();
@@ -1612,6 +1728,76 @@ Object.assign(I18N.fr, {
   open_err_pack_not_json: "Refusé : ce fichier n'est pas un JSON valide.", open_err_pack_not_pack: "Refusé : ce n'est pas un paquet terrain SaniTap.", open_err_pack_version: "Refusé : paquet terrain de {rid} créé par une version incompatible du Sampler.", open_err_pack_no_round: "Ouvrez d'abord le PDF du registre de {rid}, puis ce paquet terrain.", open_err_pack_other_audit: "Refusé : ce paquet terrain appartient à un autre registre sous {rid} (SHA-256 de l'audit différent).", open_err_pack_points: "Refusé : le paquet terrain ne liste pas les points d'eau de {rid} dans leur ordre.", open_err_pack_area: "Refusé : les ménages de {id} dans ce paquet terrain ne correspondent pas à la graine du registre ou à la liste des bâtiments.", fs_k_field: 'K saisi sur le terrain'
 });
 
+/* ---------- v2.10.0: stroke test (SDWS 28) ---------- */
+Object.assign(I18N.en, {
+  mode_stroke: 'Stroke test (SDWS 28)', tab_field_st: '6 Field',
+  stroke_intro: 'Simple random sample per stratum (SOP-MAD-SDWS28-StrokeTest v2.7, section 2): 50 water points plus 10 reserves, drawn at equal probability without replacement from the same frame as the usage survey (the carbon fleet, less the points not creditable after a failed SDWS 3 test). The first 10 drawn are also filmed for one day. Kept apart from the annual monitoring sample: the record id ends in -ST.',
+  p_st_n: 'Water points per stratum', p_st_r: 'Reserves', p_st_f: 'Filmed (first in draw order)',
+  stroke_preview: 'Frame: {n} water points in {c} communes ({s}). Draw: {k} + {r} reserves; the first {f} are filmed.',
+  stroke_res_title: 'Stroke test draw', st_points: 'Water points', st_reserves: 'Reserves', st_filmed: 'Filmed', st_frame: 'Frame', col_filmed: 'Filmed day', filmed_yes: 'filmed',
+  sw_short_frame: 'The frame holds {have} water points, fewer than the {needed} asked for: every point was drawn.', sw_no_coords: '{n} frame points have no coordinates: they can be drawn but have no position on the map or the stop list.',
+  st_stop_title: 'Stop list (stroke test)', st_field_intro: 'Visit the water points in any order that suits the route, several per day. A reserve replaces a water point that cannot be tested, strictly in reserve order; record the reason. Filmed water points also get one filmed day.',
+  st_dist: '{d} km from here, bearing {b}° {c}', st_nogps: 'No GPS position on this device yet.', st_nopos: 'No position for this water point on this device: load the frame on the Data tab.', st_gps: 'GPS', st_open_map: 'Open in a map app',
+  f_need_round_st: 'The field view runs from a confirmed round: confirm the sample (tab 4) or open a confirmed round on the Data tab.'
+});
+Object.assign(I18N.fr, {
+  mode_stroke: 'Test de pompage (SDWS 28)', tab_field_st: '6 Terrain',
+  stroke_intro: "Échantillon aléatoire simple par strate (SOP-MAD-SDWS28-StrokeTest v2.7, section 2) : 50 points d'eau plus 10 réserves, tirés à probabilité égale sans remise dans la même base que l'enquête d'usage (la flotte carbone, moins les points non créditables après un test SDWS 3 non conforme). Les 10 premiers tirés sont aussi filmés pendant une journée. Gardé séparé de l'échantillon du suivi annuel : l'identifiant du registre se termine par -ST.",
+  p_st_n: "Points d'eau par strate", p_st_r: 'Réserves', p_st_f: "Filmés (les premiers dans l'ordre du tirage)",
+  stroke_preview: "Base : {n} points d'eau dans {c} communes ({s}). Tirage : {k} + {r} réserves ; les {f} premiers sont filmés.",
+  stroke_res_title: 'Tirage du test de pompage', st_points: "Points d'eau", st_reserves: 'Réserves', st_filmed: 'Filmés', st_frame: 'Base', col_filmed: 'Journée filmée', filmed_yes: 'filmé',
+  sw_short_frame: "La base compte {have} points d'eau, moins que les {needed} demandés : tous les points ont été tirés.", sw_no_coords: "{n} points de la base n'ont pas de coordonnées : ils peuvent être tirés mais n'ont pas de position sur la carte ni dans la liste des arrêts.",
+  st_stop_title: 'Liste des arrêts (test de pompage)', st_field_intro: "Visitez les points d'eau dans l'ordre qui convient au trajet, plusieurs par jour. Une réserve remplace un point d'eau qui ne peut pas être testé, strictement dans l'ordre des réserves ; notez la raison. Les points d'eau filmés ont aussi une journée filmée.",
+  st_dist: "à {d} km d'ici, cap {b}° {c}", st_nogps: "Pas encore de position GPS sur cet appareil.", st_nopos: "Pas de position pour ce point d'eau sur cet appareil : chargez la base dans l'onglet Données.", st_gps: 'GPS', st_open_map: 'Ouvrir dans une application de carte',
+  f_need_round_st: "La vue terrain part d'une campagne confirmée : confirmez l'échantillon (onglet 4) ou ouvrez une campagne confirmée dans l'onglet Données."
+});
+Object.assign(I18N.en.pmap, {
+  lg_stroke: 'Stroke test water point (number = draw order)', lg_filmed: 'Filmed water point (stroke test and one filmed day)', lg_reserve_st: 'Reserve water point (use strictly in order)', lg_far_st: 'Orange flag: more than 25 km from every other drawn water point and from the district town',
+  s_filmed: 'Filmed day', filmed_yes: 'filmed', stroke_map_note: 'Purple: the first water points in draw order, filmed for one day (SOP section 5A). The visit order in the field is free; reserves are used strictly in order.',
+  stops_note_st: 'Every water point of the record. Latitude and longitude in decimal degrees (WGS 84); "!" marks a flagged water point.'
+});
+Object.assign(I18N.fr.pmap, {
+  lg_stroke: "Point d'eau du test de pompage (numéro = ordre du tirage)", lg_filmed: "Point d'eau filmé (test de pompage et une journée filmée)", lg_reserve_st: "Point d'eau de réserve (à utiliser strictement dans l'ordre)", lg_far_st: "Drapeau orange : à plus de 25 km de tous les autres points d'eau tirés et de la ville du district",
+  s_filmed: 'Journée filmée', filmed_yes: 'filmé', stroke_map_note: "Violet : les premiers points d'eau dans l'ordre du tirage, filmés pendant une journée (section 5A de la SOP). L'ordre des visites sur le terrain est libre ; les réserves sont utilisées strictement dans l'ordre.",
+  stops_note_st: "Tous les points d'eau du registre. Latitude et longitude en degrés décimaux (WGS 84) ; « ! » signale un point d'eau éloigné."
+});
+I18N.en.sxlsx = { sheet_points: 'Water points', sheet_reserves: 'Reserves', sheet_params: 'Parameters', order: 'No.', id: 'Water point', alt: 'Pump no.', name: 'Name', commune: 'Commune', fokontany: 'Fokontany', filmed: 'Filmed day', yes: 'filmed', pi: 'Probability', weight: 'Weight', param: 'Parameter', value: 'Value', round: 'Round', stratum: 'Stratum', drawn_by: 'Drawn by', drawn_at: 'Drawn at (UTC)', record_id: 'Record id', seed: 'Seed', frame_sha: 'Frame SHA-256', frame_source: 'Frame source', fleet_sha: 'Fleet file SHA-256', frame_n: 'Water points in the frame', n: 'Water points drawn', r: 'Reserves', f: 'Filmed', tool: 'Tool', protocol: 'Method' };
+I18N.fr.sxlsx = { sheet_points: "Points d'eau", sheet_reserves: 'Réserves', sheet_params: 'Paramètres', order: 'N°', id: "Point d'eau", alt: 'N° pompe', name: 'Nom', commune: 'Commune', fokontany: 'Fokontany', filmed: 'Journée filmée', yes: 'filmé', pi: 'Probabilité', weight: 'Poids', param: 'Paramètre', value: 'Valeur', round: 'Campagne', stratum: 'Strate', drawn_by: 'Tiré par', drawn_at: 'Tiré le (UTC)', record_id: 'Identifiant du registre', seed: 'Graine', frame_sha: 'SHA-256 de la base', frame_source: 'Source de la base', fleet_sha: 'SHA-256 du fichier de flotte', frame_n: "Points d'eau dans la base", n: "Points d'eau tirés", r: 'Réserves', f: 'Filmés', tool: 'Outil', protocol: 'Méthode' };
+I18N.en.spdf = {
+  title: 'Stroke test sampling record (SDWS 28)', record: 'record', h_id: '1. Identification', programme: 'Programme', programme_v: 'SaniTap safe drinking water supply, Madagascar — Gold Standard SDWS methodology v2.0 — SDWS 28, option 3: measured volume for handpumps by a standardised stroke test', stratum: 'Stratum', round: 'Round', drawn_at: 'Draw date/time (UTC)', drawn_by: 'Drawn by', record_id: 'Record id', tool: 'Tool',
+  h_method: '2. Method', method: [
+    'Simple random sample per sampling stratum (methodology v2.0, section 14.5.3), run to SOP-MAD-SDWS28-StrokeTest v2.7, section 2. Fort-Dauphin and Maroantsetra are separate strata, each drawn on its own record.',
+    '{n} water points are drawn at equal probability without replacement, plus {r} reserves drawn the same way from the points left. The sample is kept apart from the annual monitoring sample: its seed and record id end in -ST.',
+    'The first {f} water points in draw order are also filmed for one day (SOP section 5A). Because the draw order is random, they are a simple random sample of the stratum as well.',
+    'The field team visits the water points in any order that suits the route, several per day. A reserve replaces a water point that cannot be tested, strictly in reserve order (R1 first); the reason is recorded.',
+    'Each water point has inclusion probability {n} / N, where N is the number of water points in the frame; its weight is N / {n}.'],
+  h_frame: '3. Sampling frame', frame_rule: 'The frame is the carbon fleet of the stratum, as for the usage survey: the water points of the MadAvance mWater register that the programme report classifies as in the managed fleet (successfully rehabilitated plus completed new constructions), in the districts of the stratum. A water point that did not pass its SDWS 3 commissioning test (its latest final result fails the SDWS 3 rule) is not creditable and is left out (James Walker, 20 Oct 2026). There is no other condition: broken pumps stay in the frame and are tested as found.',
+  frame_source: 'Source of the frame', frame_source_mwater: "mWater register fetched live by the tool, joined with the report's fleet classification", frame_source_csv: 'CSV file loaded into the tool', fleet_url: 'Fleet classification', fleet_sha: 'Fleet file SHA-256', fleet_fetched: 'Fleet file fetched (UTC)', frame_sha: 'Frame SHA-256',
+  c_item: 'Item', c_value: 'Value', c_group: 'Water points in the MadAvance group', c_fleet: 'of which in the carbon fleet (all strata)', c_stratum: 'in the districts of this stratum', c_notfleet: 'excluded: not in the fleet', c_notcredit: 'excluded: not creditable (latest SDWS 3 result fails)', c_frame: 'frame (fleet, this stratum)', c_communes: 'communes in the frame', c_fokontany: 'fokontany in the frame',
+  h_random: '4. Randomness and reproducibility', seed: 'Seed string', seed_word: 'Seed word (xmur3, uint32)', algorithm: 'Algorithm',
+  reproducible: 'The same seed string and the same frame (identified by its SHA-256) reproduce exactly the same water points, in the same order, and the same reserves on any device.',
+  h_points: '5. Drawn water points', points_note: 'In draw order. The first {f} are filmed for one day. Probability = {n} / N; weight = 1 / probability.', t_no: 'No.', t_id: 'Water point', t_name: 'Name', t_commune: 'Commune / fokontany', t_filmed: 'Filmed day', filmed_yes: 'filmed', t_pi: 'Probability',
+  h_reserves: '6. Reserve water points', reserves_note: 'Use a reserve only when a drawn water point cannot be tested, strictly in this order; record the reason.',
+  h_warnings: '7. Notes generated by the tool', footer_record: 'Record', footer_sha: 'audit JSON SHA-256', page: 'page {x} of {y}'
+};
+I18N.fr.spdf = Object.assign({}, I18N.en.spdf, {
+  title: "Registre d'échantillonnage — test de pompage (SDWS 28)", record: 'registre', programme_v: "Approvisionnement en eau potable SaniTap, Madagascar — méthodologie Gold Standard SDWS v2.0 — SDWS 28, option 3 : volume mesuré des pompes manuelles par un test de pompage standardisé", stratum: 'Strate', round: 'Campagne', drawn_at: 'Date/heure du tirage (UTC)', drawn_by: 'Tiré par', record_id: 'Identifiant du registre', tool: 'Outil',
+  h_method: '2. Méthode', method: [
+    "Échantillon aléatoire simple par strate d'échantillonnage (méthodologie v2.0, section 14.5.3), selon la SOP-MAD-SDWS28-StrokeTest v2.7, section 2. Fort-Dauphin et Maroantsetra sont des strates distinctes, chacune tirée sur son propre registre.",
+    "{n} points d'eau sont tirés à probabilité égale sans remise, plus {r} réserves tirées de la même façon parmi les points restants. L'échantillon est gardé séparé de l'échantillon du suivi annuel : sa graine et l'identifiant du registre se terminent par -ST.",
+    "Les {f} premiers points d'eau dans l'ordre du tirage sont aussi filmés pendant une journée (section 5A de la SOP). L'ordre du tirage étant aléatoire, ils forment eux aussi un échantillon aléatoire simple de la strate.",
+    "L'équipe de terrain visite les points d'eau dans l'ordre qui convient au trajet, plusieurs par jour. Une réserve remplace un point d'eau qui ne peut pas être testé, strictement dans l'ordre des réserves (R1 d'abord) ; la raison est notée.",
+    "Chaque point d'eau a une probabilité d'inclusion de {n} / N, où N est le nombre de points d'eau de la base ; son poids est N / {n}."],
+  h_frame: "3. Base d'échantillonnage", frame_rule: "La base est la flotte carbone de la strate, comme pour l'enquête d'usage : les points d'eau du registre mWater de MadAvance que le rapport du programme classe dans la flotte gérée (réhabilitations réussies plus nouvelles constructions achevées), dans les districts de la strate. Un point d'eau qui n'a pas réussi son test SDWS 3 de mise en service (son dernier résultat final ne respecte pas la règle SDWS 3) n'est pas créditable et est exclu (James Walker, 20 oct. 2026). Il n'y a pas d'autre condition : les pompes en panne restent dans la base et sont testées telles qu'elles sont trouvées.",
+  frame_source: 'Source de la base', frame_source_mwater: 'Registre mWater lu en direct par l’outil, joint à la classification de la flotte du rapport', frame_source_csv: 'Fichier CSV chargé dans l’outil', fleet_url: 'Classification de la flotte', fleet_sha: 'SHA-256 du fichier de flotte', fleet_fetched: 'Fichier de flotte lu le (UTC)', frame_sha: 'SHA-256 de la base',
+  c_item: 'Élément', c_value: 'Valeur', c_group: "Points d'eau du groupe MadAvance", c_fleet: 'dont dans la flotte carbone (toutes strates)', c_stratum: 'dans les districts de cette strate', c_notfleet: 'exclus : hors flotte', c_notcredit: 'exclus : non créditable (dernier résultat SDWS 3 non conforme)', c_frame: 'base (flotte, cette strate)', c_communes: 'communes dans la base', c_fokontany: 'fokontany dans la base',
+  h_random: '4. Aléa et reproductibilité', seed: "Chaîne d'amorce", seed_word: "Mot d'amorce (xmur3, uint32)", algorithm: 'Algorithme',
+  reproducible: "La même chaîne d'amorce et la même base (identifiée par son SHA-256) reproduisent exactement les mêmes points d'eau, dans le même ordre, et les mêmes réserves sur tout appareil.",
+  h_points: "5. Points d'eau tirés", points_note: "Dans l'ordre du tirage. Les {f} premiers sont filmés pendant une journée. Probabilité = {n} / N ; poids = 1 / probabilité.", t_no: 'N°', t_id: "Point d'eau", t_name: 'Nom', t_commune: 'Commune / fokontany', t_filmed: 'Journée filmée', filmed_yes: 'filmé', t_pi: 'Probabilité',
+  h_reserves: "6. Points d'eau de réserve", reserves_note: "N'utiliser une réserve que si un point d'eau tiré ne peut pas être testé, strictement dans cet ordre ; noter la raison.",
+  h_warnings: "7. Notes de l'outil", footer_record: 'Registre', footer_sha: "SHA-256 de l'audit JSON", page: 'page {x} sur {y}'
+});
+
 // the UI strings, for the Node tests (v2.8.2: no message may show a raw key)
 if (typeof module !== 'undefined' && module.exports) module.exports.I18N = I18N;
 if (typeof window !== 'undefined' && typeof document !== 'undefined') (function () {
@@ -1630,16 +1816,17 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     $('howto').innerHTML = t('howto_html');
     $('ver').textContent = 'v' + APP_VERSION + (APP_COMMIT && APP_COMMIT.indexOf('__') !== 0 ? ' (' + APP_COMMIT + ')' : ' (dev)');
     renderData(); renderPreview(); renderResults(); renderSheet(); renderMapList(); renderLegend(); renderMw(); renderBacklog(); updateSteps();
-    if (typeof setMode === 'function' && $('usage-intro')) { $('usage-intro').innerHTML = state.mode === 'usage' ? esc(t('usage_intro')) + '<br><small>' + fleetLine() + '</small>' : ''; renderField(); }
+    if (typeof setMode === 'function' && $('usage-intro')) { $('usage-intro').innerHTML = state.mode === 'usage' ? esc(t('usage_intro')) + '<br><small>' + fleetLine() + '</small>' : ''; $('stroke-intro').innerHTML = state.mode === 'stroke' ? esc(t('stroke_intro')) + '<br><small>' + fleetLine() + '</small>' : ''; renderField(); }
     renderConfirm(); renderRoundBar();
   }
   $('lang-toggle').onclick = () => { state.lang = state.lang === 'en' ? 'fr' : 'en'; LS.set('lang', state.lang); applyLang(); };
 
   /* ---------- tabs ---------- */
   function updateSteps() {
-    const drawn = state.mode === 'usage' ? !!state.usage : !!state.result;
-    const curRid = state.mode === 'usage' ? (state.usage && state.usage.audit.record_id) : (state.result && state.result.audit.record_id);
-    const done = { data: !!state.wp, backlog: !!state.wp, params: drawn, results: drawn, confirm: !!(curRid && state.lib[curRid]), map: false, sheet: false, field: !!state.usageRound, how: false };
+    const cur = state.mode === 'usage' ? state.usage : state.mode === 'stroke' ? state.stroke : state.result; const drawn = !!cur;
+    const curRid = cur && cur.audit.record_id;
+    const fr = state.mode === 'stroke' ? fieldRound() : null;
+    const done = { data: !!state.wp, backlog: !!state.wp, params: drawn, results: drawn, confirm: !!(curRid && state.lib[curRid]), map: false, sheet: false, field: state.mode === 'stroke' ? !!(fr && fr.mode === 'stroke') : !!state.usageRound, how: false };
     document.querySelectorAll('nav button').forEach(b => { const tab = b.dataset.tab; b.classList.toggle('done', !!done[tab] && !b.classList.contains('active')); b.classList.toggle('pending', !done[tab] && !b.classList.contains('active')); b.title = t(b.classList.contains('active') ? 'step_current' : done[tab] ? 'step_done' : 'step_pending'); });
   }
   function showTab(name) {
@@ -1764,16 +1951,16 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   };
   $('btn-next-params').onclick = () => showTab('backlog');
   $('btn-next-params2').onclick = () => showTab('params');
-  $('btn-next-confirm').onclick = $('btn-unext-confirm').onclick = () => showTab('confirm');
+  $('btn-next-confirm').onclick = $('btn-unext-confirm').onclick = $('btn-snext-confirm').onclick = () => showTab('confirm');
   $('btn-next-field').onclick = () => showTab('map');
   $('btn-next-sheet').onclick = () => showTab('sheet');
   $('btn-next-ufield').onclick = () => showTab('field');
 
   /* ---------- parameters ---------- */
   function computedSeed() { return ($('p-round').value.replace(/\s+/g, '') || 'round') + '-' + ($('p-stratum').value || 'stratum'); }
-  function updateSeed() { $('p-stratum-text').textContent = $('p-stratum').value || '—'; $('p-repro').textContent = t('repro_line', { seed: computedSeed() + (state.mode === 'usage' ? '-U' : '') }); }
+  function updateSeed() { $('p-stratum-text').textContent = $('p-stratum').value || '—'; $('p-repro').textContent = t('repro_line', { seed: computedSeed() + (state.mode === 'usage' ? '-U' : state.mode === 'stroke' ? Core.STROKE.suffix : '') }); }
   ['p-round', 'p-stratum', 'data-stratum'].forEach(id => $(id).addEventListener('input', () => { if (id === 'data-stratum') $('p-stratum').value = $('data-stratum').value; updateSeed(); renderPreview(); renderBacklog(); }));
-  ['p-target', 'p-hh', 'p-icc', 'p-pass', 'p-conf', 'p-prectype'].forEach(id => $(id).addEventListener('input', renderPreview));
+  ['p-target', 'p-hh', 'p-icc', 'p-pass', 'p-conf', 'p-prectype', 'p-st-n', 'p-st-r', 'p-st-f'].forEach(id => $(id).addEventListener('input', renderPreview));
   $('p-drawn-by').addEventListener('input', () => LS.set('drawnBy', $('p-drawn-by').value));
   function readParams() {
     const num = (id, d) => { const v = parseFloat($(id).value); return isNaN(v) ? d : v; };
@@ -1788,6 +1975,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   }
   function renderPreview() {
     const el = $('params-preview'); if (!state.points.length) { el.textContent = t('err_nodata'); return; }
+    if (state.mode === 'stroke') { const uf = Core.usageFrame(state.points, $('p-stratum').value, state.wp && state.wp.source === 'mwater' ? state.fleet : null); const sp = strokeParams(); el.textContent = t('stroke_preview', { n: uf.points.length, c: new Set(uf.points.map(x => x.commune)).size, s: $('p-stratum').value, k: sp.points, r: sp.reserves, f: Math.min(sp.filmed, sp.points) }); return; }
     if (state.mode === 'usage') { const uf = Core.usageFrame(state.points, $('p-stratum').value, state.wp && state.wp.source === 'mwater' ? state.fleet : null); const c = new Set(uf.points.map(x => x.commune)), f = new Set(uf.points.map(x => x.commune + '|' + x.fokontany)); el.textContent = t('usage_preview', { n: uf.points.length, c: c.size, f: f.size, s: $('p-stratum').value }); return; }
     const p = readParams();
     const elig = state.points.filter(x => x.active && String(x.stratum) === String(p.stratum));
@@ -1798,6 +1986,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     const msg = $('params-msg'); msg.innerHTML = '';
     if (!state.points.length) { msg.innerHTML = `<div class="msg err">${t('err_nodata')}</div>`; return; }
     // v2.7.0: a confirmed round is never redrawn under the same record id; a redraw needs a new round name
+    if (state.mode === 'stroke') { const sp = strokeParams(); const srid = Core.strokeRecordId(sp.roundName, sp.stratum); if (!Core.libraryCanDraw(state.lib, srid)) { msg.innerHTML = `<div class="msg err">${esc(t('err_confirmed', { rid: srid }))}</div>`; return; } runStrokeDraw(sp, true); return; }
     const up = state.mode === 'usage' ? usageParams() : null; const p = up ? null : readParams();
     const rid = up ? Core.recordId({ roundName: up.roundName, stratum: up.stratum, seed: up.seed }) : Core.recordId(p);
     if (!Core.libraryCanDraw(state.lib, rid)) { msg.innerHTML = `<div class="msg err">${esc(t('err_confirmed', { rid }))}</div>`; return; }
@@ -1836,6 +2025,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     return s;
   }
   function renderResults() {
+    if (state.mode === 'stroke') { $('results').classList.add('hidden'); $('usage-results').classList.add('hidden'); $('results-empty').classList.toggle('hidden', !!state.stroke); renderStrokeResults(); return; }
+    $('stroke-results').classList.add('hidden');
     if (state.mode === 'usage') { $('results').classList.add('hidden'); $('results-empty').classList.toggle('hidden', !!state.usage); renderUsageResults(); return; }
     $('usage-results').classList.add('hidden');
     const r = state.result; $('results-empty').classList.toggle('hidden', !!r); $('results').classList.toggle('hidden', !r);
@@ -1913,6 +2104,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     const r = fieldRound(); const bounds = [];
     if (!r) { $('map-msg').textContent = t('map_need_round'); return; }
     if (r.mode === 'usage') return renderUsageMap(r);
+    if (r.mode === 'stroke') return renderStrokeMap(r);
     const far = farSet(r);
     r.selected.forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(L.marker([w.lat, w.lon], { icon: numIcon(w.order, far.has(w.water_point_id) ? 'far' : '') }).bindPopup(`<b>${w.order}. ${esc(w.water_point_id)}</b> ${esc(w.alt_id || '')}<br>${esc(w.name)}<br>${esc(w.commune)} / ${esc(w.fokontany)}${far.has(w.water_point_id) ? '<br><b style="color:#b45309">' + esc(t('reach_far')) + '</b>' : ''}`)); });
     r.replacements.forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(L.marker([w.lat, w.lon], { icon: numIcon('R' + w.order, 'rep') }).bindPopup(`<b>R${w.order}. ${esc(w.water_point_id)}</b> (${t('rep_wp')})<br>${esc(w.name)}<br>${esc(w.commune)} / ${esc(w.fokontany)}`)); });
@@ -1926,6 +2118,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     const r = fieldRound();
     if (!r) { el.innerHTML = `<p class="muted">${t('map_need_round')}</p>`; return; }
     if (r.mode === 'usage') return renderUsageMapList(r);
+    if (r.mode === 'stroke') return renderStrokeMapList(r);
     const reach = {}; (r.reach || []).forEach(x => { reach[x.water_point_id] = x; });
     const row = (w, rep) => { const rc = reach[w.water_point_id]; return `<tr class="${rep ? 'rep' : ''}${rc && rc.far ? ' far' : ''}"><td><b>${rep ? 'R' + w.order : w.order}</b></td><td><b>${esc(w.water_point_id)}</b><br><small>${esc(w.alt_id || '')}</small></td><td>${esc(w.name)}</td><td>${esc(w.commune)}<br><small>${esc(w.fokontany)}</small></td><td>${w.households_served || ''}</td><td>${rc ? (rc.far ? `<b style="color:#b45309">⚠ ${esc(t('reach_far'))}</b><br>` : '') + `<small>${t('reach_dist', { n: rc.nearest_km === null ? '—' : rc.nearest_km, t: rc.town_km === null ? '—' : rc.town_km })}</small>` : ''}</td></tr>`; };
     el.innerHTML = `<h3>${t('map_list_title')} — ${esc(r.record_id)}</h3><p class="muted">${esc(posLine(r))}</p><div class="tablewrap"><table><tr><th>#</th><th>${t('col_id')}</th><th>${t('col_name')}</th><th>${t('col_cluster')} / ${t('col_fokontany')}</th><th>${t('col_hh')}</th><th>${t('reach_col')}</th></tr>${r.selected.map(w => row(w, false)).join('')}${r.replacements.map(w => row(w, true)).join('')}</table></div>`;
@@ -1947,6 +2140,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
    *  USAGE SURVEY MODE (v2.3.0)
    * ===================================================================*/
   const isUsage = () => state.mode === 'usage';
+  const isStroke = () => state.mode === 'stroke';
   const PALETTE = Core.MAP_PALETTE;
   // IndexedDB: the prepared round (with coordinates, on this device only) and the outcome log
   const IDB = {
@@ -1958,12 +2152,16 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     async all(store) { const d = await this.open(); return new Promise((res, rej) => { const q = d.transaction(store).objectStore(store).getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); }); }
   };
   function setMode(m, keepActive) {
-    state.mode = m === 'usage' ? 'usage' : 'pou'; LS.set('mode', state.mode); $('p-mode').value = state.mode;
-    document.querySelectorAll('.pou-only').forEach(el => el.classList.toggle('hidden-mode', isUsage()));
-    document.querySelectorAll('.usage-only').forEach(el => el.classList.toggle('hidden', !isUsage()));
-    const act = document.querySelector('nav button.active'); if (act && act.offsetParent === null) showTab(isUsage() && act.dataset.tab === 'sheet' ? 'field' : (!isUsage() && act.dataset.tab === 'field' ? 'sheet' : 'params'));
+    state.mode = m === 'usage' || m === 'stroke' ? m : 'pou'; LS.set('mode', state.mode); $('p-mode').value = state.mode;
+    // v2.10.0: stroke mode shares the field tab (class stroke-too) but not the household tools; the SDWS 18 controls are hidden in both
+    const fieldMode = isUsage() || isStroke();
+    document.querySelectorAll('.pou-only').forEach(el => el.classList.toggle('hidden-mode', fieldMode));
+    document.querySelectorAll('.usage-only').forEach(el => el.classList.toggle('hidden', !(isUsage() || (isStroke() && el.classList.contains('stroke-too')))));
+    document.querySelectorAll('.stroke-only').forEach(el => el.classList.toggle('hidden', !isStroke()));
+    const act = document.querySelector('nav button.active'); if (act && act.offsetParent === null) showTab(fieldMode && act.dataset.tab === 'sheet' ? 'field' : (!fieldMode && act.dataset.tab === 'field' ? 'sheet' : 'params'));
     $('usage-intro').innerHTML = isUsage() ? esc(t('usage_intro')) + '<br><small>' + fleetLine() + '</small>' : '';
-    if (isUsage()) prefetchFleet();
+    $('stroke-intro').innerHTML = isStroke() ? esc(t('stroke_intro')) + '<br><small>' + fleetLine() + '</small>' : '';
+    if (fieldMode) prefetchFleet();
     // the field tabs follow the mode: switching it selects the newest confirmed round of that mode (none if there is none); no round is discarded
     if (!keepActive) { const e = activeEntry(); if (e && e.mode !== state.mode) { const alt = Object.values(state.lib).filter(x => x.mode === state.mode).sort(byNewest)[0]; setActive(alt ? alt.record_id : null, { keepMode: true }); } }
     updateSeed(); renderPreview(); renderResults(); renderConfirm(); renderMapList(); if (state.map) renderMap(); updateSteps();
@@ -1972,9 +2170,9 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   // v2.8.1: usage mode loads the fleet list (same origin) when it is selected, so the line shows the count; the draw fetches it again
   function prefetchFleet() {
     if (state.fleetFresh) return; state.fleetFresh = true;
-    const intro = () => esc(t('usage_intro')) + '<br><small>';
-    getFleet().then(() => { if (isUsage()) $('usage-intro').innerHTML = intro() + fleetLine() + '</small>'; })
-      .catch(e => { state.fleetFresh = false; if (isUsage()) $('usage-intro').innerHTML = intro() + '<span class="err">' + esc(t('usage_fleet_err', { e: e.message })) + '</span></small>'; });
+    const box = () => $(isStroke() ? 'stroke-intro' : 'usage-intro'); const intro = () => esc(t(isStroke() ? 'stroke_intro' : 'usage_intro')) + '<br><small>';
+    getFleet().then(() => { if (isUsage() || isStroke()) box().innerHTML = intro() + fleetLine() + '</small>'; if (isStroke()) renderPreview(); })
+      .catch(e => { state.fleetFresh = false; if (isUsage() || isStroke()) box().innerHTML = intro() + '<span class="err">' + esc(t('usage_fleet_err', { e: e.message })) + '</span></small>'; });
   }
   async function getFleet() {
     try { const r = await fetch(Core.USAGE.fleetUrl, { cache: 'no-cache' }); if (!r.ok) throw new Error('HTTP ' + r.status); const text = await r.text(); const j = JSON.parse(text); state.fleet = { url: new URL(Core.USAGE.fleetUrl, location.href).href, sha256: await Core.sha256(text), fetched_at: new Date().toISOString(), records: j.records || {} }; LS.set('fleet', state.fleet); }
@@ -2016,6 +2214,51 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     });
     $('u-points').innerHTML = `<table><tr><th>#</th><th>${t('col_id')}</th><th>${t('col_fokontany')}</th><th>${t('col_pi')}</th><th>${t('col_weight')}</th></tr>${rows.join('')}</table>`;
   }
+  /* ---------- v2.10.0: stroke test (SDWS 28): simple random sample of the usage frame, 50 + 10 per stratum ---------- */
+  function strokeParams() {
+    const src = (state.wp && state.wp.source) || 'csv'; const iv = (id, d) => { const v = parseInt($(id).value, 10); return v >= 0 ? v : d; };
+    const roundName = $('p-round').value.trim(), stratum = $('p-stratum').value;
+    return { roundName, stratum, drawnBy: $('p-drawn-by').value.trim(), seed: Core.strokeSeed(roundName, stratum), points: Math.max(1, iv('p-st-n', Core.STROKE.points)), reserves: iv('p-st-r', Core.STROKE.reserves), filmed: iv('p-st-f', Core.STROKE.filmed), source: src, frameFile: state.wp && state.wp.name, mwater: src === 'mwater' ? state.wp.mwater : null };
+  }
+  async function runStrokeDraw(p, fresh) {
+    const msg = $('params-msg');
+    if (fresh) p.timestamp = new Date().toISOString();
+    let fleet = null;
+    if (p.source === 'mwater') { try { fleet = await getFleet(); } catch (e) { msg.innerHTML = `<div class="msg err">${esc(t('usage_fleet_err', { e: e.message }))}</div>`; return; } }
+    const uf = Core.usageFrame(state.points, p.stratum, fleet);
+    p.frameHash = await Core.sha256(Core.frameToCsv(uf.points)); p.frameCounts = uf.counts;
+    p.fleet = fleet ? { url: fleet.url, sha256: fleet.sha256, fetched_at: fleet.fetched_at, classes: Core.USAGE.fleetClasses } : null;
+    const r = Core.drawStroke(p, uf.points);
+    if (r.error) { msg.innerHTML = `<div class="msg err">${t('err_noeligible')}</div>`; return; }
+    state.stroke = r; LS.set('slast', Object.assign({}, p, { frameCounts: undefined }));
+    renderResults(); renderConfirm(); updateSteps();
+    if (fresh) showTab('results');
+  }
+  function renderStrokeResults() {
+    const r = state.stroke; $('stroke-results').classList.toggle('hidden', !r || !isStroke()); if (!r) return;
+    const a = r.audit, P = a.parameters;
+    $('s-head').innerHTML = `<span class="pill">${esc(P.round)}</span><span class="pill">${esc(P.stratum)}</span><span class="pill">${t('p_seed')}: <b>${esc(a.seed)}</b></span><span class="pill">${esc(a.timestamp)}</span><span class="pill">${t('sha')}: ${esc((a.input.frame_sha256 || '').slice(0, 12))}…</span>`;
+    $('s-stats').innerHTML = [[t('st_frame'), a.frame.points], [t('st_points'), a.water_points.length], [t('st_reserves'), a.reserves.length], [t('st_filmed'), a.water_points.filter(w => w.filmed).length]].map(x => `<div><b>${x[1]}</b><span>${x[0]}</span></div>`).join('');
+    $('s-warn').innerHTML = (state.lib[a.record_id] ? `<div class="msg ok">${esc(t('res_confirmed', { rid: a.record_id }))}</div>` : '') + r.warnings.map(w => `<div class="msg warn">${esc(t('sw_' + w.code) === 'sw_' + w.code ? JSON.stringify(w) : t('sw_' + w.code, w))}</div>`).join('');
+    const row = w => `<tr class="${w.reserve ? 'rep' : ''}"><td><b>${w.reserve ? 'R' : ''}${w.order}</b></td><td><b>${esc(w.water_point_id)}</b><br><small>${esc(w.alt_id || '')} ${esc(w.name || '')}</small></td><td>${esc(w.commune)}<br><small class="muted">${esc(w.fokontany)}</small></td><td>${w.filmed ? '<span class="pill">' + esc(t('filmed_yes')) + '</span>' : ''}</td><td>${w.reserve ? '<small class="muted">' + esc(t('rep_wp')) + '</small>' : fmt(w.pi, 4)}</td></tr>`;
+    $('s-points').innerHTML = `<table><tr><th>#</th><th>${t('col_id')}</th><th>${t('col_cluster')} / ${t('col_fokontany')}</th><th>${t('col_filmed')}</th><th>${t('col_pi')}</th></tr>${a.water_points.map(row).join('')}${a.reserves.map(w => row(Object.assign({ reserve: true }, w))).join('')}</table>`;
+  }
+  const FILMED_COLOUR = '#7c3aed';
+  function renderStrokeMap(r) {
+    const Ly = state.layers; const bounds = [];
+    const icon = w => (w.filmed ? L.divIcon({ className: '', html: `<div class="num-icon" style="background:${FILMED_COLOUR}">${w.order}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }) : numIcon((w.reserve ? 'R' : '') + w.order, w.reserve ? 'rep' : ''));
+    r.points.concat(r.reserves).forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(L.marker([w.lat, w.lon], { icon: icon(w), zIndexOffset: w.reserve ? 0 : 500 }).bindPopup(`<b>${w.reserve ? 'R' : ''}${w.order}. ${esc(w.water_point_id)}</b> ${esc(w.alt_id || '')}${w.filmed ? ' · <b>' + esc(t('filmed_yes')) + '</b>' : ''}<br>${esc(w.name || '')}<br>${esc(w.commune)} / ${esc(w.fokontany)}`)); });
+    communeLabels(r.points);
+    if (bounds.length) state.map.fitBounds(bounds, { padding: [30, 30] });
+    $('map-msg').textContent = bounds.length ? '' : t('pos_none');
+  }
+  const c5 = v => (isFinite(v) ? Number(v).toFixed(5) : '—');
+  function strokeStopTable(r) {
+    const row = w => `<tr class="${w.reserve ? 'rep' : ''}"><td><b>${w.reserve ? 'R' : ''}${w.order}</b></td><td><b>${esc(w.water_point_id)}</b><br><small>${esc(w.alt_id || '')}</small></td><td>${esc(w.name || '')}</td><td>${esc(w.commune)}<br><small class="muted">${esc(w.fokontany)}</small></td><td><small>${c5(w.lat)}, ${c5(w.lon)}</small></td><td>${w.filmed ? '<span class="pill" style="background:' + FILMED_COLOUR + ';color:#fff">' + esc(t('filmed_yes')) + '</span>' : ''}</td></tr>`;
+    return `<div class="tablewrap"><table><tr><th>#</th><th>${t('col_id')}</th><th>${t('col_name')}</th><th>${t('col_cluster')} / ${t('col_fokontany')}</th><th>${t('st_gps')}</th><th>${t('col_filmed')}</th></tr>${r.points.map(row).join('')}${r.reserves.map(row).join('')}</table></div>`;
+  }
+  function renderStrokeMapList(r) { $('map-list').innerHTML = `<h3>${t('st_stop_title')} — ${esc(r.record_id)}</h3><p class="muted">${esc(posLine(r))}</p>` + strokeStopTable(r); }
+
   // buildings for one service area: the FlatGeobuf file is read by HTTP range requests for this box only
   async function fetchBuildings(lat, lon) {
     if (window.SAMPLER_TEST && window.SAMPLER_TEST.buildings) return window.SAMPLER_TEST.buildings(lat, lon);
@@ -2106,15 +2349,44 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   function startGps() { if (F.watch !== null || !navigator.geolocation) return; F.watch = navigator.geolocation.watchPosition(p => { F.pos = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy }; renderFieldNext(); }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 }); }
   async function renderField() {
     const sel = $('f-wp'); const round = state.usageRound; const v = fieldRound(); const usage = !!(v && v.mode === 'usage');
+    if (v && v.mode === 'stroke') return renderStrokeField(v);
     $('f-tools').classList.toggle('hidden', !usage); $('f-round').innerHTML = usage ? `<b>${esc(v.record_id)}</b> · ${esc(posLine(v))}` : '';
-    if (!usage || !round) { sel.innerHTML = ''; $('f-status').textContent = ''; $('f-next').innerHTML = `<p class="muted">${esc(t(usage ? 'f_none' : 'f_need_round'))}</p>`; $('f-buttons').innerHTML = ''; $('f-log').innerHTML = ''; return; }
+    if (!usage || !round) { sel.innerHTML = ''; $('f-status').textContent = ''; $('f-next').innerHTML = `<p class="muted">${esc(t(usage ? 'f_none' : isStroke() ? 'f_need_round_st' : 'f_need_round'))}</p>`; $('f-buttons').innerHTML = ''; $('f-log').innerHTML = ''; return; }
     const cur = sel.value || LS.get('fwp', ''); const list = round.points.concat(round.reserves);
     sel.innerHTML = list.map(w => `<option value="${esc(w.water_point_id)}">${w.reserve ? 'R' : ''}${w.order} · ${esc(w.water_point_id)} · ${esc(w.commune)} / ${esc(w.fokontany)}</option>`).join('');
     sel.value = list.some(w => w.water_point_id === cur) ? cur : list[0].water_point_id;
     await renderFieldNext();
   }
   $('f-wp').onchange = () => { LS.set('fwp', $('f-wp').value); renderFieldNext(true); };
+  // v2.10.0: stroke-test field view: the stop list with GPS and the filmed flag, distance and bearing from the phone; no household stage
+  function renderStrokeField(v) {
+    const sel = $('f-wp'); $('f-tools').classList.add('hidden');
+    const list = v.points.concat(v.reserves); const key = w => (w.reserve ? 'R' : '') + w.order;
+    const cur = sel.value || LS.get('fwp', '');
+    sel.innerHTML = list.map(w => `<option value="${esc(w.water_point_id)}">${key(w)} · ${esc(w.water_point_id)}${w.filmed ? ' · ' + esc(t('filmed_yes')) : ''} · ${esc(w.commune)} / ${esc(w.fokontany)}</option>`).join('');
+    sel.value = list.some(w => w.water_point_id === cur) ? cur : list[0].water_point_id;
+    $('f-status').innerHTML = `<b>${esc(v.record_id)}</b> · ${esc(posLine(v))}`;
+    $('f-buttons').innerHTML = `<p class="muted">${esc(t('st_field_intro'))}</p>`;
+    $('f-log').innerHTML = `<h3>${esc(t('st_stop_title'))}</h3>` + strokeStopTable(v);
+    renderStrokeNext(v, true);
+  }
+  function renderStrokeNext(v, refit) {
+    const id = $('f-wp').value; const w = v.points.concat(v.reserves).find(x => x.water_point_id === id); if (!w) return;
+    const has = isFinite(w.lat) && isFinite(w.lon); const here = F.pos;
+    const where = !has ? esc(t('st_nopos')) : here ? esc(t('st_dist', { d: fmt(Core.haversineKm(here, w), 1), b: Math.round(Core.bearingTo(here, w)), c: compass(Core.bearingTo(here, w)) })) : esc(t('st_nogps'));
+    $('f-next').innerHTML = `<div class="fnext"><div><div class="fbig"${w.filmed ? ` style="color:${FILMED_COLOUR}"` : ''}>${w.reserve ? 'R' : ''}${w.order}</div></div><div><b>${esc(w.water_point_id)}</b> ${esc(w.alt_id || '')}${w.filmed ? ` <span class="pill" style="background:${FILMED_COLOUR};color:#fff">${esc(t('filmed_yes'))}</span>` : ''}${w.reserve ? ` <span class="pill rep-badge">${esc(t('rep_wp'))}</span>` : ''}<br>${esc(w.name || '')} · ${esc(w.commune)} / ${esc(w.fokontany)}<br>${t('st_gps')}: <b>${c5(w.lat)}, ${c5(w.lon)}</b>${has ? ` · <a href="geo:${Number(w.lat).toFixed(6)},${Number(w.lon).toFixed(6)}">${esc(t('st_open_map'))}</a>` : ''}<br>${where}</div></div>`;
+    if (typeof L !== 'undefined' && document.getElementById('fmap').offsetParent) {
+      if (!F.map) { F.map = L.map('fmap', { zoomControl: true }); L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(F.map); F.layers = L.layerGroup().addTo(F.map); }
+      F.layers.clearLayers(); const pts = [];
+      v.points.concat(v.reserves).forEach(x => { if (!isFinite(x.lat)) return; const me = x.water_point_id === id; L.marker([x.lat, x.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon${x.reserve ? ' rep' : ''}" style="${x.filmed ? 'background:' + FILMED_COLOUR + ';' : ''}${me ? 'box-shadow:0 0 0 4px #e07b00;' : ''}">${x.reserve ? 'R' : ''}${x.order}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }), zIndexOffset: me ? 1000 : 0 }).addTo(F.layers); });
+      if (has) pts.push([w.lat, w.lon]);
+      if (F.pos) { L.circleMarker([F.pos.lat, F.pos.lon], { radius: 7, color: '#fff', weight: 2, fillColor: '#2563eb', fillOpacity: 1 }).addTo(F.layers); pts.push([F.pos.lat, F.pos.lon]); }
+      if ((refit || !F.fitted) && pts.length) { F.map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 }); F.fitted = true; }
+      setTimeout(() => F.map.invalidateSize(), 50);
+    }
+  }
   async function renderFieldNext(refit) {
+    const sv = fieldRound(); if (sv && sv.mode === 'stroke') return renderStrokeNext(sv, refit);
     const round = state.usageRound; if (!round) return; const id = $('f-wp').value; const sa = round.areas[id]; const w = round.points.concat(round.reserves).find(x => x.water_point_id === id);
     if (!sa || !w) { $('f-next').innerHTML = `<p class="muted">${esc(t('f_none'))}</p>`; return; }
     const log = (await outcomeLog()).filter(e => e.water_point_id === id);
@@ -2164,7 +2436,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     v.positionsFrom = from; v.positionsCount = ids.filter(id => pos && pos[id]).length; v.idsCount = ids.length; v.frameMatch = false;
     if (from === 'frame' && state.wp) {
       const k = e.record_id + '|' + state.wp.hash;
-      if (!(k in fmMemo)) fmMemo[k] = v.mode === 'usage' ? Core.sha256Sync(Core.frameToCsv(Core.usageFrame(state.points, v.params.stratum, state.wp.source === 'mwater' ? state.fleet : null).points)) === e.frame_sha256 : state.wp.hash === e.frame_sha256;
+      if (!(k in fmMemo)) fmMemo[k] = v.mode === 'usage' || v.mode === 'stroke' ? Core.sha256Sync(Core.frameToCsv(Core.usageFrame(state.points, v.params.stratum, state.wp.source === 'mwater' ? state.fleet : null).points)) === e.frame_sha256 : state.wp.hash === e.frame_sha256;
       v.frameMatch = fmMemo[k];
     }
     return v;
@@ -2184,12 +2456,13 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   function renderRoundBar() {
     const list = Object.values(state.lib).sort(byNewest); $('round-bar').classList.toggle('hidden', !list.length);
     const sel = $('round-sel');
-    sel.innerHTML = `<option value="">${esc(t('rb_none'))}</option>` + list.map(e => `<option value="${esc(e.record_id)}">${esc(e.record_id)} · ${e.mode === 'usage' ? 'SDWS 26' : 'SDWS 18'} · ${esc(t(e.origin === 'opened' ? 'rb_opened' : 'rb_here'))}</option>`).join('');
+    sel.innerHTML = `<option value="">${esc(t('rb_none'))}</option>` + list.map(e => `<option value="${esc(e.record_id)}">${esc(e.record_id)} · ${e.mode === 'usage' ? 'SDWS 26' : e.mode === 'stroke' ? 'SDWS 28' : 'SDWS 18'} · ${esc(t(e.origin === 'opened' ? 'rb_opened' : 'rb_here'))}</option>`).join('');
     sel.value = state.active || ''; const v = fieldRound(); $('round-info').textContent = v ? posLine(v) : '';
   }
   $('round-sel').onchange = () => setActive($('round-sel').value || null);
   // the draw on the Draw tab, as it would be confirmed: the audit text is exactly what the record PDF attaches
   function currentDraw() {
+    if (state.mode === 'stroke') { const r = state.stroke; if (!r) return null; return { mode: 'stroke', auditText: JSON.stringify(r.audit, null, 2), kValues: {}, list: r.points.concat(r.reserves) }; }
     if (state.mode === 'usage') { const r = state.usage; if (!r) return null; const a = JSON.parse(JSON.stringify(r.audit)); a.households = null; return { mode: 'usage', auditText: JSON.stringify(a, null, 2), kValues: {}, list: r.points.concat(r.reserves) }; }
     const r = state.result; if (!r) return null; return { mode: 'pou', auditText: Core.auditJson(r, auditExtra()), kValues: state.kValues, list: r.selected.concat(r.replacements) };
   }
@@ -2197,8 +2470,8 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     const el = $('cf-body'); const btn = $('btn-confirm'); const d = currentDraw();
     if (!d) { el.innerHTML = `<p class="muted">${t('res_empty')}</p>`; btn.classList.add('hidden'); $('btn-next-field').classList.add('hidden'); return; }
     const a = JSON.parse(d.auditText); const sha = Core.sha256Sync(d.auditText); const e = state.lib[a.record_id]; const same = !!(e && e.audit_sha256 === sha);
-    const frameSha = d.mode === 'usage' ? (a.input || {}).frame_sha256 : (a.input || {}).water_points_sha256;
-    const rows = [[t('cf_rid'), `<b class="big">${esc(a.record_id)}</b>`], [t('cf_survey'), esc(t(d.mode === 'usage' ? 'mode_usage' : 'mode_pou'))], [t('p_seed'), `<span class="hash">${esc(a.seed)}</span>`], [t('cf_frame_sha'), `<span class="hash">${esc(frameSha || '—')}</span>`], [t('cf_audit_sha'), `<span class="hash">${esc(sha)}</span>`], [t('cf_drawn'), esc(a.timestamp + ' / ' + (a.drawn_by || '—'))]];
+    const frameSha = d.mode === 'usage' || d.mode === 'stroke' ? (a.input || {}).frame_sha256 : (a.input || {}).water_points_sha256;
+    const rows = [[t('cf_rid'), `<b class="big">${esc(a.record_id)}</b>`], [t('cf_survey'), esc(t(d.mode === 'stroke' ? 'mode_stroke' : d.mode === 'usage' ? 'mode_usage' : 'mode_pou'))], [t('p_seed'), `<span class="hash">${esc(a.seed)}</span>`], [t('cf_frame_sha'), `<span class="hash">${esc(frameSha || '—')}</span>`], [t('cf_audit_sha'), `<span class="hash">${esc(sha)}</span>`], [t('cf_drawn'), esc(a.timestamp + ' / ' + (a.drawn_by || '—'))]];
     el.innerHTML = `<table>${rows.map(x => `<tr><th style="width:12rem">${esc(x[0])}</th><td>${x[1]}</td></tr>`).join('')}</table>` +
       (!e ? `<div class="msg warn">${esc(t('cf_not_yet'))}</div>` + (a.drawn_by ? '' : `<div class="msg err">${esc(t('cf_need_by'))}</div>`) : same ? `<div class="msg ok">${esc(t('cf_done', { at: e.confirmed_at }))}</div>` : `<div class="msg err">${esc(t('cf_other', { rid: a.record_id }))}</div>`);
     btn.classList.remove('hidden'); btn.textContent = t(same ? 'cf_again' : 'cf_btn'); btn.disabled = !!(e && !same) || (!e && !a.drawn_by);
@@ -2288,9 +2561,15 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     $('p-icc').value = last.icc; $('p-pass').value = last.expectedPass; $('p-conf').value = last.confidence; $('p-prectype').value = last.precisionType;
     runDraw(last, false);
   }
+  // v2.10.0: deep link ?mode=stroke (also usage / pou) opens the app in that survey mode
+  const linkMode = (() => { try { const m = new URLSearchParams(location.search).get('mode'); return ['stroke', 'usage', 'pou'].includes(m) ? m : null; } catch (e) { return null; } })();
+  if (linkMode) state.mode = linkMode;
   setMode(state.mode);
+  const slast = LS.get('slast', null);
+  if (state.mode === 'stroke' && slast && state.points.length) { $('p-round').value = slast.roundName; $('p-stratum').value = slast.stratum; $('data-stratum').value = slast.stratum; ['points', 'reserves', 'filmed'].forEach((k, i) => { if (slast[k] !== undefined) $(['p-st-n', 'p-st-r', 'p-st-f'][i]).value = slast[k]; }); updateSeed(); runStrokeDraw(slast, false); }
   const ulast = LS.get('ulast', null);
   if (state.mode === 'usage' && ulast && state.points.length) { $('p-round').value = ulast.roundName; $('p-stratum').value = ulast.stratum; $('data-stratum').value = ulast.stratum; updateSeed(); runUsageDraw(ulast, false); }
   renderPreview(); renderBacklog(); renderMapList(); updateSteps();
-  Lib.load().then(() => setActive(state.active)).catch(e => console.warn('library', e));
+  // a deep-linked mode wins over the last active round: keep it and select the newest confirmed round of that mode (or none)
+  Lib.load().then(() => { const e = state.lib[state.active]; if (linkMode && e && e.mode !== state.mode) { const alt = Object.values(state.lib).filter(x => x.mode === state.mode).sort(byNewest)[0]; return setActive(alt ? alt.record_id : null, { keepMode: true }); } return setActive(state.active); }).catch(e => console.warn('library', e));
 })();
