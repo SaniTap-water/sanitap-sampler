@@ -192,6 +192,10 @@ The service-area clip uses the same rules as the report's SDWS 1 people-served m
 
 Known difference, in the report and not the Sampler (found 30 Sep 2026). The report clips each river line to the circle and then calls shapely `split()`. The clipped line ends miss the circle's boundary by rounding, so on many points the split returns the whole circle, and a river that crosses the circle cuts nothing. Run on the report's own OSM extract for the 31 dry-run service areas, the two agree within about 2 points of area wherever the report's split succeeds. Where it fails they differ by up to 39 points, and extending the report's line ends by 2 m brings it to the Sampler's figure. The Sampler applies the rule as written.
 
+## SDWS 3: fluoride over the kit range (v2.11.0, 23 Nov 2026)
+
+A response with WS7.17.1 = ">1.5mg/l" counts as above 1.5 mg/L and is not creditable, whether or not WS7.17.2 holds a number. The flag is in `data/sdws3_over_range.json`, byte-identical in sanitap-water-report.
+
 ## Stroke test mode (SDWS 28) — v2.10.0
 
 Choose **Stroke test (SDWS 28)** (FR *Test de pompage (SDWS 28)*) under *Survey* on the Parameters tab, or open https://sanitap-water.github.io/sanitap-sampler/?mode=stroke (the water dashboard links there). It draws the pumps for the 5-minute stroke test and the filmed day of SOP-MAD-SDWS28-StrokeTest v2.7, section 2, as asked by James Walker (Carbon Lead) on 9 and 10 November 2026.

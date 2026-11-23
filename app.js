@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.10.0';
+const APP_VERSION = '2.11.0';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -412,11 +412,14 @@ const Core = (function () {
 `;
   const SDWS3_RULE = JSON.parse(SDWS3_RULE_JSON);
   const SDWS3_OPS = { '>': (v, t) => v > t, '>=': (v, t) => v >= t };
+  // a result recorded as over the kit's range has no number, and a blank must not read as a pass (Adriaan Mol, 23 Nov 2026).
+  // Same content as data/sdws3_over_range.json, shared with sanitap-water-report.
+  const SDWS3_OVER_RANGE = { fluoride: { code: 'WS7.17.1', q: '344a0c5ebbcb4d76997f5f49e0785517', choice: 'dmhCPWG', label: '>1.5mg/l' } };
   function sdws3Num(x) { if (x === null || x === undefined || x === '' || typeof x === 'boolean') return null; const v = Number(x); return isNaN(v) ? null : v; }
   // failing parameters of one response under the rule, after its named exception (if any)
   function sdws3Judge(r, rule) {
     const exc = rule.exceptions.find(e => e.response === r.code) || null; const ignore = new Set(exc ? exc.ignore : []); const failing = [], ignored = [];
-    rule.fail_if.forEach(t => { const a = (r.data || {})[t.q]; const v = sdws3Num(a && typeof a === 'object' ? a.value : a); if (v === null || !SDWS3_OPS[t.op](v, t.limit)) return; (ignore.has(t.key) ? ignored : failing).push({ key: t.key, value: v }); });
+    rule.fail_if.forEach(t => { const a = (r.data || {})[t.q]; const v = sdws3Num(a && typeof a === 'object' ? a.value : a); const fl = SDWS3_OVER_RANGE[t.key]; const fa = fl ? (r.data || {})[fl.q] : null; const over = !!fl && (fa && typeof fa === 'object' ? fa.value : fa) === fl.choice; if (!over && (v === null || !SDWS3_OPS[t.op](v, t.limit))) return; (ignore.has(t.key) ? ignored : failing).push(over ? { key: t.key, value: t.limit, over_range: true } : { key: t.key, value: v }); });
     return { failing, ignored, exc };
   }
   // per water point with a final result: its latest final result (result date, then submission time) and whether that result is creditable.
@@ -561,7 +564,7 @@ const Core = (function () {
     const missing = [...new Set(entities.filter(e => !e.admin_div2 && e.admin_region).map(e => e.admin_region))];
     const regionsById = {};
     if (missing.length) { const regs = await mwaterGet('admin_regions', { filter: JSON.stringify({ _id: { $in: missing } }), fields: JSON.stringify({ _id: 1, full_name: 1 }), limit: String(missing.length) }, token, F); regs.forEach(r => { regionsById[r._id] = r; }); }
-    const sd = cfg.sdws3; const sdFields = { ['data.' + sd.wpQ]: 1, ['data.' + sd.dateQ]: 1, submittedOn: 1, status: 1, code: 1, form: 1 }; sd.params.forEach(pm => { sdFields['data.' + pm.q] = 1; }); SDWS3_RULE.fail_if.forEach(t => { sdFields['data.' + t.q] = 1; });
+    const sd = cfg.sdws3; const sdFields = { ['data.' + sd.wpQ]: 1, ['data.' + sd.dateQ]: 1, submittedOn: 1, status: 1, code: 1, form: 1 }; sd.params.forEach(pm => { sdFields['data.' + pm.q] = 1; }); SDWS3_RULE.fail_if.forEach(t => { sdFields['data.' + t.q] = 1; }); Object.values(SDWS3_OVER_RANGE).forEach(x => { sdFields['data.' + x.q] = 1; });
     const sdResp = await mwaterPages('responses', { form: sd.id, status: 'final' }, sdFields, token, prog, F); used.push(sd.id);
     const passing = sdws3PassingPoints(sdResp, sd);
     const notCreditable = sdws3Creditable(sdResp, SDWS3_RULE);
@@ -1397,7 +1400,7 @@ const Core = (function () {
   return { STROKE, STROKE_ALGORITHM, strokeSeed, strokeRecordId, drawStroke, strokeSelectionCsv, strokeSelectionWorkbook, buildStrokeRecordPdf, withReserves, recordIdTaken,
     FIELD_PACK_KIND, fieldPack, isFieldPackText, openFieldPack, householdSummary, translate, idbOpen, openOutcome, recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
     TILES, MAP_PALETTE, tileUrl, tileFetcher, mercX, mercY, mapClusters, mapView, viewTiles, addMapPages, recordStops,
-    SDWS3_RULE, SDWS3_RULE_JSON, sdws3Creditable, isNotCreditable, CREDIT_RULE_TEXT, USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, kFor, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
+    SDWS3_RULE, SDWS3_RULE_JSON, SDWS3_OVER_RANGE, sdws3Creditable, isNotCreditable, CREDIT_RULE_TEXT, USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, kFor, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
 

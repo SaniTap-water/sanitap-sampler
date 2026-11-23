@@ -67,3 +67,16 @@ test('SDWS 26 frame: not-creditable rows are left out, from the CSV row itself, 
   const before = C.usageFrame(C.normaliseWaterPoints(C.parseCsv(C.frameToCsv(frame(false).points)).records).points, 'HP-FD', fleet);
   assert.deepEqual(before.points.map(p => p.water_point_id), ['1', '2', '3', '4']); assert.equal(before.counts.not_creditable, undefined);
 });
+
+test('fluoride recorded as over range fails whether or not a number is stored (23 Nov 2026)', () => {
+  const file = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'sdws3_over_range.json'), 'utf8'));
+  assert.deepEqual(C.SDWS3_OVER_RANGE, file.parameters);
+  const x = C.SDWS3_OVER_RANGE.fluoride; const flu = R.fail_if.find(t => t.key === 'fluoride');
+  const one = (extra) => ({ _id: 'a', code: 'A', form: F.id, status: 'final', submittedOn: '2025-08-15T09:00:00Z', data: Object.assign({ [F.site_q]: { value: { code: '800634100' } }, [F.date_q]: { value: '2025-08-15T09:00:00Z' } }, extra) });
+  const verdict = (extra) => C.sdws3Creditable([one(extra)])['800634100'];
+  const over = verdict({ [x.q]: { value: x.choice } });
+  assert.equal(over.creditable, false); assert.equal(over.failing[0].key, 'fluoride'); assert.equal(over.failing[0].over_range, true);
+  assert.equal(verdict({ [x.q]: { value: x.choice }, [flu.q]: { value: 1.2 } }).creditable, false);
+  assert.equal(verdict({ [x.q]: { value: 'xkGrfr3' }, [flu.q]: { value: 1.2 } }).creditable, true);
+  assert.equal(verdict({}).creditable, true);
+});

@@ -1,0 +1,12 @@
+{
+ "note": "A result recorded as over the test kit's range has no number, so a blank value must not read as a pass. One file in two repositories (sanitap-water-report and sanitap-sampler), byte-identical. Decision: Adriaan Mol, 23 Nov 2026. Evidence: Lanja Randriamanantena, Asana comment 'Evidence (11 Nov 2026)'.",
+ "form": "7b33c5d7e5074808a94915939a5a0783",
+ "parameters": {
+  "fluoride": {
+   "code": "WS7.17.1",
+   "q": "344a0c5ebbcb4d76997f5f49e0785517",
+   "choice": "dmhCPWG",
+   "label": ">1.5mg/l"
+  }
+ }
+}
