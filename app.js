@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.13.0';
+const APP_VERSION = '2.13.1';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -952,14 +952,18 @@ const Core = (function () {
    * The rule is written to the audit only when it is nearestPoint1km, so every circle1km round (2026_R1_Maro, 2026_R1_FTU, all
    * HP-FD) keeps a byte-identical audit and record. */
   const HOUSEHOLD_AREA = {
-    default: 'circle1km', byStratum: { 'HP-MA': 'nearestPoint1km' }, fromYear: 2027, version: 1,
+    // v2.13.1: the HP-MA nearest-point rule was assessed on 24 Nov 2026 and NOT adopted (96 of 598 HP-MA points could not supply
+    // 15 households; median 44 buildings against 758 under the circle). Every stratum and year uses circle1km; the nearestPoint1km
+    // path is kept, unused, with its tests (they switch it on through byStratum or window.SAMPLER_TEST.householdArea).
+    default: 'circle1km', byStratum: {}, fromYear: 2027, version: 1,
     neighbourM: 2000, // a premise within 1 km can only be nearer to a point within 2 km of the selected one
-    sop: 'SOP-MAD-SDWS26 v0.5 section 4.3 (household area, HP-MA, from the 2027 usage round)'
+    sop: 'SOP-MAD-SDWS26 v0.5 section 4.3 (assessed, not adopted: test configuration only)'
   };
   // the round's year: the first 20xx in the round name, else the draw date
   function roundYear(roundName, timestamp) { const m = /(?:^|[^0-9])(20\d\d)(?![0-9])/.exec(String(roundName || '')); if (m) return +m[1]; const d = new Date(timestamp || Date.now()); return isNaN(d) ? null : d.getUTCFullYear(); }
   function householdAreaRule(stratum, roundName, timestamp) {
-    const r = HOUSEHOLD_AREA.byStratum[String(stratum)] || HOUSEHOLD_AREA.default; if (r === HOUSEHOLD_AREA.default) return r;
+    const by = (typeof window !== 'undefined' && window.SAMPLER_TEST && window.SAMPLER_TEST.householdArea) || HOUSEHOLD_AREA.byStratum; // test hook
+    const r = by[String(stratum)] || HOUSEHOLD_AREA.default; if (r === HOUSEHOLD_AREA.default) return r;
     const y = roundYear(roundName, timestamp); return y !== null && y >= HOUSEHOLD_AREA.fromYear ? r : HOUSEHOLD_AREA.default;
   }
   // the points a premise can be "nearer to": every MadAvance programme point of the loaded frame (all strata, any SDWS 3 status) that
@@ -993,7 +997,7 @@ const Core = (function () {
   }
   // what the audit says about the rule (only for nearestPoint1km)
   function householdAreaAudit(rule, comp) {
-    return { rule, version: HOUSEHOLD_AREA.version, radius_m: USAGE.radiusM, sop: HOUSEHOLD_AREA.sop, applies: 'stratum ' + Object.keys(HOUSEHOLD_AREA.byStratum).join(', ') + ', usage rounds of ' + HOUSEHOLD_AREA.fromYear + ' and later',
+    return { rule, version: HOUSEHOLD_AREA.version, radius_m: USAGE.radiusM, sop: HOUSEHOLD_AREA.sop, applies: 'stratum ' + Object.keys(HOUSEHOLD_AREA.byStratum).join(', ') + ' (test configuration), usage rounds of ' + HOUSEHOLD_AREA.fromYear + ' and later',
       definition: 'a premise within ' + USAGE.radiusM + ' m of the selected water point (true distance, after the barrier clip) is a candidate only if the selected point is its nearest water point among the competitors; equal distances go to the lower water point code; the candidate list is then drawn exactly as before (sorted keys, seed|water point|B=n)',
       competitors: { definition: 'MadAvance programme water points of the loaded frame, all strata and SDWS 3 statuses, not abandoned, with a position', count: comp.points.length, sha256: comp.sha256 }, neighbour_m: HOUSEHOLD_AREA.neighbourM };
   }

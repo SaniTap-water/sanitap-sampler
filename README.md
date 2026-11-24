@@ -2,7 +2,7 @@
 
 A static, offline-capable web tool that draws **statistically valid, logistics-aware samples** for the SaniTap programme under the Gold Standard *Safe Drinking Water Supply* (SDWS) methodology v2.0, in three modes chosen on the Parameters tab (SDWS 18 point-of-use, usage survey SDWS 26 and, since v2.10.0, stroke test SDWS 28):
 
-- **Household area per stratum** — v2.13.0: from the 2027 usage round, HP-MA (Maroantsetra) draws households only from the part of the 1 km service area nearer to the drawn water point than to any other programme water point (SOP-MAD-SDWS26 v0.5, section 4.3). 2026 rounds and HP-FD are unchanged. See [Household area](#household-area-v2130).
+- **Household area: 1 km circle everywhere** — v2.13.1: the HP-MA nearest-water-point rule of v2.13.0 was assessed on 24 Nov 2026 and not adopted (96 of 598 HP-MA water points could not supply 15 households). Every stratum and year keeps the 1 km circle; the rule's code stays, unused, with its tests. See [Household area](#household-area-v2130).
 - **Position popup on every marker** — v2.12.1: tap a marker on the Map tab or a Field tab map to see its number/role, code, name, latitude and longitude (WGS 84, 6 decimals), with *Copier* and *Naviguer*. See [Marker popups](#marker-popups-v2121).
 - **Satellite map and installable app** — v2.12.0: the Map tab and the field maps have a *Carte / Satellite* switch (satellite by default, remembered per device) and the Sampler installs as an app on Android Chrome. See [Satellite basemap](#satellite-basemap-v2120) and [Install as an app](#install-as-an-app-v2120).
 - **Stroke test (SDWS 28)** — v2.10.0: a simple random sample of 50 water points plus 10 reserves per stratum from the usage frame, the first 10 filmed for one day, kept apart from every other sample (record id `<round>-<stratum>-ST`). Deep link `?mode=stroke`. See [Stroke test mode](#stroke-test-mode-sdws-28-v2100).
@@ -209,6 +209,8 @@ Field teams found houses hard to pick out on the road map (voice note, 24 Nov 20
 - The record PDF basemap is unchanged (World Street Map), so the SDWS 18 PDF baseline is unchanged.
 
 ## Household area (v2.13.0)
+
+> **v2.13.1: not adopted.** The feasibility check of 24 Nov 2026 on the live HP-MA frame (598 points, 890 programme points compared) found 96 points whose cell keeps fewer than the 15 buildings needed (66 fewer than 10, 9 none), median 44 buildings against 758 under the 1 km circle. `HOUSEHOLD_AREA.byStratum` is empty, so every stratum and year uses `circle1km`; the description below is of the unused `nearestPoint1km` path, which the tests switch on (`byStratum`, or `window.SAMPLER_TEST.householdArea` in the browser). The list is filed in `Evidence/Sampling records/feasibility/feas-HP-MA-nearest-point-2026-11-24.json`.
 
 Field request (24 Nov 2026): in Maroantsetra one 1 km circle can hold three or four programme water points. SOP-MAD-SDWS26 v0.5 section 4.3 adds a per-stratum household area (`Core.HOUSEHOLD_AREA`):
 

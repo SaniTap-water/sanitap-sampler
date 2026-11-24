@@ -14,6 +14,15 @@ function frame(stratum) {
   const pts = []; for (let c = 0; c < 6; c++) for (let f = 0; f < 5; f++) for (let i = 0; i < 3; i++) { const q = at(c * 6000 + i * 300, f * 3000); pts.push({ water_point_id: 'MA' + c + f + i, name: 'Canzee', stratum, commune: 'Commune ' + c, fokontany: 'Fkt ' + c + f, lat: q.lat, lon: q.lon, households_served: 0, active: true, status: 'active', status_reason: '', abandoned: 'N' }); }
   return pts;
 }
+// v2.13.1: the rule was not adopted; production uses the circle everywhere. These tests switch the unused path on for HP-MA.
+const PROD_BY_STRATUM = JSON.parse(JSON.stringify(C.HOUSEHOLD_AREA.byStratum));
+test('production: the 1 km circle for every stratum and year (nearestPoint1km assessed 24 Nov 2026, not adopted)', () => {
+  assert.deepEqual(PROD_BY_STRATUM, {});
+  for (const s of ['HP-MA', 'HP-FD', 'FD', 'MA']) for (const r of ['2026_R1_Maro', '2027_R1_Maro', '2030 R1', 'R1']) assert.equal(C.householdAreaRule(s, r, '2031-01-01T00:00:00Z'), 'circle1km', s + ' ' + r);
+  const pts = frame('HP-MA'); const r = C.drawUsage(Object.assign(P('HP-MA', '2027_R1_Maro'), { competitors: pts }), pts);
+  assert.equal(r.householdArea, 'circle1km'); assert.equal(r.audit.parameters.household_area, undefined); assert.ok(!/cell_neighbours/.test(JSON.stringify(r.audit)));
+  C.HOUSEHOLD_AREA.byStratum['HP-MA'] = 'nearestPoint1km'; // test configuration for the rest of this file
+});
 const P = (stratum, round) => ({ roundName: round, stratum, seed: round.replace(/\s+/g, '') + '-' + stratum + '-U', timestamp: '2026-11-24T00:00:00.000Z', drawnBy: 'Test', frameHash: 'cd'.repeat(32) });
 
 test('rule: HP-MA from the 2027 usage round; 2026 rounds, HP-FD and other strata keep the 1 km circle', () => {

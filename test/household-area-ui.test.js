@@ -33,7 +33,7 @@ test('UI: HP-MA 2027 usage round: rule in the audit, households inside the cells
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'household-area-ui-')); const server = await serve(); const base = 'http://127.0.0.1:' + server.address().port + '/';
   const browser = await pw.chromium.launch();
   try {
-    const ctxA = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', acceptDownloads: true }); await ctxA.addInitScript(SYNTH);
+    const ctxA = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', acceptDownloads: true }); await ctxA.addInitScript(SYNTH); await ctxA.addInitScript(() => { window.SAMPLER_TEST.householdArea = { 'HP-MA': 'nearestPoint1km' }; }); // v2.13.1: rule not adopted, switched on for this test
     await ctxA.route(/(arcgisonline\.com|tile\.openstreetmap\.org)/, r => r.fulfill({ status: 404 }));
     const { page: a, errs: errsA } = await boot(ctxA, base);
     await a.click('#btn-sample'); await a.waitForTimeout(500); await a.click('nav button[data-tab="params"]');
