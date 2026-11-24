@@ -26,7 +26,7 @@ const round = args.round || '2026-DRY';
   const out = { round, frame_points: points.length, not_creditable: frame.creditRule.not_creditable, fleet_sha256: fleet.sha256, buildings: C.USAGE.buildings.name, buildings_version: version, scenarios: {} };
   for (const scenario of ['HP-FD', 'HP-MA']) {
     const uf = C.usageFrame(points, scenario, fleet);
-    const p = { roundName: round, stratum: scenario, seed: round.replace(/\s+/g, '') + '-' + scenario + '-U', timestamp: new Date().toISOString(), drawnBy: 'dry run', source: 'mwater', frameHash: C.sha256Sync(C.frameToCsv(uf.points)), frameCounts: uf.counts };
+    const p = { roundName: round, stratum: scenario, seed: round.replace(/\s+/g, '') + '-' + scenario + '-U', timestamp: new Date().toISOString(), drawnBy: 'dry run', source: 'mwater', frameHash: C.sha256Sync(C.frameToCsv(uf.points)), frameCounts: uf.counts, competitors: points }; // competitors: v2.13.0 household area (HP-MA, 2027+)
     const r = C.drawUsage(p, uf.points); const again = C.drawUsage(p, uf.points.slice().reverse());
     if (JSON.stringify(r.audit.water_points) !== JSON.stringify(again.audit.water_points)) throw new Error('not reproducible');
     const areas = [];
@@ -43,7 +43,7 @@ const round = args.round || '2026-DRY';
       // Overpass refuses generic client User-Agents (HTTP 406) and is often busy (504): identify the tool and retry
       for (let attempt = 0; attempt < 6 && !osm; attempt++) { try { const o = await fetch(C.USAGE.overpass, { method: 'POST', body: 'data=' + encodeURIComponent(C.overpassQuery(w.lat, w.lon)), headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'SaniTap-Sampler/' + C.APP_VERSION + ' (+' + C.APP_URL + ')' } }); if (o.ok) osm = await o.json(); else await new Promise(res => setTimeout(res, 3000 * (attempt + 1))); } catch (e) { await new Promise(res => setTimeout(res, 3000 * (attempt + 1))); } }
       if (!osm) { areas.push({ water_point_id: w.water_point_id, error: 'Overpass unavailable' }); continue; }
-      const sa = C.prepareServiceArea({ seed: p.seed, wp: w, features, osm });
+      const sa = C.prepareServiceArea({ seed: p.seed, wp: w, features, osm, rule: r.householdArea, neighbours: r.neighbours ? r.neighbours[w.water_point_id] : undefined });
       areas.push(Object.assign({ reserve: !!w.reserve, footprints_read: features.length }, C.auditServiceArea(sa)));
       process.stderr.write('.');
     }

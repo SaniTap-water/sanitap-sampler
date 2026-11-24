@@ -2,6 +2,7 @@
 
 A static, offline-capable web tool that draws **statistically valid, logistics-aware samples** for the SaniTap programme under the Gold Standard *Safe Drinking Water Supply* (SDWS) methodology v2.0, in three modes chosen on the Parameters tab (SDWS 18 point-of-use, usage survey SDWS 26 and, since v2.10.0, stroke test SDWS 28):
 
+- **Household area per stratum** — v2.13.0: from the 2027 usage round, HP-MA (Maroantsetra) draws households only from the part of the 1 km service area nearer to the drawn water point than to any other programme water point (SOP-MAD-SDWS26 v0.5, section 4.3). 2026 rounds and HP-FD are unchanged. See [Household area](#household-area-v2130).
 - **Position popup on every marker** — v2.12.1: tap a marker on the Map tab or a Field tab map to see its number/role, code, name, latitude and longitude (WGS 84, 6 decimals), with *Copier* and *Naviguer*. See [Marker popups](#marker-popups-v2121).
 - **Satellite map and installable app** — v2.12.0: the Map tab and the field maps have a *Carte / Satellite* switch (satellite by default, remembered per device) and the Sampler installs as an app on Android Chrome. See [Satellite basemap](#satellite-basemap-v2120) and [Install as an app](#install-as-an-app-v2120).
 - **Stroke test (SDWS 28)** — v2.10.0: a simple random sample of 50 water points plus 10 reserves per stratum from the usage frame, the first 10 filmed for one day, kept apart from every other sample (record id `<round>-<stratum>-ST`). Deep link `?mode=stroke`. See [Stroke test mode](#stroke-test-mode-sdws-28-v2100).
@@ -30,6 +31,7 @@ data/sdws3_rule.json           the SDWS 3 creditable rule, byte-identical in san
 data/sdws3_rule_cases.json     its shared test cases (both repositories' implementations must give these verdicts)
 bin/file-round.js              files a drawn round in the SharePoint evidence folder (append-only, index.md); no git
 bin/reissue-record.js          reissues a filed SDWS 18 or (v2.8.2) usage-survey record as a new version in the SharePoint folder (v2.8.0: with the map), same draw, checked
+bin/cell-feasibility.js        household-area check: buildings kept per nearest-point cell for every frame point of a stratum (ids and counts only)
 bin/config.js                  reads sampler.local.json (gitignored): records_dir = the SharePoint "Sampling records" folder
 bin/audit-cases.js             audit.json texts of fixed draws (test/fixtures/audit-baseline-v2.7.0.json was written from v2.7.0)
 sampler.local.example.json     template for sampler.local.json
@@ -206,6 +208,18 @@ Field teams found houses hard to pick out on the road map (voice note, 24 Nov 20
 - **Online only.** Tiles are never cached by `sw.js` and never pre-fetched. Offline, or when satellite tiles keep failing, the map says *Image satellite disponible seulement avec internet* (English: *Satellite imagery only available with internet*); markers, the stop list, the GPS position and the outcome buttons keep working. Switching to *Carte* hides the notice (OSM tiles seen before may still be in the browser's HTTP cache).
 - The record PDF basemap is unchanged (World Street Map), so the SDWS 18 PDF baseline is unchanged.
 
+## Household area (v2.13.0)
+
+Field request (24 Nov 2026): in Maroantsetra one 1 km circle can hold three or four programme water points. SOP-MAD-SDWS26 v0.5 section 4.3 adds a per-stratum household area (`Core.HOUSEHOLD_AREA`):
+
+- `circle1km` (unchanged): every building within 1,000 m of the drawn water point, after the barrier clip. All strata, and every round before 2027.
+- `nearestPoint1km`: the same buildings, kept only if the drawn water point is also the building's **nearest** MadAvance programme water point; equal distances go to the lower water point code. **HP-MA usage rounds of 2027 and later** (`householdAreaRule(stratum, round, timestamp)`: the year is the first `20xx` in the round name, else the draw date).
+- Water points compared ("competitors"): every programme point of the loaded mWater frame, all strata and SDWS 3 statuses, not abandoned, with a position (`competitorSet`). Only points within 2 km of a drawn point can matter (`cellNeighbours`).
+- The filter runs on the building list before the household draw, which is unchanged (sorted keys, seed `|` water point `|B=n`, 10 + 5 reserves, reserves in order).
+- **Audit and record**: for `nearestPoint1km` only, `parameters.household_area` (rule, version, radius, SOP, definition, competitors count and SHA-256) and `cell_neighbours` (ids) on each drawn point; per service area `nearer_other_point` (buildings in the circle but nearer another point). The record PDF prints the rule in section 8. Circle rounds write none of this, so their audits and PDFs are byte-identical; the filed 2026_R1_Maro and 2026_R1_FTU records rebuild byte for byte (`test/household-area.test.js`).
+- **Positions stay on the device**: the neighbours' positions are kept with the confirmed round and carried in the field pack, never in a record. The Map and Field tabs draw the cell (1 km disc cut by the perpendicular bisector with each neighbour, dashed).
+- **Feasibility**: `FGB_DIR=... node bin/cell-feasibility.js --env ~/mwater-mcp/.env --stratum HP-MA [--json out.json]` counts the buildings each frame point's cell keeps against the 15 needed (10 + 5 reserves); ids and counts only.
+
 ## Marker popups (v2.12.1)
 
 Field request (voice note, 24 Nov 2026): see the GPS position of each point on the map. Every marker (selected sources, replacements and reserves, Test A backlog points on the Map tab; water points, reserves, the service-area water point and each drawn household on the Field tab maps of the usage survey, field pack and stroke test) opens a popup in French on tap:
@@ -279,7 +293,7 @@ Mapper, draw, record and export tests (Node 18+, no dependencies):
 node --test test/*.test.js
 ```
 
-Set `PDFLIB_DIR` to a folder containing `node_modules/pdf-lib` (1.17.1) to include the PDF tests. Set `PLAYWRIGHT_DIR` to a folder containing `node_modules/playwright` for `test/open-ui.test.js`, `test/basemap.test.js` (basemap switch, persistence, offline notice) and `test/popup.test.js` (marker popup, copy fallback), which serve this checkout on localhost and drives the page (`UI_BROWSERS=chromium,webkit` for both; the CDN scripts need the network). Without these the tests print "skipped" and still count as passing, so check the output. `test/sdws18-regression.test.js` compares every SDWS 18 draw (18 on the sample frame, 4 on the mWater-shape fixture) and six record PDFs with the baseline that v2.2.0 wrote before the usage mode existed; a change that moves any of them fails.
+Set `PDFLIB_DIR` to a folder containing `node_modules/pdf-lib` (1.17.1) to include the PDF tests. Set `PLAYWRIGHT_DIR` to a folder containing `node_modules/playwright` for `test/open-ui.test.js`, `test/basemap.test.js` (basemap switch, persistence, offline notice), `test/popup.test.js` (marker popup, copy fallback) and `test/household-area-ui.test.js` (HP-MA 2027 round, cells on the maps, offline tablet B), which serve this checkout on localhost and drives the page (`UI_BROWSERS=chromium,webkit` for both; the CDN scripts need the network). Without these the tests print "skipped" and still count as passing, so check the output. `test/sdws18-regression.test.js` compares every SDWS 18 draw (18 on the sample frame, 4 on the mWater-shape fixture) and six record PDFs with the baseline that v2.2.0 wrote before the usage mode existed; a change that moves any of them fails.
 
 ## Map and stop list (v2.8.0)
 

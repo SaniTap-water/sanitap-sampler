@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.12.1';
+const APP_VERSION = '2.13.0';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -884,10 +884,12 @@ const Core = (function () {
     heading(T.h_reserves); para(T.reserves_note);
     table([T.t_no, T.t_id, T.t_commune + ' / ' + T.t_fokontany, T.t_pcond], a.reserves.map(w => ['R' + w.order, w.water_point_id + (w.alt_id ? ' / ' + w.alt_id : ''), w.commune + ' / ' + w.fokontany, num(w.p_conditional, 4)]), [30, 110, 220, CW - 360]);
     heading(T.h_households); para(T.households_rule);
+    const HA = P.household_area; // v2.13.0: printed only for nearestPoint1km rounds (circle1km records unchanged)
+    if (HA) kvRow(T.hh_area, T.hh_area_v.replace('{rule}', HA.rule).replace('{ver}', HA.version).replace('{sop}', HA.sop).replace('{def}', HA.definition).replace('{cdef}', HA.competitors.definition).replace('{n}', num(HA.competitors.count)).replace('{sha}', HA.competitors.sha256).replace('{nm}', num(HA.neighbour_m)));
     const hh = a.households;
     if (hh && hh.service_areas && hh.service_areas.length) {
       kvRow(T.hh_dataset, (hh.dataset || '') + (hh.version ? ' — ' + hh.version : ''));
-      table([T.t_id, T.t_circle, T.t_kept, T.t_area, T.t_barriers, T.t_bsha], hh.service_areas.map(sa => [sa.water_point_id, num(sa.buildings_in_circle), num(sa.buildings_kept) + (sa.short ? ' ' + T.short : ''), num(sa.area_kept_pct, 1) + ' %', Object.keys(sa.barrier_ways || {}).map(k => k + ' ' + sa.barrier_ways[k]).join(', ') + (sa.crossings ? ' · ' + T.crossings + ' ' + sa.crossings : ''), String(sa.buildings_sha256 || '').slice(0, 16)]), [85, 60, 70, 55, 125, CW - 395]);
+      table([T.t_id, T.t_circle, T.t_kept, T.t_area, T.t_barriers, T.t_bsha], hh.service_areas.map(sa => [sa.water_point_id, num(sa.buildings_in_circle), num(sa.buildings_kept) + (sa.short ? ' ' + T.short : '') + (sa.nearer_other_point !== undefined ? ' (' + T.t_nearer + ' ' + num(sa.nearer_other_point) + ')' : ''), num(sa.area_kept_pct, 1) + ' %', Object.keys(sa.barrier_ways || {}).map(k => k + ' ' + sa.barrier_ways[k]).join(', ') + (sa.crossings ? ' · ' + T.crossings + ' ' + sa.crossings : ''), String(sa.buildings_sha256 || '').slice(0, 16)]), [85, 60, 70, 55, 125, CW - 395]);
     } else para(T.hh_not_prepared);
     if (a.warnings && a.warnings.length) { heading(T.h_warnings); a.warnings.forEach(wn => para('- ' + JSON.stringify(wn))); }
     if (ctx.map) { const TM = (I18N[lang] && I18N[lang].pmap) || I18N.en.pmap; const stops = recordStops(a, ctx.map.positions, () => ({ K: null, text: TM.u_numbers })); ctx.mapResult = await addMapPages({ doc, font, bold, PDFLib: ctx.PDFLib, T: TM, stops, mode: 'usage', zones: (a.zones || []).map(z => z.name), town: (MWATER.strata[P.scenario] || {}).town || null, stratum: P.scenario, rid, sectionNo: 10, positionsNote: positionsNote(TM, stops), reissueNote: ctx.map.reissue ? TM.reissued.replace('{at}', ctx.map.reissue.at).replace('{v}', ctx.map.reissue.version).replace('{c}', ctx.map.reissue.commit || 'dev') : '', fetchTile: ctx.map.fetchTile || null }); }
@@ -942,6 +944,59 @@ const Core = (function () {
     overpass: 'https://overpass-api.de/api/interpreter'
   };
   const USAGE_ALGORITHM = 'zones (SOP-MAD-SDWS26 v0.4 s.4.2), built from the frame before the draw: every commune starts as its own zone; while a zone has fewer than 4 fokontany holding frame points, the zone with the fewest (ties: zone name) joins the zone holding the nearest commune, by straight-line distance between commune frame-point centres (ties: zone name); a zone is named by its communes in name order; seed string <round>-<scenario>-U -> xmur3 -> mulberry32; stage 1: 3 zones by systematic PPS on the number of frame points (zones in name order); stage 2: 4 fokontany per zone by simple random sampling among its fokontany with at least 1 frame point (commune / fokontany name order); stage 3: 1 water point per fokontany at equal probability (id order); 1 reserve water point per zone at equal probability among its undrawn points; households: building footprints (Google Open Buildings v3) whose centroid lies inside the 1 km service area after the barrier clip, sorted by key, 10 + 5 reserves drawn in random order with mulberry32 seeded by seed|water_point_id|B=<count>';
+  /* Household area (v2.13.0, SOP-MAD-SDWS26 v0.5): per stratum, which premises may be drawn for a selected water point.
+   *  circle1km        every premise within 1,000 m (barrier clip as before). All strata, and every round before 2027.
+   *  nearestPoint1km  the same premises, kept only when this water point is also the premise's nearest non-abandoned MadAvance
+   *                   programme water point (true distance; equal distances go to the lower water point code). HP-MA
+   *                   (Maroantsetra), usage rounds of 2027 and later: dense points there made 1 km circles overlap.
+   * The rule is written to the audit only when it is nearestPoint1km, so every circle1km round (2026_R1_Maro, 2026_R1_FTU, all
+   * HP-FD) keeps a byte-identical audit and record. */
+  const HOUSEHOLD_AREA = {
+    default: 'circle1km', byStratum: { 'HP-MA': 'nearestPoint1km' }, fromYear: 2027, version: 1,
+    neighbourM: 2000, // a premise within 1 km can only be nearer to a point within 2 km of the selected one
+    sop: 'SOP-MAD-SDWS26 v0.5 section 4.3 (household area, HP-MA, from the 2027 usage round)'
+  };
+  // the round's year: the first 20xx in the round name, else the draw date
+  function roundYear(roundName, timestamp) { const m = /(?:^|[^0-9])(20\d\d)(?![0-9])/.exec(String(roundName || '')); if (m) return +m[1]; const d = new Date(timestamp || Date.now()); return isNaN(d) ? null : d.getUTCFullYear(); }
+  function householdAreaRule(stratum, roundName, timestamp) {
+    const r = HOUSEHOLD_AREA.byStratum[String(stratum)] || HOUSEHOLD_AREA.default; if (r === HOUSEHOLD_AREA.default) return r;
+    const y = roundYear(roundName, timestamp); return y !== null && y >= HOUSEHOLD_AREA.fromYear ? r : HOUSEHOLD_AREA.default;
+  }
+  // the points a premise can be "nearer to": every MadAvance programme point of the loaded frame (all strata, any SDWS 3 status) that
+  // is not abandoned and has a position; a CSV frame without status_reason/abandoned columns uses its active rows
+  function isAbandoned(p) { if (String(p.abandoned || '').toUpperCase() === 'Y' || /^abandoned/.test(String(p.status_reason || ''))) return true; return p.status_reason === undefined && p.abandoned === undefined && p.active === false; }
+  function competitorSet(points) {
+    const seen = new Set(); const out = [];
+    (points || []).forEach(p => { const id = String(p.water_point_id); const lat = Number(p.lat), lon = Number(p.lon); if (!id || seen.has(id) || isAbandoned(p) || p.lat === '' || p.lon === '' || !isFinite(lat) || !isFinite(lon)) return; seen.add(id); out.push({ water_point_id: id, lat, lon }); });
+    out.sort((a, b) => a.water_point_id.localeCompare(b.water_point_id));
+    return { points: out, sha256: sha256Sync(out.map(c => c.water_point_id + ',' + c.lat.toFixed(6) + ',' + c.lon.toFixed(6)).join('\n')) };
+  }
+  const distM = (a, b) => haversineKm(a, b) * 1000;
+  // neighbours of a water point: competitors within neighbourM, itself excluded, sorted by code
+  function cellNeighbours(wp, competitors) { const id = String(wp.water_point_id); return (competitors || []).filter(c => c.water_point_id !== id && distM(wp, c) <= HOUSEHOLD_AREA.neighbourM).sort((a, b) => a.water_point_id.localeCompare(b.water_point_id)); }
+  // does the premise at q belong to wp's cell? (wp nearest; ties to the lower code)
+  function inCell(q, wp, neighbours) {
+    const id = String(wp.water_point_id); const d0 = distM(q, wp);
+    return !(neighbours || []).some(c => { const d = distM(q, c); return d < d0 || (d === d0 && c.water_point_id < id); });
+  }
+  // the cell drawn on the maps: the 1 km disc clipped by the perpendicular bisector with each neighbour (local plane, 128-gon)
+  function cellPolygon(wp, neighbours, radiusM) {
+    const R = radiusM || USAGE.radiusM; const kx = 111320 * Math.cos(wp.lat * Math.PI / 180), ky = 110574;
+    let poly = []; for (let i = 0; i < 128; i++) { const t = 2 * Math.PI * i / 128; poly.push([R * Math.cos(t), R * Math.sin(t)]); }
+    (neighbours || []).forEach(c => {
+      const nx = (c.lon - wp.lon) * kx, ny = (c.lat - wp.lat) * ky; const h = (nx * nx + ny * ny) / 2; // keep x.n <= |n|^2/2
+      const f = pt => pt[0] * nx + pt[1] * ny - h; const out = [];
+      for (let i = 0; i < poly.length; i++) { const A = poly[i], B = poly[(i + 1) % poly.length]; const fa = f(A), fb = f(B); if (fa <= 0) out.push(A); if ((fa <= 0) !== (fb <= 0)) { const t = fa / (fa - fb); out.push([A[0] + t * (B[0] - A[0]), A[1] + t * (B[1] - A[1])]); } }
+      poly = out;
+    });
+    return poly.map(pt => [wp.lat + pt[1] / ky, wp.lon + pt[0] / kx]);
+  }
+  // what the audit says about the rule (only for nearestPoint1km)
+  function householdAreaAudit(rule, comp) {
+    return { rule, version: HOUSEHOLD_AREA.version, radius_m: USAGE.radiusM, sop: HOUSEHOLD_AREA.sop, applies: 'stratum ' + Object.keys(HOUSEHOLD_AREA.byStratum).join(', ') + ', usage rounds of ' + HOUSEHOLD_AREA.fromYear + ' and later',
+      definition: 'a premise within ' + USAGE.radiusM + ' m of the selected water point (true distance, after the barrier clip) is a candidate only if the selected point is its nearest water point among the competitors; equal distances go to the lower water point code; the candidate list is then drawn exactly as before (sorted keys, seed|water point|B=n)',
+      competitors: { definition: 'MadAvance programme water points of the loaded frame, all strata and SDWS 3 statuses, not abandoned, with a position', count: comp.points.length, sha256: comp.sha256 }, neighbour_m: HOUSEHOLD_AREA.neighbourM };
+  }
   // the frame: fleet members of the scenario, less the points not creditable after a failed SDWS 3 test; no other water quality
   // filter, broken pumps stay in. A CSV frame (demo/offline) is used as it is, less any row marked not creditable.
   // Points not creditable after a failed SDWS 3 test (status_reason not_creditable_sdws3, SDWS3_RULE) are left out of every frame;
@@ -1015,7 +1070,16 @@ const Core = (function () {
       water_points: points.map(auditUsageWp), reserves: reserves.map(auditUsageWp),
       households: null, warnings
     };
-    return { params: p, frame, zones: zonesOut, zonesFormed, merges, points, reserves, warnings, audit };
+    // v2.13.0 household area: only nearestPoint1km changes the audit (HP-MA, 2027+); circle1km audits stay byte-identical
+    const rule = householdAreaRule(p.stratum, p.roundName, audit.timestamp); let neighbours = null;
+    if (rule !== HOUSEHOLD_AREA.default) {
+      if (!p.competitors) return { error: 'no_competitors', warnings };
+      const comp = competitorSet(p.competitors); neighbours = {};
+      points.concat(reserves).forEach(w => { if (isFinite(w.lat) && isFinite(w.lon)) neighbours[w.water_point_id] = cellNeighbours(w, comp.points); });
+      audit.parameters.household_area = householdAreaAudit(rule, comp);
+      audit.water_points.concat(audit.reserves).forEach(w => { if (neighbours[w.water_point_id]) w.cell_neighbours = neighbours[w.water_point_id].map(c => c.water_point_id); });
+    }
+    return { params: p, frame, zones: zonesOut, zonesFormed, merges, points, reserves, warnings, audit, householdArea: rule, neighbours };
   }
   function auditUsageWp(w) { const o = {}; ['order', 'reserve', 'water_point_id', 'alt_id', 'name', 'zone', 'commune', 'fokontany', 'pi_zone', 'p_fokontany', 'p_point', 'pi', 'weight', 'p_conditional', 'fokontany_points'].forEach(k => { if (w[k] !== undefined) o[k] = w[k]; }); return o; }
 
@@ -1205,21 +1269,24 @@ const Core = (function () {
   // one service area: buildings (GeoJSON features from the FlatGeobuf read) and the Overpass barrier network -> kept buildings and the household draw
   function prepareServiceArea(ctx) {
     const wp = ctx.wp; const mask = serviceAreaMask(wp, parseOverpass(ctx.osm || { elements: [] }));
-    const seen = new Set(); let inCircle = 0; const kept = [];
+    const seen = new Set(); let inCircle = 0; const kept = []; let nearer = 0;
+    const cellRule = ctx.rule === 'nearestPoint1km'; if (cellRule && !Array.isArray(ctx.neighbours)) throw new Error('household area ' + ctx.rule + ': the neighbouring water points of ' + wp.water_point_id + ' are not on this device (open the round where it was confirmed, or its field pack)');
     (ctx.features || []).forEach(f => {
       if (((f.properties || {}).bf_source || USAGE.buildings.source) !== USAGE.buildings.source) return;
       const cen = footprintCentroid(f.geometry || {}); if (!cen) return;
       const key = cen.lat.toFixed(6) + ',' + cen.lon.toFixed(6); if (seen.has(key)) return; seen.add(key);
       if (!mask.inDiscM(cen.lat, cen.lon)) return; inCircle++;
-      if (mask.inside(cen.lat, cen.lon)) kept.push({ key, lat: cen.lat, lon: cen.lon, ring: cen.ring });
+      if (!mask.inside(cen.lat, cen.lon)) return;
+      if (cellRule && !inCell(cen, wp, ctx.neighbours)) { nearer++; return; }
+      kept.push({ key, lat: cen.lat, lon: cen.lon, ring: cen.ring });
     });
     kept.sort((a, b) => a.key.localeCompare(b.key));
     const drawIdx = householdDraw(ctx.seed, wp.water_point_id, kept.map(b => b.key));
     const draw = drawIdx.map(d => Object.assign({ position: d.position, reserve: d.reserve }, kept[d.index]));
-    return { water_point_id: wp.water_point_id, buildings_in_circle: inCircle, buildings_kept: kept.length, area_kept_pct: mask.area_kept_pct, barrier_ways: mask.barrier_ways, crossings: mask.crossings, buildings_sha256: sha256Sync(kept.map(b => b.key).join('\n')), keys: kept.map(b => b.key), draw, short: kept.length < USAGE.households + USAGE.householdReserves };
+    return { water_point_id: wp.water_point_id, buildings_in_circle: inCircle, buildings_kept: kept.length, area_kept_pct: mask.area_kept_pct, barrier_ways: mask.barrier_ways, crossings: mask.crossings, buildings_sha256: sha256Sync(kept.map(b => b.key).join('\n')), keys: kept.map(b => b.key), draw, short: kept.length < USAGE.households + USAGE.householdReserves, ...(cellRule ? { household_area: ctx.rule, nearer_other_point: nearer, cell_neighbours: ctx.neighbours.length } : {}) };
   }
   // what the published record carries about a service area: counts and hashes, never positions
-  function auditServiceArea(sa, meta) { return { water_point_id: sa.water_point_id, buildings_in_circle: sa.buildings_in_circle, buildings_kept: sa.buildings_kept, area_kept_pct: sa.area_kept_pct, barrier_ways: sa.barrier_ways, crossings: sa.crossings, buildings_sha256: sa.buildings_sha256, drawn: sa.draw.length, short: sa.short || undefined, dataset: meta && meta.dataset, dataset_version: meta && meta.version, fetched_at: meta && meta.fetchedAt }; }
+  function auditServiceArea(sa, meta) { return { water_point_id: sa.water_point_id, buildings_in_circle: sa.buildings_in_circle, buildings_kept: sa.buildings_kept, area_kept_pct: sa.area_kept_pct, barrier_ways: sa.barrier_ways, crossings: sa.crossings, buildings_sha256: sa.buildings_sha256, drawn: sa.draw.length, short: sa.short || undefined, dataset: meta && meta.dataset, dataset_version: meta && meta.version, fetched_at: meta && meta.fetchedAt, household_area: sa.household_area, nearer_other_point: sa.nearer_other_point, cell_neighbours: sa.cell_neighbours }; }
 
   /* ---------- field outcomes ---------- */
   const OUTCOMES = ['interviewed', 'refused', 'nobody_home', 'not_dwelling', 'out_of_area', 'far_side'];
@@ -1306,6 +1373,11 @@ const Core = (function () {
     return Object.assign(base, { params: { roundName: P.round, stratum: P.stratum, seed: audit.seed, mwaterForm: P.mwater_form, kSource: P.k_source, wpFileHash: (audit.input || {}).water_points_sha256 }, stats: audit.statistics, selected: audit.water_points.map(w => mk(w, false)), replacements: audit.replacements.map(w => mk(w, true)), reach: (audit.reach_check || {}).sources || [] });
   }
   const roundIds = v => (withReserves(v.mode) ? v.points.concat(v.reserves) : v.selected.concat(v.replacements)).map(w => String(w.water_point_id));
+  // v2.13.0: the ids whose positions a device keeps for a round: its water points, and for nearestPoint1km the neighbours of their cells
+  const roundPositionIds = v => { const ids = roundIds(v); if (!withReserves(v.mode)) return ids; const seen = new Set(ids); v.points.concat(v.reserves).forEach(w => (w.cell_neighbours || []).forEach(id => { if (!seen.has(id)) { seen.add(id); ids.push(id); } })); return ids; };
+  const roundHouseholdArea = audit => ((audit && audit.parameters && audit.parameters.household_area) || {}).rule || HOUSEHOLD_AREA.default;
+  // neighbours of a round water point with positions from the device; null when one is missing
+  function neighboursFromPositions(w, pos) { const out = []; for (const id of (w.cell_neighbours || [])) { const q = (pos || {})[id]; if (!q || !isFinite(q.lat) || !isFinite(q.lon)) return null; out.push({ water_point_id: id, lat: Number(q.lat), lon: Number(q.lon) }); } return out; }
   // positions are device-only (never in a record): from the draw made here, or from a frame loaded on this device
   function positionsFromPoints(points, ids) { const want = new Set(ids.map(String)); const out = {}; (points || []).forEach(p => { const id = String(p.water_point_id); if (want.has(id) && isFinite(p.lat) && isFinite(p.lon) && p.lat !== '' && p.lon !== '') out[id] = { lat: Number(p.lat), lon: Number(p.lon), village: p.village || '' }; }); return out; }
   function withPositions(v, pos) { const put = w => { const q = pos[String(w.water_point_id)]; if (q) Object.assign(w, { lat: q.lat, lon: q.lon, village: w.village || q.village }); else Object.assign(w, { lat: NaN, lon: NaN }); }; (withReserves(v.mode) ? v.points.concat(v.reserves) : v.selected.concat(v.replacements)).forEach(put); return v; }
@@ -1401,7 +1473,7 @@ const Core = (function () {
    * It holds coordinates: it goes from tablet to tablet (or into the private SharePoint evidence folder), never into this repo. */
   const FIELD_PACK_KIND = 'sanitap-sampler-field-pack';
   const FIELD_PACK_VERSION = 1;
-  const PACK_AREA_KEYS = ['water_point_id', 'buildings_in_circle', 'buildings_kept', 'area_kept_pct', 'barrier_ways', 'crossings', 'buildings_sha256', 'short'];
+  const PACK_AREA_KEYS = ['water_point_id', 'buildings_in_circle', 'buildings_kept', 'area_kept_pct', 'barrier_ways', 'crossings', 'buildings_sha256', 'short', 'household_area', 'nearer_other_point', 'cell_neighbours'];
   function fieldPack(o) {
     const audit = JSON.parse(o.auditText); if (recordMode(audit) !== 'usage') throw new Error('a field pack is for usage-survey (SDWS 26) rounds');
     const v = roundFromAudit(audit); const ids = roundIds(v); const pos = o.positions || {}; const areas = o.areas || {};
@@ -1412,7 +1484,7 @@ const Core = (function () {
       q.keys = a.keys.slice(); q.draw = a.draw.map(d => ({ position: d.position, reserve: !!d.reserve, key: d.key, lat: d.lat, lon: d.lon, ring: d.ring }));
       return q;
     });
-    const positions = {}; ids.forEach(id => { const p = pos[id]; if (!p || !isFinite(p.lat) || !isFinite(p.lon)) throw new Error('no position for ' + id); positions[id] = { lat: Number(p.lat), lon: Number(p.lon), village: p.village || '' }; });
+    const positions = {}; roundPositionIds(v).forEach(id => { const p = pos[id]; if (!p || !isFinite(p.lat) || !isFinite(p.lon)) throw new Error('no position for ' + id); positions[id] = { lat: Number(p.lat), lon: Number(p.lon), village: p.village || '' }; });
     return JSON.stringify({ kind: FIELD_PACK_KIND, version: FIELD_PACK_VERSION, tool_version: APP_VERSION, record_id: audit.record_id, audit_sha256: o.sha, seed: audit.seed, prepared_at: (o.households || {}).fetched_at || null, packed_at: o.at || null, households: o.households || null, positions, service_areas });
   }
   function isFieldPackText(text) { try { const j = JSON.parse(text); return !!(j && j.kind === FIELD_PACK_KIND); } catch (e) { return false; } }
@@ -1444,6 +1516,7 @@ const Core = (function () {
 
   return { STROKE, STROKE_ALGORITHM, strokeSeed, strokeRecordId, drawStroke, strokeSelectionCsv, strokeSelectionWorkbook, buildStrokeRecordPdf, withReserves, recordIdTaken,
     FIELD_PACK_KIND, fieldPack, isFieldPackText, openFieldPack, householdSummary, translate, idbOpen, openOutcome, recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
+    HOUSEHOLD_AREA, roundYear, householdAreaRule, isAbandoned, competitorSet, cellNeighbours, inCell, cellPolygon, householdAreaAudit, roundPositionIds, roundHouseholdArea, neighboursFromPositions,
     TILES, POPUP_FR, pointPopupHtml, copyCoords, coordText, geoUri, BASEMAPS, BASEMAP_DEFAULT, BASEMAP_KEY, readBasemap, writeBasemap, deepestImagery, MAP_PALETTE, tileUrl, tileFetcher, mercX, mercY, mapClusters, mapView, viewTiles, addMapPages, recordStops,
     SDWS3_RULE, SDWS3_RULE_JSON, SDWS3_OVER_RANGE, sdws3Creditable, isNotCreditable, CREDIT_RULE_TEXT, USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, kFor, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
 })();
@@ -1507,6 +1580,7 @@ const I18N = {
     p_seed: 'Seed', p_seed_hint: '(reproduces the draw)', params_stats: 'Statistical check',
     p_icc: 'Intra-cluster correlation (ICC)', p_pass: 'Expected pass rate', p_conf: 'Confidence', p_prec: 'Precision (10 %)', prec_rel: 'Relative to the pass rate (CDM)', prec_abs: 'Absolute (±10 points)',
     btn_draw: 'Draw the sample', preview: 'Eligible sources: {n} in {c} communes. Sources to select: {w} + {r} replacements = {t}.',
+    prep_nocell: 'The neighbouring water points of this round (HP-MA household area) are not on this device: confirm the round here with the mWater frame loaded, or open its field pack.', cell_note: 'Dashed outline: household area (SOP v0.5): within 1 km and nearer to this water point than to any other programme water point.',
     err_nodata: 'Load water points first.', err_noeligible: 'No active water points in this stratum (or none inside an axis).',
     res_empty: 'No draw yet. Load data and set parameters first.', res_title: 'Draw result', btn_print: 'Print field sheet',
     res_clusters: 'Clusters', res_points: 'Selected water points', res_points_hint: 'Type K (households served by the source, counted on the day) to generate the household numbers: the k-th household walking from the source.',
@@ -1607,6 +1681,7 @@ const I18N = {
     p_seed: 'Graine (seed)', p_seed_hint: '(reproduit le tirage)', params_stats: 'Vérification statistique',
     p_icc: 'Corrélation intra-grappe (ICC)', p_pass: 'Taux de conformité attendu', p_conf: 'Confiance', p_prec: 'Précision (10 %)', prec_rel: 'Relative au taux attendu (CDM)', prec_abs: 'Absolue (±10 points)',
     btn_draw: 'Tirer l’échantillon', preview: 'Sources éligibles : {n} dans {c} communes. Sources à sélectionner : {w} + {r} remplacements = {t}.',
+    prep_nocell: "Les points d'eau voisins de cette tournée (zone des ménages HP-MA) ne sont pas sur cet appareil : confirmez la tournée ici avec la base mWater chargée, ou ouvrez son pack terrain.", cell_note: "Contour en tirets : zone des ménages (SOP v0.5) : à moins de 1 km et plus proche de ce point d'eau que de tout autre point d'eau du programme.",
     err_nodata: 'Chargez d’abord les points d’eau.', err_noeligible: 'Aucun point d’eau actif dans cette strate (ou aucun à l’intérieur d’un axe).',
     res_empty: 'Pas encore de tirage. Chargez les données et fixez les paramètres.', res_title: 'Résultat du tirage', btn_print: 'Imprimer la fiche terrain',
     res_clusters: 'Grappes', res_points: 'Points d’eau sélectionnés', res_points_hint: 'Saisissez K (ménages desservis par la source, comptés le jour même) pour générer les numéros de ménages : le k-ième ménage en marchant depuis la source.',
@@ -1677,11 +1752,13 @@ I18N.en.updf = {
   h_communes: '5. Drawn communes', t_commune: 'Commune', t_points: 'Frame points', t_fok: 'Fokontany', t_pi: 'Probability', t_note: 'Note', drawn: 'drawn', certainty: 'certainty', added: 'added (a commune had fewer than 4 fokontany)',
   h_points: '6. Drawn water points', points_note: 'Probability = commune x fokontany x point; weight = 1 / probability.', t_no: 'No.', t_id: 'Water point', t_fokontany: 'Fokontany', t_pi_parts: 'Commune x fokontany x point', t_weight: 'Weight',
   h_reserves: '7. Reserve water points (one per commune)', reserves_note: 'Use a reserve only when a drawn point of the same commune cannot be surveyed; record the reason.', t_pcond: 'Probability (within the commune)',
+  hh_area: 'Household area', hh_area_v: 'Rule {rule} (version {ver}), {sop}. {def}. Competitors: {cdef}: {n} points, SHA-256 {sha}. Neighbours (other programme points within {nm} m) of each water point are listed by code in audit.json (cell_neighbours); their positions stay on the device.', t_nearer: 'nearer other pt',
   h_households: '8. Households', households_rule: 'Buildings are counted per service area; their positions are never published. The building list of each service area is identified by its SHA-256.', hh_dataset: 'Building data', t_circle: 'Buildings within 1 km', t_kept: 'Kept after the barrier clip', t_area: 'Area kept', t_barriers: 'Barriers', t_bsha: 'Buildings SHA-256', short: '(fewer than 15)', crossings: 'crossings', hh_not_prepared: 'The household draw has not been prepared yet (it needs the building footprints of each service area).',
   h_warnings: '9. Notes generated by the tool', footer_record: 'Record', footer_sha: 'audit JSON SHA-256', page: 'page {x} of {y}'
 };
 I18N.fr.updf = Object.assign({}, I18N.en.updf, {
   title: "Registre d'échantillonnage — enquête d'usage (SDWS 26)", record: 'registre', h_id: '1. Identification', programme: 'Programme', scenario: 'Scénario', round: 'Campagne', drawn_at: 'Date/heure du tirage (UTC)', drawn_by: 'Tiré par', record_id: 'Identifiant du registre', tool: 'Outil',
+  hh_area: 'Zone des ménages', hh_area_v: 'Règle {rule} (version {ver}), {sop}. Un bâtiment à moins de 1 000 m du point d’eau tiré (distance réelle, après la coupure par les barrières) n’est candidat que si ce point d’eau est le point d’eau du programme le plus proche ; à égalité, le code le plus petit l’emporte ; la liste des candidats est ensuite tirée exactement comme avant. Points comparés : points d’eau du programme MadAvance de la base chargée, toutes strates et statuts SDWS 3, non abandonnés, avec position : {n} points, SHA-256 {sha}. Les voisins (autres points du programme à moins de {nm} m) de chaque point d’eau sont listés par code dans audit.json (cell_neighbours) ; leurs positions restent sur l’appareil.', t_nearer: 'plus proche d’un autre',
   h_method: '2. Méthode', h_frame: "3. Base d'échantillonnage", h_random: '4. Aléa et reproductibilité', h_communes: '5. Communes tirées', h_points: "6. Points d'eau tirés", h_reserves: "7. Points d'eau de réserve (un par commune)", h_households: '8. Ménages', h_warnings: "9. Notes de l'outil",
   t_commune: 'Commune', t_points: 'Points de la base', t_fok: 'Fokontany', t_pi: 'Probabilité', t_note: 'Note', drawn: 'tirés', certainty: 'certitude', added: 'ajoutée (une commune avait moins de 4 fokontany)', t_no: 'N°', t_id: "Point d'eau", t_fokontany: 'Fokontany', t_weight: 'Poids', t_circle: 'Bâtiments à 1 km', t_kept: 'Retenus après découpe', t_area: 'Surface retenue', t_barriers: 'Obstacles', t_bsha: 'SHA-256 des bâtiments', page: 'page {x} sur {y}', footer_record: 'Registre', seed: "Chaîne d'amorce", frame_sha: 'SHA-256 de la base'
 });
@@ -2300,7 +2377,8 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     const uf = Core.usageFrame(state.points, p.stratum, fleet);
     p.frameHash = await Core.sha256(Core.frameToCsv(uf.points)); p.frameCounts = uf.counts;
     p.fleet = fleet ? { url: fleet.url, sha256: fleet.sha256, fetched_at: fleet.fetched_at, classes: Core.USAGE.fleetClasses } : null;
-    const r = Core.drawUsage(p, uf.points);
+    p.competitors = state.points; // v2.13.0: nearestPoint1km (HP-MA, 2027+) compares with every programme point of the loaded frame
+    const r = Core.drawUsage(p, uf.points); delete p.competitors;
     if (r.error) { msg.innerHTML = `<div class="msg err">${t('err_noeligible')}</div>`; return; }
     state.usage = r; LS.set('ulast', Object.assign({}, p, { frameCounts: undefined }));
     renderResults(); renderConfirm(); updateSteps();
@@ -2399,7 +2477,9 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
       const w = all[i]; msg.innerHTML = `<div class="msg">${esc(t('prep_running', { i: i + 1, n: all.length, id: w.water_point_id }))}</div>`;
       try {
         const [features, osm] = await Promise.all([fetchBuildings(w.lat, w.lon), fetchBarriers(w.lat, w.lon)]);
-        areas[w.water_point_id] = Core.prepareServiceArea({ seed: v.seed, wp: w, features, osm });
+        const rule = v.householdArea; const nb = rule === 'circle1km' ? undefined : Core.neighboursFromPositions(w, v.positions);
+        if (rule !== 'circle1km' && !nb) throw new Error(t('prep_nocell'));
+        areas[w.water_point_id] = Core.prepareServiceArea({ seed: v.seed, wp: w, features, osm, rule, neighbours: nb });
       } catch (e) { msg.innerHTML = `<div class="msg err">${esc(t('prep_err', { id: w.water_point_id, e: e.message }))}</div>`; return; }
     }
     // the household draw is reproducible from the record (seed, water point id) and the building list, identified per service area by its SHA-256
@@ -2419,7 +2499,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   $('btn-fpack').onclick = () => {
     const v = fieldRound(); const e = activeEntry();
     if (!v || v.mode !== 'usage' || !state.usageRound || !e) { $('u-msg').innerHTML = `<div class="msg warn">${esc(t('fpack_none'))}</div>`; return; }
-    const pos = {}; v.points.concat(v.reserves).forEach(w => { if (isFinite(w.lat) && isFinite(w.lon)) pos[String(w.water_point_id)] = { lat: w.lat, lon: w.lon, village: w.village || '' }; });
+    const pos = Object.assign({}, v.positions || {}); v.points.concat(v.reserves).forEach(w => { if (isFinite(w.lat) && isFinite(w.lon)) pos[String(w.water_point_id)] = { lat: w.lat, lon: w.lon, village: w.village || '' }; });
     try { download(ufname(v, 'field-pack.json'), Core.fieldPack({ auditText: e.audit_text, sha: e.audit_sha256, positions: pos, areas: state.usageRound.areas, households: state.usageRound.households, at: new Date().toISOString() }), 'application/json'); $('u-msg').innerHTML = `<div class="msg ok">${esc(t('fpack_saved'))}</div>`; }
     catch (x) { $('u-msg').innerHTML = `<div class="msg err">${esc(x.message)}</div>`; }
   };
@@ -2443,9 +2523,12 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     const colour = {}; r.zones.forEach((c, i) => { colour[c.name] = PALETTE[i % PALETTE.length]; });
     r.points.concat(r.reserves).forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(pop(L.marker([w.lat, w.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon${w.reserve ? ' rep' : ''}" style="${w.reserve ? 'border-color:' : 'background:'}${colour[w.zone]}">${w.reserve ? 'R' + w.order : w.order}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }) }), { title: roleTitle(w.order, w.reserve ? 'res' : ''), code: w.water_point_id, alt: w.alt_id, name: w.name, lines: [w.commune + ' / ' + w.fokontany], lat: w.lat, lon: w.lon })); });
     communeLabels(r.points);
+    if (r.householdArea === 'nearestPoint1km') r.points.concat(r.reserves).forEach(w => { if (!isFinite(w.lat)) return; const nb = Core.neighboursFromPositions(w, r.positions); if (nb) Ly.labels.addLayer(cellLayer(w, nb)); });
     if (bounds.length) state.map.fitBounds(bounds, { padding: [30, 30] });
-    $('map-msg').textContent = bounds.length ? '' : t('pos_none');
+    $('map-msg').textContent = bounds.length ? (r.householdArea === 'nearestPoint1km' ? t('cell_note') : '') : t('pos_none');
   }
+  // v2.13.0: the household area of a nearestPoint1km round: the 1 km disc cut where another programme point is nearer
+  function cellLayer(w, nb) { return L.polygon(Core.cellPolygon(w, nb), { color: '#0b5e8a', weight: 2, dashArray: '6 4', fillColor: '#0b5e8a', fillOpacity: .08, interactive: false }); }
   function renderUsageMapList(r) {
     const el = $('map-list');
     const colour = {}; r.zones.forEach((c, i) => { colour[c.name] = PALETTE[i % PALETTE.length]; });
@@ -2515,7 +2598,8 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     if (typeof L !== 'undefined' && document.getElementById('fmap').offsetParent) {
       if (!F.map) { F.map = L.map('fmap', { zoomControl: true }); addBasemap(F.map); F.layers = L.layerGroup().addTo(F.map); }
       F.layers.clearLayers();
-      L.circle([w.lat, w.lon], { radius: Core.USAGE.radiusM, color: '#0b5e8a', weight: 1, fill: false }).addTo(F.layers);
+      const nbF = round.householdArea === 'nearestPoint1km' || (sa && sa.household_area === 'nearestPoint1km') ? Core.neighboursFromPositions(w, (fieldRound() || {}).positions) : null;
+      if (nbF) cellLayer(w, nbF).addTo(F.layers); else L.circle([w.lat, w.lon], { radius: Core.USAGE.radiusM, color: '#0b5e8a', weight: 1, fill: false }).addTo(F.layers);
       pop(L.marker([w.lat, w.lon], { icon: L.divIcon({ className: '', html: '<div class="num-icon start">◉</div>', iconSize: [28, 28], iconAnchor: [14, 14] }) }), { title: roleTitle(0, 'wp'), code: w.water_point_id, alt: w.alt_id, name: w.name, lines: [(w.commune || '') + ' / ' + (w.fokontany || '')], lat: w.lat, lon: w.lon }).addTo(F.layers);
       st.slots.filter(s => s.open).forEach(s => { const isNext = n && s.position === n.position; const colour = s.outcome === 'interviewed' ? '#157347' : s.outcome ? '#9aa3ad' : isNext ? '#e07b00' : '#0b5e8a'; if (s.ring) L.polygon(s.ring.map(q => [q[1], q[0]]), { color: colour, weight: isNext ? 3 : 1, fillOpacity: .5 }).addTo(F.layers); pop(L.marker([s.lat, s.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon" style="background:${colour};width:22px;height:22px;line-height:18px;font-size:.7rem">${s.position}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) }), { title: roleTitle(s.position, 'hh') + (s.position > Core.USAGE.households ? ' (réserve)' : ''), code: w.water_point_id, name: s.outcome ? 'Résultat : ' + Core.translate(I18N, 'fr', 'o_' + s.outcome) : (isNext ? 'Prochain ménage' : ''), lat: s.lat, lon: s.lon }).addTo(F.layers); });
       if (F.pos) L.circleMarker([F.pos.lat, F.pos.lon], { radius: 7, color: '#fff', weight: 2, fillColor: '#2563eb', fillOpacity: 1 }).addTo(F.layers);
@@ -2540,8 +2624,8 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     const e = activeEntry(); if (!e) return null;
     let v; try { v = Core.roundFromAudit(JSON.parse(e.audit_text), { kValues: LS.get('kfield:' + e.record_id, {}) }); } catch (x) { return null; }
     const ids = Core.roundIds(v); let pos = e.positions && Object.keys(e.positions).length ? e.positions : null; let from = pos ? 'device' : null;
-    if (!pos && state.points.length) { pos = Core.positionsFromPoints(state.points, ids); from = Object.keys(pos).length ? 'frame' : null; }
-    Core.withPositions(v, pos || {});
+    if (!pos && state.points.length) { pos = Core.positionsFromPoints(state.points, Core.roundPositionIds(v)); from = Object.keys(pos).length ? 'frame' : null; }
+    Core.withPositions(v, pos || {}); v.positions = pos || {}; v.householdArea = Core.roundHouseholdArea(v.audit);
     v.positionsFrom = from; v.positionsCount = ids.filter(id => pos && pos[id]).length; v.idsCount = ids.length; v.frameMatch = false;
     if (from === 'frame' && state.wp) {
       const k = e.record_id + '|' + state.wp.hash;
@@ -2572,7 +2656,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   // the draw on the Draw tab, as it would be confirmed: the audit text is exactly what the record PDF attaches
   function currentDraw() {
     if (state.mode === 'stroke') { const r = state.stroke; if (!r) return null; return { mode: 'stroke', auditText: JSON.stringify(r.audit, null, 2), kValues: {}, list: r.points.concat(r.reserves) }; }
-    if (state.mode === 'usage') { const r = state.usage; if (!r) return null; const a = JSON.parse(JSON.stringify(r.audit)); a.households = null; return { mode: 'usage', auditText: JSON.stringify(a, null, 2), kValues: {}, list: r.points.concat(r.reserves) }; }
+    if (state.mode === 'usage') { const r = state.usage; if (!r) return null; const a = JSON.parse(JSON.stringify(r.audit)); a.households = null; return { mode: 'usage', auditText: JSON.stringify(a, null, 2), kValues: {}, list: r.points.concat(r.reserves, ...Object.values(r.neighbours || {})) } /* v2.13.0: cell neighbours positions too (device only) */; }
     const r = state.result; if (!r) return null; return { mode: 'pou', auditText: Core.auditJson(r, auditExtra()), kValues: state.kValues, list: r.selected.concat(r.replacements) };
   }
   function renderConfirm() {
@@ -2600,7 +2684,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     if (!a.drawn_by && !state.lib[a.record_id]) { msg.innerHTML = `<div class="msg err">${esc(t('cf_need_by'))}</div>`; return; }
     $('btn-confirm').disabled = true;
     try {
-      const ids = Core.roundIds(Core.roundFromAudit(a)); const positions = Core.positionsFromPoints(d.list, ids);
+      const ids = Core.roundPositionIds(Core.roundFromAudit(a)); const positions = Core.positionsFromPoints(d.list, ids);
       msg.innerHTML = `<div class="msg">${esc(t('cf_building'))}</div>`;
       const pack = await Core.evidencePack({ PDFLib, auditText: d.auditText, lang: state.lang, url: Core.APP_URL, kValues: d.kValues, positions, fetchTile: navigator.onLine === false ? null : Core.tileFetcher((u, o) => fetch(u, Object.assign({ mode: 'cors', credentials: 'omit' }, o))) });
       const r = await Lib.add(Core.libraryEntry({ audit: a, auditText: d.auditText, sha: pack.sha, at: new Date().toISOString(), origin: 'here', positions }));
