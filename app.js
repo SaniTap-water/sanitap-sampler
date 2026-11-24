@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.12.0';
+const APP_VERSION = '2.12.1';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -613,6 +613,31 @@ const Core = (function () {
   async function deepestImagery(avail, lat, lon, from, floor) {
     for (let z = from; z > floor; z--) { const x = Math.floor(mercX(lon, z) / 256), y = Math.floor(mercY(lat, z) / 256); try { if (await avail(z, y, x)) return z; } catch (e) { return null; } }
     return floor;
+  }
+  /* Marker popup (v2.12.1): what a field team needs at a point, in French: number/role, code and name, latitude and longitude
+   * (WGS 84, 6 decimals), "Copier" and "Naviguer" (geo: URI, opens Google Maps or OsmAnd on Android). Shown on the device only,
+   * from positions already loaded there; never written to the audit, the record or the repo. */
+  const POPUP_FR = { copy: 'Copier', nav: 'Naviguer', copied: 'Copié', selected: 'Texte sélectionné : appuyez longuement pour copier', lat: 'Latitude', lon: 'Longitude', nopos: 'Position inconnue' };
+  const htmlEsc = v => String(v === undefined || v === null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const coordText = (lat, lon) => Number(lat).toFixed(6) + ', ' + Number(lon).toFixed(6);
+  const geoUri = (lat, lon) => { const a = Number(lat).toFixed(6), b = Number(lon).toFixed(6); return 'geo:' + a + ',' + b + '?q=' + a + ',' + b; };
+  // o: { title (number/role), code, alt, name, lines: [text], lat, lon }
+  function pointPopupHtml(o) {
+    const has = isFinite(o.lat) && isFinite(o.lon) && o.lat !== null && o.lon !== null;
+    const head = `<div class="pp-title">${htmlEsc(o.title)}</div>` + (o.code ? `<div class="pp-code"><b>${htmlEsc(o.code)}</b>${o.alt ? ' ' + htmlEsc(o.alt) : ''}</div>` : '') + (o.name ? `<div>${htmlEsc(o.name)}</div>` : '') + (o.lines || []).filter(Boolean).map(l => `<div class="pp-line">${htmlEsc(l)}</div>`).join('');
+    if (!has) return `<div class="pp">${head}<div class="pp-line">${POPUP_FR.nopos}</div></div>`;
+    const ll = coordText(o.lat, o.lon);
+    return `<div class="pp">${head}<div class="pp-ll"><span>${POPUP_FR.lat} <b>${Number(o.lat).toFixed(6)}</b></span><span>${POPUP_FR.lon} <b>${Number(o.lon).toFixed(6)}</b></span><span class="pp-txt">${ll}</span></div>`
+      + `<div class="pp-btns"><button type="button" class="pp-copy" data-ll="${ll}">${POPUP_FR.copy}</button><a class="pp-nav" href="${geoUri(o.lat, o.lon)}">${POPUP_FR.nav}</a></div><div class="pp-msg" aria-live="polite"></div></div>`;
+  }
+  // copy "lat, lon": the Clipboard API when the browser allows it, else select the text so the user can long-press -> Copy
+  // env: { clipboard (navigator.clipboard or null), select: () => void, execCopy: () => bool }
+  async function copyCoords(text, env) {
+    const e = env || {};
+    try { if (e.clipboard && e.clipboard.writeText) { await e.clipboard.writeText(text); return 'copied'; } } catch (err) { /* denied, insecure context or old WebView */ }
+    try { if (e.select) e.select(); } catch (err) { return 'failed'; }
+    try { if (e.execCopy && e.execCopy()) return 'copied'; } catch (err) { /* selection stays */ }
+    return 'selected';
   }
   const mercX = (lon, z) => (lon + 180) / 360 * 256 * Math.pow(2, z);
   const mercY = (lat, z) => { const s = Math.sin(lat * Math.PI / 180); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * Math.pow(2, z); };
@@ -1419,7 +1444,7 @@ const Core = (function () {
 
   return { STROKE, STROKE_ALGORITHM, strokeSeed, strokeRecordId, drawStroke, strokeSelectionCsv, strokeSelectionWorkbook, buildStrokeRecordPdf, withReserves, recordIdTaken,
     FIELD_PACK_KIND, fieldPack, isFieldPackText, openFieldPack, householdSummary, translate, idbOpen, openOutcome, recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
-    TILES, BASEMAPS, BASEMAP_DEFAULT, BASEMAP_KEY, readBasemap, writeBasemap, deepestImagery, MAP_PALETTE, tileUrl, tileFetcher, mercX, mercY, mapClusters, mapView, viewTiles, addMapPages, recordStops,
+    TILES, POPUP_FR, pointPopupHtml, copyCoords, coordText, geoUri, BASEMAPS, BASEMAP_DEFAULT, BASEMAP_KEY, readBasemap, writeBasemap, deepestImagery, MAP_PALETTE, tileUrl, tileFetcher, mercX, mercY, mapClusters, mapView, viewTiles, addMapPages, recordStops,
     SDWS3_RULE, SDWS3_RULE_JSON, SDWS3_OVER_RANGE, sdws3Creditable, isNotCreditable, CREDIT_RULE_TEXT, USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, kFor, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
@@ -2109,6 +2134,19 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   function legendHtml() { return `<div class="legend"><span><span class="num-icon">1</span> ${esc(t('legend_selected'))}</span><span><span class="num-icon rep">R1</span> ${esc(t('legend_replacement'))}</span><span><span class="num-icon far">!</span> ${esc(t('legend_far'))}</span></div>`; }
   function renderLegend() { $('map-legend-top').innerHTML = legendHtml(); $('map-legend-bottom').innerHTML = legendHtml(); }
 
+  /* ---------- marker popups: role, code, name, lat/lon (6 dp), Copier, Naviguer (French; device only) ---------- */
+  const popOpts = { maxWidth: 280, minWidth: 220, className: 'pt-popup', autoPanPadding: [16, 16] };
+  const pop = (marker, o) => marker.bindPopup(Core.pointPopupHtml(o), popOpts);
+  const roleTitle = (w, kind) => kind === 'backlog' ? 'Arriéré Test A n° ' + w : kind === 'hh' ? 'Ménage n° ' + w : kind === 'wp' ? "Point d'eau de la zone" : (kind === 'rep' ? 'Remplacement R' : kind === 'res' ? 'Réserve R' : 'Point n° ') + w;
+  document.addEventListener('click', async ev => {
+    const b = ev.target && ev.target.closest && ev.target.closest('.pp-copy'); if (!b) return; ev.preventDefault();
+    const box = b.closest('.pp'); const txt = box.querySelector('.pp-txt'); const msg = box.querySelector('.pp-msg');
+    const res = await Core.copyCoords(b.dataset.ll, { clipboard: navigator.clipboard || null,
+      select: () => { const r = document.createRange(); r.selectNodeContents(txt); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); txt.classList.add('sel'); },
+      execCopy: () => document.execCommand && document.execCommand('copy') });
+    msg.textContent = res === 'copied' ? Core.POPUP_FR.copied + ' : ' + b.dataset.ll : Core.POPUP_FR.selected; box.dataset.copy = res;
+  });
+
   /* ---------- basemap switch "Carte / Satellite" (every on-screen map; choice kept per device) ---------- */
   var BM = { maps: [], choice: Core.readBasemap((() => { try { return window.localStorage; } catch (e) { return null; } })()) };
   function bmStorage() { try { return window.localStorage; } catch (e) { return null; } }
@@ -2177,8 +2215,8 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     if (r.mode === 'usage') return renderUsageMap(r);
     if (r.mode === 'stroke') return renderStrokeMap(r);
     const far = farSet(r);
-    r.selected.forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(L.marker([w.lat, w.lon], { icon: numIcon(w.order, far.has(w.water_point_id) ? 'far' : '') }).bindPopup(`<b>${w.order}. ${esc(w.water_point_id)}</b> ${esc(w.alt_id || '')}<br>${esc(w.name)}<br>${esc(w.commune)} / ${esc(w.fokontany)}${far.has(w.water_point_id) ? '<br><b style="color:#b45309">' + esc(t('reach_far')) + '</b>' : ''}`)); });
-    r.replacements.forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(L.marker([w.lat, w.lon], { icon: numIcon('R' + w.order, 'rep') }).bindPopup(`<b>R${w.order}. ${esc(w.water_point_id)}</b> (${t('rep_wp')})<br>${esc(w.name)}<br>${esc(w.commune)} / ${esc(w.fokontany)}`)); });
+    r.selected.forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(pop(L.marker([w.lat, w.lon], { icon: numIcon(w.order, far.has(w.water_point_id) ? 'far' : '') }), { title: roleTitle(w.order), code: w.water_point_id, alt: w.alt_id, name: w.name, lines: [w.commune + ' / ' + w.fokontany, far.has(w.water_point_id) ? 'Loin des autres points (> ' + Core.REACH_KM + ' km)' : ''], lat: w.lat, lon: w.lon })); });
+    r.replacements.forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(pop(L.marker([w.lat, w.lon], { icon: numIcon('R' + w.order, 'rep') }), { title: roleTitle(w.order, 'rep'), code: w.water_point_id, alt: w.alt_id, name: w.name, lines: [w.commune + ' / ' + w.fokontany], lat: w.lat, lon: w.lon })); });
     communeLabels(r.selected.concat(r.replacements));
     if (bounds.length) state.map.fitBounds(bounds, { padding: [30, 30] });
     $('map-msg').textContent = bounds.length ? '' : t('pos_none');
@@ -2198,7 +2236,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     const Ly = state.layers; const list = backlogList(); const s = backlogStratum(); const town = (Core.MWATER.strata[s] || {}).town; const bounds = [];
     if (!list.length) { $('map-msg').textContent = t('bl_none'); return; }
     const colors = { 'operating-untested': '#b45309', failing: '#b91c1c', 'not-yet-built': '#6b7280', other: '#9aa3ad' };
-    list.forEach((p, i) => { if (!isFinite(p.lat)) return; bounds.push([p.lat, p.lon]); Ly.points.addLayer(L.marker([p.lat, p.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon" style="background:${colors[p.group]}">${i + 1}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }) }).bindPopup(`<b>${i + 1}. ${esc(p.water_point_id)}</b> ${esc(p.alt_id || '')}<br>${esc(p.name)} · ${esc(p.group)}<br>${esc(p.commune)} / ${esc(p.fokontany)}`)); });
+    list.forEach((p, i) => { if (!isFinite(p.lat)) return; bounds.push([p.lat, p.lon]); Ly.points.addLayer(pop(L.marker([p.lat, p.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon" style="background:${colors[p.group]}">${i + 1}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }) }), { title: roleTitle(i + 1, 'backlog'), code: p.water_point_id, alt: p.alt_id, name: p.name, lines: [p.group, p.commune + ' / ' + p.fokontany], lat: p.lat, lon: p.lon })); });
     if (town) { bounds.push([town.lat, town.lon]); Ly.points.addLayer(L.marker([town.lat, town.lon], { icon: numIcon('▶', 'start') }).bindTooltip(town.name)); }
     communeLabels(list);
     if (bounds.length) state.map.fitBounds(bounds, { padding: [30, 30] });
@@ -2318,7 +2356,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   function renderStrokeMap(r) {
     const Ly = state.layers; const bounds = [];
     const icon = w => (w.filmed ? L.divIcon({ className: '', html: `<div class="num-icon" style="background:${FILMED_COLOUR}">${w.order}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }) : numIcon((w.reserve ? 'R' : '') + w.order, w.reserve ? 'rep' : ''));
-    r.points.concat(r.reserves).forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(L.marker([w.lat, w.lon], { icon: icon(w), zIndexOffset: w.reserve ? 0 : 500 }).bindPopup(`<b>${w.reserve ? 'R' : ''}${w.order}. ${esc(w.water_point_id)}</b> ${esc(w.alt_id || '')}${w.filmed ? ' · <b>' + esc(t('filmed_yes')) + '</b>' : ''}<br>${esc(w.name || '')}<br>${esc(w.commune)} / ${esc(w.fokontany)}`)); });
+    r.points.concat(r.reserves).forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(pop(L.marker([w.lat, w.lon], { icon: icon(w), zIndexOffset: w.reserve ? 0 : 500 }), { title: roleTitle(w.order, w.reserve ? 'res' : ''), code: w.water_point_id, alt: w.alt_id, name: w.name, lines: [w.filmed ? 'Filmé' : '', w.commune + ' / ' + w.fokontany], lat: w.lat, lon: w.lon })); });
     communeLabels(r.points);
     if (bounds.length) state.map.fitBounds(bounds, { padding: [30, 30] });
     $('map-msg').textContent = bounds.length ? '' : t('pos_none');
@@ -2403,7 +2441,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   function renderUsageMap(r) {
     const Ly = state.layers; const bounds = [];
     const colour = {}; r.zones.forEach((c, i) => { colour[c.name] = PALETTE[i % PALETTE.length]; });
-    r.points.concat(r.reserves).forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(L.marker([w.lat, w.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon${w.reserve ? ' rep' : ''}" style="${w.reserve ? 'border-color:' : 'background:'}${colour[w.zone]}">${w.reserve ? 'R' + w.order : w.order}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }) }).bindPopup(`<b>${w.reserve ? 'R' : ''}${w.order}. ${esc(w.water_point_id)}</b><br>${esc(w.commune)} / ${esc(w.fokontany)}`)); });
+    r.points.concat(r.reserves).forEach(w => { if (!isFinite(w.lat)) return; bounds.push([w.lat, w.lon]); Ly.points.addLayer(pop(L.marker([w.lat, w.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon${w.reserve ? ' rep' : ''}" style="${w.reserve ? 'border-color:' : 'background:'}${colour[w.zone]}">${w.reserve ? 'R' + w.order : w.order}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }) }), { title: roleTitle(w.order, w.reserve ? 'res' : ''), code: w.water_point_id, alt: w.alt_id, name: w.name, lines: [w.commune + ' / ' + w.fokontany], lat: w.lat, lon: w.lon })); });
     communeLabels(r.points);
     if (bounds.length) state.map.fitBounds(bounds, { padding: [30, 30] });
     $('map-msg').textContent = bounds.length ? '' : t('pos_none');
@@ -2449,7 +2487,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     if (typeof L !== 'undefined' && document.getElementById('fmap').offsetParent) {
       if (!F.map) { F.map = L.map('fmap', { zoomControl: true }); addBasemap(F.map); F.layers = L.layerGroup().addTo(F.map); }
       F.layers.clearLayers(); const pts = [];
-      v.points.concat(v.reserves).forEach(x => { if (!isFinite(x.lat)) return; const me = x.water_point_id === id; L.marker([x.lat, x.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon${x.reserve ? ' rep' : ''}" style="${x.filmed ? 'background:' + FILMED_COLOUR + ';' : ''}${me ? 'box-shadow:0 0 0 4px #e07b00;' : ''}">${x.reserve ? 'R' : ''}${x.order}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }), zIndexOffset: me ? 1000 : 0 }).addTo(F.layers); });
+      v.points.concat(v.reserves).forEach(x => { if (!isFinite(x.lat)) return; const me = x.water_point_id === id; const mk = L.marker([x.lat, x.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon${x.reserve ? ' rep' : ''}" style="${x.filmed ? 'background:' + FILMED_COLOUR + ';' : ''}${me ? 'box-shadow:0 0 0 4px #e07b00;' : ''}">${x.reserve ? 'R' : ''}${x.order}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }), zIndexOffset: me ? 1000 : 0 }); pop(mk, { title: roleTitle(x.order, x.reserve ? 'res' : ''), code: x.water_point_id, alt: x.alt_id, name: x.name, lines: [x.filmed ? 'Filmé' : '', (x.commune || '') + ' / ' + (x.fokontany || '')], lat: x.lat, lon: x.lon }).addTo(F.layers); });
       if (has) pts.push([w.lat, w.lon]);
       if (F.pos) { L.circleMarker([F.pos.lat, F.pos.lon], { radius: 7, color: '#fff', weight: 2, fillColor: '#2563eb', fillOpacity: 1 }).addTo(F.layers); pts.push([F.pos.lat, F.pos.lon]); }
       if ((refit || !F.fitted) && pts.length) { F.map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 }); F.fitted = true; }
@@ -2478,8 +2516,8 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
       if (!F.map) { F.map = L.map('fmap', { zoomControl: true }); addBasemap(F.map); F.layers = L.layerGroup().addTo(F.map); }
       F.layers.clearLayers();
       L.circle([w.lat, w.lon], { radius: Core.USAGE.radiusM, color: '#0b5e8a', weight: 1, fill: false }).addTo(F.layers);
-      L.marker([w.lat, w.lon], { icon: L.divIcon({ className: '', html: '<div class="num-icon start">◉</div>', iconSize: [28, 28], iconAnchor: [14, 14] }) }).addTo(F.layers);
-      st.slots.filter(s => s.open).forEach(s => { const isNext = n && s.position === n.position; const colour = s.outcome === 'interviewed' ? '#157347' : s.outcome ? '#9aa3ad' : isNext ? '#e07b00' : '#0b5e8a'; if (s.ring) L.polygon(s.ring.map(q => [q[1], q[0]]), { color: colour, weight: isNext ? 3 : 1, fillOpacity: .5 }).addTo(F.layers); L.marker([s.lat, s.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon" style="background:${colour};width:22px;height:22px;line-height:18px;font-size:.7rem">${s.position}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) }).addTo(F.layers); });
+      pop(L.marker([w.lat, w.lon], { icon: L.divIcon({ className: '', html: '<div class="num-icon start">◉</div>', iconSize: [28, 28], iconAnchor: [14, 14] }) }), { title: roleTitle(0, 'wp'), code: w.water_point_id, alt: w.alt_id, name: w.name, lines: [(w.commune || '') + ' / ' + (w.fokontany || '')], lat: w.lat, lon: w.lon }).addTo(F.layers);
+      st.slots.filter(s => s.open).forEach(s => { const isNext = n && s.position === n.position; const colour = s.outcome === 'interviewed' ? '#157347' : s.outcome ? '#9aa3ad' : isNext ? '#e07b00' : '#0b5e8a'; if (s.ring) L.polygon(s.ring.map(q => [q[1], q[0]]), { color: colour, weight: isNext ? 3 : 1, fillOpacity: .5 }).addTo(F.layers); pop(L.marker([s.lat, s.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon" style="background:${colour};width:22px;height:22px;line-height:18px;font-size:.7rem">${s.position}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) }), { title: roleTitle(s.position, 'hh') + (s.position > Core.USAGE.households ? ' (réserve)' : ''), code: w.water_point_id, name: s.outcome ? 'Résultat : ' + Core.translate(I18N, 'fr', 'o_' + s.outcome) : (isNext ? 'Prochain ménage' : ''), lat: s.lat, lon: s.lon }).addTo(F.layers); });
       if (F.pos) L.circleMarker([F.pos.lat, F.pos.lon], { radius: 7, color: '#fff', weight: 2, fillColor: '#2563eb', fillOpacity: 1 }).addTo(F.layers);
       if (refit || !F.fitted) { F.map.fitBounds(n ? [[w.lat, w.lon], [n.lat, n.lon]] : [[w.lat, w.lon]], { padding: [40, 40], maxZoom: 17 }); F.fitted = true; }
       setTimeout(() => F.map.invalidateSize(), 50);

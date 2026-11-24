@@ -2,6 +2,7 @@
 
 A static, offline-capable web tool that draws **statistically valid, logistics-aware samples** for the SaniTap programme under the Gold Standard *Safe Drinking Water Supply* (SDWS) methodology v2.0, in three modes chosen on the Parameters tab (SDWS 18 point-of-use, usage survey SDWS 26 and, since v2.10.0, stroke test SDWS 28):
 
+- **Position popup on every marker** — v2.12.1: tap a marker on the Map tab or a Field tab map to see its number/role, code, name, latitude and longitude (WGS 84, 6 decimals), with *Copier* and *Naviguer*. See [Marker popups](#marker-popups-v2121).
 - **Satellite map and installable app** — v2.12.0: the Map tab and the field maps have a *Carte / Satellite* switch (satellite by default, remembered per device) and the Sampler installs as an app on Android Chrome. See [Satellite basemap](#satellite-basemap-v2120) and [Install as an app](#install-as-an-app-v2120).
 - **Stroke test (SDWS 28)** — v2.10.0: a simple random sample of 50 water points plus 10 reserves per stratum from the usage frame, the first 10 filmed for one day, kept apart from every other sample (record id `<round>-<stratum>-ST`). Deep link `?mode=stroke`. See [Stroke test mode](#stroke-test-mode-sdws-28-v2100).
 - **SDWS 18 point-of-use (water quality)** — the original mode. Its draws (selections, stage-1 numbers, household numbers) are unchanged since v2.2.0, and a regression test proves it. v2.4.1 changed two things in the record: the record id no longer repeats the seed (`2026R1-HP-FD`, not `2026R1-HP-FD-2026R1-HP-FD`), and the design check fails below the protocol minimum of 12 sources per stratum;
@@ -205,6 +206,17 @@ Field teams found houses hard to pick out on the road map (voice note, 24 Nov 20
 - **Online only.** Tiles are never cached by `sw.js` and never pre-fetched. Offline, or when satellite tiles keep failing, the map says *Image satellite disponible seulement avec internet* (English: *Satellite imagery only available with internet*); markers, the stop list, the GPS position and the outcome buttons keep working. Switching to *Carte* hides the notice (OSM tiles seen before may still be in the browser's HTTP cache).
 - The record PDF basemap is unchanged (World Street Map), so the SDWS 18 PDF baseline is unchanged.
 
+## Marker popups (v2.12.1)
+
+Field request (voice note, 24 Nov 2026): see the GPS position of each point on the map. Every marker (selected sources, replacements and reserves, Test A backlog points on the Map tab; water points, reserves, the service-area water point and each drawn household on the Field tab maps of the usage survey, field pack and stroke test) opens a popup in French on tap:
+
+- number/role (*Point n° 3*, *Remplacement R1*, *Réserve R2*, *Arriéré Test A n° 5*, *Ménage n° 7*), water point code (and alt id), name, commune / fokontany;
+- *Latitude* and *Longitude* in decimal degrees, 6 decimals (WGS 84);
+- **Copier** copies `lat, lon` with the Clipboard API; where the browser refuses (permission, old WebView), the text is selected (and `execCommand('copy')` tried) and the popup says to long-press to copy;
+- **Naviguer** is a `geo:lat,lon?q=lat,lon` link: Android offers Google Maps, OsmAnd or another map app for directions.
+
+Buttons are at least 44 px high. Positions come from data already on the device (the draw, the loaded frame or the field pack): nothing is fetched or stored, `audit.json` stays coordinate-free and the record PDF is unchanged (tests: `test/popup.test.js`, SDWS 18 baseline).
+
 ## Install as an app (v2.12.0)
 
 `manifest.webmanifest` (name *SaniTap Sampler*, short name *Sampler*, `start_url` and `scope` `./`, `display: standalone`, theme and background `#0b5e8a` as the `theme-color` meta) with PNG icons 192 and 512 and a maskable 512 in `icons/`, linked from `index.html` and cached by `sw.js`. With the service worker's fetch handler this meets Chrome's installability rules: on Android Chrome, open the live URL once online, then *⋮ → Install app* (or *Add to Home screen → Install*). The installed app opens full screen from the home screen, uses the same storage, rounds and offline cache as the browser tab (same origin), and gets updates through the same *New version available* banner. Tablets that already have the Sampler open get the banner after this deploy; reload once, then the install option appears.
@@ -267,7 +279,7 @@ Mapper, draw, record and export tests (Node 18+, no dependencies):
 node --test test/*.test.js
 ```
 
-Set `PDFLIB_DIR` to a folder containing `node_modules/pdf-lib` (1.17.1) to include the PDF tests. Set `PLAYWRIGHT_DIR` to a folder containing `node_modules/playwright` for `test/open-ui.test.js` and `test/basemap.test.js` (basemap switch, persistence, offline notice), which serve this checkout on localhost and drives the page (`UI_BROWSERS=chromium,webkit` for both; the CDN scripts need the network). Without these the tests print "skipped" and still count as passing, so check the output. `test/sdws18-regression.test.js` compares every SDWS 18 draw (18 on the sample frame, 4 on the mWater-shape fixture) and six record PDFs with the baseline that v2.2.0 wrote before the usage mode existed; a change that moves any of them fails.
+Set `PDFLIB_DIR` to a folder containing `node_modules/pdf-lib` (1.17.1) to include the PDF tests. Set `PLAYWRIGHT_DIR` to a folder containing `node_modules/playwright` for `test/open-ui.test.js`, `test/basemap.test.js` (basemap switch, persistence, offline notice) and `test/popup.test.js` (marker popup, copy fallback), which serve this checkout on localhost and drives the page (`UI_BROWSERS=chromium,webkit` for both; the CDN scripts need the network). Without these the tests print "skipped" and still count as passing, so check the output. `test/sdws18-regression.test.js` compares every SDWS 18 draw (18 on the sample frame, 4 on the mWater-shape fixture) and six record PDFs with the baseline that v2.2.0 wrote before the usage mode existed; a change that moves any of them fails.
 
 ## Map and stop list (v2.8.0)
 
