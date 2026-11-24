@@ -1,0 +1,18 @@
+{
+  "id": "./",
+  "name": "SaniTap Sampler",
+  "short_name": "Sampler",
+  "description": "Sampling tool for the SaniTap water programme (SDWS 18, 26, 28).",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0b5e8a",
+  "background_color": "#0b5e8a",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

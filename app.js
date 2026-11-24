@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.11.0';
+const APP_VERSION = '2.12.0';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -593,6 +593,26 @@ const Core = (function () {
     const o = opts || {}; const memo = {}; let count = 0;
     const get = (z, x, y) => { const k = z + '/' + y + '/' + x; if (!memo[k]) { count++; memo[k] = (async () => { const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null; const tm = ctl ? setTimeout(() => ctl.abort(), o.timeoutMs || 10000) : null; try { const r = await fetchImpl(tileUrl(z, x, y), ctl ? { signal: ctl.signal } : {}); if (!r || !r.ok) return null; return new Uint8Array(await r.arrayBuffer()); } catch (e) { return null; } finally { if (tm) clearTimeout(tm); } })(); } return memo[k]; };
     get.count = () => count; return get;
+  }
+  /* On-screen basemaps (Map tab and Field tab; v2.12.0). Online only: tiles are never cached (sw.js) nor pre-fetched.
+   * Satellite = Esri World Imagery + the Esri boundaries-and-places labels on top; 'road' = the OpenStreetMap map used before.
+   * The record PDF keeps its own TILES (World Street Map) above, so the SDWS 18 PDF baseline is untouched. */
+  const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+  const BASEMAPS = {
+    satellite: { url: ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', maxZoom: 20, maxNativeZoom: 19, tilemap: ESRI + 'World_Imagery/MapServer/tilemap/',
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community',
+      labels: { url: ESRI + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', maxZoom: 20, maxNativeZoom: 19, attribution: 'Labels &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors, and the GIS User Community' } },
+    road: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxZoom: 20, maxNativeZoom: 19, attribution: '&copy; OpenStreetMap contributors' }
+  };
+  const BASEMAP_DEFAULT = 'satellite'; const BASEMAP_KEY = 'sanitap.basemap';
+  // the choice is remembered per device; a missing or throwing storage (private window, blocked site data) gives the default
+  function readBasemap(storage) { try { const v = storage && storage.getItem(BASEMAP_KEY); return Object.prototype.hasOwnProperty.call(BASEMAPS, v) ? v : BASEMAP_DEFAULT; } catch (e) { return BASEMAP_DEFAULT; } }
+  function writeBasemap(storage, v) { const k = Object.prototype.hasOwnProperty.call(BASEMAPS, v) ? v : BASEMAP_DEFAULT; try { if (storage) storage.setItem(BASEMAP_KEY, k); } catch (e) { /* not remembered, still used */ } return k; }
+  // Esri answers a grey "Map data not yet available" tile where imagery stops; its tilemap says which level really exists,
+  // so the map can stretch the deepest real level instead (z, x, y of the centre tile at `from`; avail(z, y, x) -> Promise<bool>)
+  async function deepestImagery(avail, lat, lon, from, floor) {
+    for (let z = from; z > floor; z--) { const x = Math.floor(mercX(lon, z) / 256), y = Math.floor(mercY(lat, z) / 256); try { if (await avail(z, y, x)) return z; } catch (e) { return null; } }
+    return floor;
   }
   const mercX = (lon, z) => (lon + 180) / 360 * 256 * Math.pow(2, z);
   const mercY = (lat, z) => { const s = Math.sin(lat * Math.PI / 180); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * Math.pow(2, z); };
@@ -1399,7 +1419,7 @@ const Core = (function () {
 
   return { STROKE, STROKE_ALGORITHM, strokeSeed, strokeRecordId, drawStroke, strokeSelectionCsv, strokeSelectionWorkbook, buildStrokeRecordPdf, withReserves, recordIdTaken,
     FIELD_PACK_KIND, fieldPack, isFieldPackText, openFieldPack, householdSummary, translate, idbOpen, openOutcome, recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
-    TILES, MAP_PALETTE, tileUrl, tileFetcher, mercX, mercY, mapClusters, mapView, viewTiles, addMapPages, recordStops,
+    TILES, BASEMAPS, BASEMAP_DEFAULT, BASEMAP_KEY, readBasemap, writeBasemap, deepestImagery, MAP_PALETTE, tileUrl, tileFetcher, mercX, mercY, mapClusters, mapView, viewTiles, addMapPages, recordStops,
     SDWS3_RULE, SDWS3_RULE_JSON, SDWS3_OVER_RANGE, sdws3Creditable, isNotCreditable, CREDIT_RULE_TEXT, USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, kFor, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
@@ -1474,7 +1494,7 @@ const I18N = {
     w_few_hh: 'Point {id} lists only {have} households ({needed} needed): all were taken.',
     col_order: '#', col_cluster: 'Cluster', col_size: 'Eligible points', yes: 'yes', no: '—',
     col_id: 'Water point', col_name: 'Name', col_village: 'Village', col_hh: 'Households', col_k: 'K', rep_wp: 'Replacement', rep_short: 'rep.',
-    map_fit: 'Fit',
+    map_fit: 'Fit', bm_road: 'Map', bm_sat: 'Satellite', bm_title: 'Background map', bm_offline: 'Satellite imagery only available with internet',
    
     map_no_draw: 'Draw a sample first to see points on the map.',
    
@@ -1574,7 +1594,7 @@ const I18N = {
     w_few_hh: 'Le point {id} ne liste que {have} ménages ({needed} requis) : tous ont été pris.',
     col_order: 'N°', col_cluster: 'Grappe', col_size: 'Points éligibles', yes: 'oui', no: '—',
     col_id: 'Point d’eau', col_name: 'Nom', col_village: 'Village', col_hh: 'Ménages', col_k: 'K', rep_wp: 'Remplacement', rep_short: 'rempl.',
-    map_fit: 'Cadrer',
+    map_fit: 'Cadrer', bm_road: 'Carte', bm_sat: 'Satellite', bm_title: 'Fond de carte', bm_offline: 'Image satellite disponible seulement avec internet',
    
     map_no_draw: 'Faites d’abord un tirage pour voir les points sur la carte.',
    
@@ -1820,7 +1840,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     $('ver').textContent = 'v' + APP_VERSION + (APP_COMMIT && APP_COMMIT.indexOf('__') !== 0 ? ' (' + APP_COMMIT + ')' : ' (dev)');
     renderData(); renderPreview(); renderResults(); renderSheet(); renderMapList(); renderLegend(); renderMw(); renderBacklog(); updateSteps();
     if (typeof setMode === 'function' && $('usage-intro')) { $('usage-intro').innerHTML = state.mode === 'usage' ? esc(t('usage_intro')) + '<br><small>' + fleetLine() + '</small>' : ''; $('stroke-intro').innerHTML = state.mode === 'stroke' ? esc(t('stroke_intro')) + '<br><small>' + fleetLine() + '</small>' : ''; renderField(); }
-    renderConfirm(); renderRoundBar();
+    renderConfirm(); renderRoundBar(); refreshBasemaps();
   }
   $('lang-toggle').onclick = () => { state.lang = state.lang === 'en' ? 'fr' : 'en'; LS.set('lang', state.lang); applyLang(); };
 
@@ -2089,11 +2109,59 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   function legendHtml() { return `<div class="legend"><span><span class="num-icon">1</span> ${esc(t('legend_selected'))}</span><span><span class="num-icon rep">R1</span> ${esc(t('legend_replacement'))}</span><span><span class="num-icon far">!</span> ${esc(t('legend_far'))}</span></div>`; }
   function renderLegend() { $('map-legend-top').innerHTML = legendHtml(); $('map-legend-bottom').innerHTML = legendHtml(); }
 
+  /* ---------- basemap switch "Carte / Satellite" (every on-screen map; choice kept per device) ---------- */
+  var BM = { maps: [], choice: Core.readBasemap((() => { try { return window.localStorage; } catch (e) { return null; } })()) };
+  function bmStorage() { try { return window.localStorage; } catch (e) { return null; } }
+  function addBasemap(m) {
+    const B = Core.BASEMAPS; const e = { map: m, errors: 0, loaded: 0 };
+    if (!m.getPane('bmlabels')) { const pn = m.createPane('bmlabels'); pn.style.zIndex = 250; pn.style.pointerEvents = 'none'; } // place names above the imagery, below markers and drawn buildings
+    e.road = L.tileLayer(B.road.url, { maxZoom: B.road.maxZoom, maxNativeZoom: B.road.maxNativeZoom, attribution: B.road.attribution });
+    e.sat = L.tileLayer(B.satellite.url, { maxZoom: B.satellite.maxZoom, maxNativeZoom: B.satellite.maxNativeZoom, attribution: B.satellite.attribution });
+    e.labels = L.tileLayer(B.satellite.labels.url, { maxZoom: B.satellite.labels.maxZoom, maxNativeZoom: B.satellite.labels.maxNativeZoom, attribution: B.satellite.labels.attribution, pane: 'bmlabels' });
+    e.sat.on('tileerror', () => { e.errors++; bmNotice(e); }); e.sat.on('tileload', () => { e.loaded++; e.errors = 0; bmNotice(e); });
+    const Ctl = L.Control.extend({ options: { position: 'topright' }, onAdd() {
+      const box = L.DomUtil.create('div', 'leaflet-bar bm-switch'); L.DomEvent.disableClickPropagation(box);
+      box.innerHTML = '<button type="button" data-bm="road"></button><button type="button" data-bm="satellite"></button>';
+      box.querySelectorAll('button').forEach(b => b.onclick = () => setBasemap(b.dataset.bm)); e.box = box; return box; } });
+    const Note = L.Control.extend({ options: { position: 'bottomleft' }, onAdd() { const d = L.DomUtil.create('div', 'bm-offline hidden'); e.note = d; return d; } });
+    m.addControl(new Ctl()); m.addControl(new Note());
+    // imagery in rural Madagascar stops below z19 (Esri gives a grey "no data" tile there): stretch the deepest real level instead
+    m.on('moveend', () => bmNative(e));
+    BM.maps.push(e); bmApply(e); return e;
+  }
+  var bmTilemap = {};
+  async function bmNative(e) {
+    if (e.kind !== 'satellite' || navigator.onLine === false) return; const m = e.map; const z = m.getZoom(); if (!(z > 16)) return; // no view yet (field maps get theirs from fitBounds), or not deep enough
+    const c = m.getCenter(); const k = Math.floor(Core.mercX(c.lng, 14) / 256) + '/' + Math.floor(Core.mercY(c.lat, 14) / 256);
+    if (!(k in bmTilemap)) bmTilemap[k] = Core.deepestImagery((zz, y, x) => fetch(Core.BASEMAPS.satellite.tilemap + zz + '/' + y + '/' + x + '/1/1', { credentials: 'omit' }).then(r => r.json()).then(j => !!(j && j.data && j.data[0])), c.lat, c.lng, Core.BASEMAPS.satellite.maxNativeZoom, 16);
+    const nz = await bmTilemap[k]; if (nz === null) { delete bmTilemap[k]; return; }
+    if (e.kind === 'satellite' && e.sat.options.maxNativeZoom !== nz) { e.sat.options.maxNativeZoom = nz; m.removeLayer(e.sat); e.sat.addTo(m); e.sat.bringToBack(); }
+  }
+  function bmApply(e) {
+    const m = e.map; const k = BM.choice; if (e.kind === k) return bmLabels(e);
+    [e.road, e.sat, e.labels].forEach(l => { if (m.hasLayer(l)) m.removeLayer(l); });
+    if (k === 'satellite') { e.sat.addTo(m); e.labels.addTo(m); e.sat.bringToBack(); } else { e.road.addTo(m); e.road.bringToBack(); }
+    e.kind = k; e.errors = 0; bmLabels(e); bmNotice(e); if (k === 'satellite') bmNative(e);
+  }
+  function bmLabels(e) {
+    if (!e.box) return; e.box.title = t('bm_title');
+    e.box.querySelectorAll('button').forEach(b => { b.textContent = t(b.dataset.bm === 'road' ? 'bm_road' : 'bm_sat'); b.classList.toggle('on', b.dataset.bm === BM.choice); b.setAttribute('aria-pressed', String(b.dataset.bm === BM.choice)); });
+  }
+  // offline (or tiles failing) on satellite: say so on the map; markers, the stop list and the GPS keep working
+  function bmNotice(e) {
+    if (!e.note) return; const show = e.kind === 'satellite' && (navigator.onLine === false || e.errors >= 3);
+    e.note.textContent = t('bm_offline'); e.note.classList.toggle('hidden', !show);
+  }
+  function setBasemap(k) { BM.choice = Core.writeBasemap(bmStorage(), k); BM.maps.forEach(bmApply); }
+  function refreshBasemaps() { BM.maps.forEach(e => { bmLabels(e); bmNotice(e); }); }
+  window.addEventListener('online', () => BM.maps.forEach(e => { e.errors = 0; bmNotice(e); if (e.kind === 'satellite') { e.sat.redraw(); bmNative(e); } }));
+  window.addEventListener('offline', refreshBasemaps);
+
   /* ---------- map: numbered markers + stop list + reach flags ---------- */
   function initMap() {
     if (state.map || typeof L === 'undefined') return;
     const m = state.map = L.map('map', { zoomControl: true }).setView([-25.03, 46.99], 9);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(m);
+    addBasemap(m);
     state.layers = { labels: L.layerGroup().addTo(m), points: L.layerGroup().addTo(m) };
   }
   const numIcon = (txt, cls) => L.divIcon({ className: '', html: `<div class="num-icon ${cls || ''}">${txt}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] });
@@ -2379,7 +2447,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     const where = !has ? esc(t('st_nopos')) : here ? esc(t('st_dist', { d: fmt(Core.haversineKm(here, w), 1), b: Math.round(Core.bearingTo(here, w)), c: compass(Core.bearingTo(here, w)) })) : esc(t('st_nogps'));
     $('f-next').innerHTML = `<div class="fnext"><div><div class="fbig"${w.filmed ? ` style="color:${FILMED_COLOUR}"` : ''}>${w.reserve ? 'R' : ''}${w.order}</div></div><div><b>${esc(w.water_point_id)}</b> ${esc(w.alt_id || '')}${w.filmed ? ` <span class="pill" style="background:${FILMED_COLOUR};color:#fff">${esc(t('filmed_yes'))}</span>` : ''}${w.reserve ? ` <span class="pill rep-badge">${esc(t('rep_wp'))}</span>` : ''}<br>${esc(w.name || '')} · ${esc(w.commune)} / ${esc(w.fokontany)}<br>${t('st_gps')}: <b>${c5(w.lat)}, ${c5(w.lon)}</b>${has ? ` · <a href="geo:${Number(w.lat).toFixed(6)},${Number(w.lon).toFixed(6)}">${esc(t('st_open_map'))}</a>` : ''}<br>${where}</div></div>`;
     if (typeof L !== 'undefined' && document.getElementById('fmap').offsetParent) {
-      if (!F.map) { F.map = L.map('fmap', { zoomControl: true }); L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(F.map); F.layers = L.layerGroup().addTo(F.map); }
+      if (!F.map) { F.map = L.map('fmap', { zoomControl: true }); addBasemap(F.map); F.layers = L.layerGroup().addTo(F.map); }
       F.layers.clearLayers(); const pts = [];
       v.points.concat(v.reserves).forEach(x => { if (!isFinite(x.lat)) return; const me = x.water_point_id === id; L.marker([x.lat, x.lon], { icon: L.divIcon({ className: '', html: `<div class="num-icon${x.reserve ? ' rep' : ''}" style="${x.filmed ? 'background:' + FILMED_COLOUR + ';' : ''}${me ? 'box-shadow:0 0 0 4px #e07b00;' : ''}">${x.reserve ? 'R' : ''}${x.order}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }), zIndexOffset: me ? 1000 : 0 }).addTo(F.layers); });
       if (has) pts.push([w.lat, w.lon]);
@@ -2407,7 +2475,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     $('f-log').innerHTML = `<h3>${esc(t('f_log'))}</h3>` + (log.length ? `<table><tr><th>#</th><th></th><th></th></tr>${log.slice().reverse().map(e => `<tr><td>${e.position}</td><td>${esc(t('o_' + e.outcome))}${e.visit ? ' (' + e.visit + ')' : ''}</td><td><small>${esc(String(e.at).slice(11, 16))}</small></td></tr>`).join('')}</table>` : '<p class="muted">—</p>');
     // map: the service area, the drawn buildings (next one highlighted), the phone
     if (typeof L !== 'undefined' && document.getElementById('fmap').offsetParent) {
-      if (!F.map) { F.map = L.map('fmap', { zoomControl: true }); L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(F.map); F.layers = L.layerGroup().addTo(F.map); }
+      if (!F.map) { F.map = L.map('fmap', { zoomControl: true }); addBasemap(F.map); F.layers = L.layerGroup().addTo(F.map); }
       F.layers.clearLayers();
       L.circle([w.lat, w.lon], { radius: Core.USAGE.radiusM, color: '#0b5e8a', weight: 1, fill: false }).addTo(F.layers);
       L.marker([w.lat, w.lon], { icon: L.divIcon({ className: '', html: '<div class="num-icon start">◉</div>', iconSize: [28, 28], iconAnchor: [14, 14] }) }).addTo(F.layers);

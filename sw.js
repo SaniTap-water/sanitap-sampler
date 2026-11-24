@@ -1,8 +1,9 @@
-/* SaniTap Sampler service worker: caches the app shell for offline use. Map tiles are never cached. */
+/* SaniTap Sampler service worker: caches the app shell (and the install manifest + icons) for offline use. Map tiles (road and satellite) are never cached. */
 const BUILD = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
 const CACHE = 'sanitap-sampler-' + BUILD;
 const SHELL = [
   './', './index.html', './app.js',
+  './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', // installable app (v2.12.0)
   './data/sample-water-points.csv',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',

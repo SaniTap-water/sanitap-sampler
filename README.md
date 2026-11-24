@@ -2,6 +2,7 @@
 
 A static, offline-capable web tool that draws **statistically valid, logistics-aware samples** for the SaniTap programme under the Gold Standard *Safe Drinking Water Supply* (SDWS) methodology v2.0, in three modes chosen on the Parameters tab (SDWS 18 point-of-use, usage survey SDWS 26 and, since v2.10.0, stroke test SDWS 28):
 
+- **Satellite map and installable app** — v2.12.0: the Map tab and the field maps have a *Carte / Satellite* switch (satellite by default, remembered per device) and the Sampler installs as an app on Android Chrome. See [Satellite basemap](#satellite-basemap-v2120) and [Install as an app](#install-as-an-app-v2120).
 - **Stroke test (SDWS 28)** — v2.10.0: a simple random sample of 50 water points plus 10 reserves per stratum from the usage frame, the first 10 filmed for one day, kept apart from every other sample (record id `<round>-<stratum>-ST`). Deep link `?mode=stroke`. See [Stroke test mode](#stroke-test-mode-sdws-28-v2100).
 - **SDWS 18 point-of-use (water quality)** — the original mode. Its draws (selections, stage-1 numbers, household numbers) are unchanged since v2.2.0, and a regression test proves it. v2.4.1 changed two things in the record: the record id no longer repeats the seed (`2026R1-HP-FD`, not `2026R1-HP-FD-2026R1-HP-FD`), and the design check fails below the protocol minimum of 12 sources per stratum;
 - **Not creditable after a failed SDWS 3 test** — v2.5.0: both modes leave out every water point whose latest SDWS 3 result fails the shared rule (see [Not creditable: failed SDWS 3](#not-creditable-failed-sdws-3)).
@@ -16,12 +17,13 @@ A static, offline-capable web tool that draws **statistically valid, logistics-a
 
 **Live tool:** https://sanitap-water.github.io/sanitap-sampler/ (deployed from `main` by GitHub Actions; works offline after the first load).
 
-Plain HTML/CSS/JS, no build step, no backend, no accounts. All data stays in the browser. Map tab by [Leaflet](https://leafletjs.com) (cdnjs) with OpenStreetMap tiles; record PDF maps on Esri World Street Map tiles.
+Plain HTML/CSS/JS, no build step, no backend, no accounts. All data stays in the browser. Map tab by [Leaflet](https://leafletjs.com) (cdnjs) on Esri World Imagery (satellite, default) or OpenStreetMap tiles; record PDF maps on Esri World Street Map tiles.
 
 ```
 index.html   app shell, styles, print stylesheet
 app.js       Core (PRNG, CSV, mWater frame, draw, statistics, PDF record, Excel workbook) + i18n object + UI
-sw.js        service worker: caches the app shell for offline use (tiles and the mWater API are never cached)
+sw.js        service worker: caches the app shell, manifest and icons for offline use (tiles and the mWater API are never cached)
+manifest.webmanifest + icons/  web app manifest and icons (192, 512, maskable 512; a plain drop, not the SaniTap logo) so Chrome offers "Install app"
 data/sample-water-points.csv   60 fake points, 3 strata, 4 inactive (CSV-source demo)
 data/sdws3_rule.json           the SDWS 3 creditable rule, byte-identical in sanitap-water-report (embedded in app.js as Core.SDWS3_RULE)
 data/sdws3_rule_cases.json     its shared test cases (both repositories' implementations must give these verdicts)
@@ -192,6 +194,21 @@ The service-area clip uses the same rules as the report's SDWS 1 people-served m
 
 Known difference, in the report and not the Sampler (found 30 Sep 2026). The report clips each river line to the circle and then calls shapely `split()`. The clipped line ends miss the circle's boundary by rounding, so on many points the split returns the whole circle, and a river that crosses the circle cuts nothing. Run on the report's own OSM extract for the 31 dry-run service areas, the two agree within about 2 points of area wherever the report's split succeeds. Where it fails they differ by up to 39 points, and extending the report's line ends by 2 m brings it to the Sampler's figure. The Sampler applies the rule as written.
 
+## Satellite basemap (v2.12.0)
+
+Field teams found houses hard to pick out on the road map (voice note, 24 Nov 2026). Every on-screen map (Map tab, Field tab of the usage survey and stroke test) now has a *Carte / Satellite* switch at its top right:
+
+- **Satellite** (default): Esri ArcGIS Online *World Imagery* (`…/World_Imagery/MapServer/tile/{z}/{y}/{x}`, the same Esri host as the record PDF basemap) with the Esri *World Boundaries and Places* labels on top, so village and town names stay readable. Attribution from the services' own copyright text.
+- **Carte**: the OpenStreetMap map used before.
+- **Zoom** goes to 20 on both. Esri imagery in both strata stops at level 17 (the service answers a grey "Map data not yet available" tile at 18 and 19; checked at 24 random points in HP-FD and HP-MA on 24 Nov 2026), so at deep zoom the app asks the service's `tilemap` which level really exists around the map centre and stretches that level instead of showing grey tiles. At zoom 19 individual roofs are visible (about 1 m per pixel underneath). Where Esri has deeper imagery it is used up to level 19.
+- The choice is kept per device (`localStorage` key `sanitap.basemap`, read and written in try/catch; blocked storage gives satellite each time).
+- **Online only.** Tiles are never cached by `sw.js` and never pre-fetched. Offline, or when satellite tiles keep failing, the map says *Image satellite disponible seulement avec internet* (English: *Satellite imagery only available with internet*); markers, the stop list, the GPS position and the outcome buttons keep working. Switching to *Carte* hides the notice (OSM tiles seen before may still be in the browser's HTTP cache).
+- The record PDF basemap is unchanged (World Street Map), so the SDWS 18 PDF baseline is unchanged.
+
+## Install as an app (v2.12.0)
+
+`manifest.webmanifest` (name *SaniTap Sampler*, short name *Sampler*, `start_url` and `scope` `./`, `display: standalone`, theme and background `#0b5e8a` as the `theme-color` meta) with PNG icons 192 and 512 and a maskable 512 in `icons/`, linked from `index.html` and cached by `sw.js`. With the service worker's fetch handler this meets Chrome's installability rules: on Android Chrome, open the live URL once online, then *⋮ → Install app* (or *Add to Home screen → Install*). The installed app opens full screen from the home screen, uses the same storage, rounds and offline cache as the browser tab (same origin), and gets updates through the same *New version available* banner. Tablets that already have the Sampler open get the banner after this deploy; reload once, then the install option appears.
+
 ## SDWS 3: fluoride over the kit range (v2.11.0, 23 Nov 2026)
 
 A response with WS7.17.1 = ">1.5mg/l" counts as above 1.5 mg/L and is not creditable, whether or not WS7.17.2 holds a number. The flag is in `data/sdws3_over_range.json`, byte-identical in sanitap-water-report.
@@ -250,7 +267,7 @@ Mapper, draw, record and export tests (Node 18+, no dependencies):
 node --test test/*.test.js
 ```
 
-Set `PDFLIB_DIR` to a folder containing `node_modules/pdf-lib` (1.17.1) to include the PDF tests. Set `PLAYWRIGHT_DIR` to a folder containing `node_modules/playwright` for `test/open-ui.test.js`, which serves this checkout on localhost and drives the page (`UI_BROWSERS=chromium,webkit` for both; the CDN scripts need the network). Without these the tests print "skipped" and still count as passing, so check the output. `test/sdws18-regression.test.js` compares every SDWS 18 draw (18 on the sample frame, 4 on the mWater-shape fixture) and six record PDFs with the baseline that v2.2.0 wrote before the usage mode existed; a change that moves any of them fails.
+Set `PDFLIB_DIR` to a folder containing `node_modules/pdf-lib` (1.17.1) to include the PDF tests. Set `PLAYWRIGHT_DIR` to a folder containing `node_modules/playwright` for `test/open-ui.test.js` and `test/basemap.test.js` (basemap switch, persistence, offline notice), which serve this checkout on localhost and drives the page (`UI_BROWSERS=chromium,webkit` for both; the CDN scripts need the network). Without these the tests print "skipped" and still count as passing, so check the output. `test/sdws18-regression.test.js` compares every SDWS 18 draw (18 on the sample frame, 4 on the mWater-shape fixture) and six record PDFs with the baseline that v2.2.0 wrote before the usage mode existed; a change that moves any of them fails.
 
 ## Map and stop list (v2.8.0)
 
