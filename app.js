@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.14.0';
+const APP_VERSION = '2.15.0';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -1489,7 +1489,7 @@ const Core = (function () {
       return q;
     });
     const positions = {}; roundPositionIds(v).forEach(id => { const p = pos[id]; if (!p || !isFinite(p.lat) || !isFinite(p.lon)) throw new Error('no position for ' + id); positions[id] = { lat: Number(p.lat), lon: Number(p.lon), village: p.village || '' }; });
-    return JSON.stringify({ kind: FIELD_PACK_KIND, version: FIELD_PACK_VERSION, tool_version: APP_VERSION, record_id: audit.record_id, audit_sha256: o.sha, seed: audit.seed, prepared_at: (o.households || {}).fetched_at || null, packed_at: o.at || null, households: o.households || null, positions, service_areas });
+    return JSON.stringify({ kind: FIELD_PACK_KIND, version: FIELD_PACK_VERSION, tool_version: APP_VERSION, record_id: audit.record_id, audit_sha256: o.sha, audit_text: o.auditText, seed: audit.seed, prepared_at: (o.households || {}).fetched_at || null, packed_at: o.at || null, households: o.households || null, positions, service_areas });
   }
   /* v2.14.0: share the field pack from the tablet (field request 25 Nov 2026: the .json in Chrome's downloads could not be sent
    * with WhatsApp or Xender). Chrome on Android shares only some file types through the share sheet, and application/json is not one
@@ -1510,6 +1510,16 @@ const Core = (function () {
     let p; try { p = JSON.parse(text); } catch (e) { return { error: 'pack_not_json' }; }
     if (!p || p.kind !== FIELD_PACK_KIND) return { error: 'pack_not_pack' };
     if (p.version !== FIELD_PACK_VERSION) return { error: 'pack_version', rid: p.record_id };
+    // v2.15.0 (field report 25 Nov 2026: receiving tablets were refused with "open the record PDF first"): a pack made from v2.15.0
+    // carries the record's audit text, checked here against the audit SHA-256 in the pack, so it opens the round on its own
+    let added = null;
+    if (!entry && typeof p.audit_text === 'string') {
+      if (sha256Sync(p.audit_text) !== p.audit_sha256) return { error: 'pack_other_audit', rid: p.record_id };
+      let a; try { a = JSON.parse(p.audit_text); } catch (e) { return { error: 'pack_not_pack' }; }
+      if (!a || a.record_id !== p.record_id || recordMode(a) !== 'usage' || hasCoordinateKeys(a)) return { error: 'pack_not_pack' };
+      added = libraryEntry({ audit: a, auditText: p.audit_text, sha: p.audit_sha256, at: p.packed_at || null, origin: 'pack' });
+      entry = added;
+    }
     if (!entry) return { error: 'pack_no_round', rid: p.record_id };
     if (entry.audit_sha256 !== p.audit_sha256) return { error: 'pack_other_audit', rid: p.record_id };
     const audit = JSON.parse(entry.audit_text); const v = roundFromAudit(audit); const ids = roundIds(v);
@@ -1526,7 +1536,7 @@ const Core = (function () {
       if (want.length !== draw.length || want.some((d, i) => d.position !== draw[i].position || d.reserve !== !!draw[i].reserve || d.key !== draw[i].key || (Number(draw[i].lat).toFixed(6) + ',' + Number(draw[i].lon).toFixed(6)) !== d.key)) return { error: 'pack_area', rid: p.record_id, id };
       areas[id] = Object.assign({}, a, { water_point_id: id, draw: draw.map(d => ({ position: d.position, reserve: !!d.reserve, key: d.key, lat: Number(d.lat), lon: Number(d.lon), ring: d.ring })) });
     }
-    return { ok: true, record_id: p.record_id, sha: p.audit_sha256, positions: p.positions, areas, households: p.households, n: ids.length };
+    return { ok: true, record_id: p.record_id, sha: p.audit_sha256, positions: p.positions, areas, households: p.households, n: ids.length, entry: added };
   }
   // the household numbers of a round in one comparable form: water point -> [position, reserve, building] in draw order
   function householdSummary(areas, ids) { const o = {}; ids.forEach(id => { const a = areas[id]; o[id] = a ? a.draw.map(d => [d.position, !!d.reserve, d.key]) : null; }); return o; }
@@ -1838,10 +1848,10 @@ Object.assign(I18N.en, {
   fs_need_round: 'The field sheet is printed from a confirmed SDWS 18 round: confirm the sample (tab 4) or open a confirmed round on the Data tab, then choose it in the round selector at the top.',
   map_need_round: 'The map shows a confirmed round: confirm the sample (tab 4) or open a confirmed round on the Data tab.',
   f_need_round: 'The field view runs from a confirmed usage-survey round: confirm the sample (tab 4) or open a confirmed round on the Data tab.',
-  btn_areas: 'Service areas (CSV)', prep_nopos: 'No position for {id} on this device: load the frame on the Data tab first, or open the field pack of a tablet that prepared this round.',
+  btn_areas: 'Service areas (CSV)', prep_nopos: 'No position for {id} on this device. Prepare the households on one tablet only. On the other tablets, do not press this button: open the field pack received from that tablet (Data tab, Open a confirmed round).',
   btn_fpack: 'Field pack for other tablets (JSON)', btn_fpack_share: 'Share field pack (WhatsApp, Bluetooth…)', fpack_shared: 'Field pack shared as a .txt file. On each other tablet: open the record PDF, then this .txt file, on the Data tab.', fpack_share_unsupported: 'This browser cannot share files directly: the field pack was saved as a .txt file in Downloads. Send it as a document (WhatsApp: paperclip, Document) and open it on the Data tab of the other tablets.', fpack_none: 'Prepare the households first: the field pack carries them to the other tablets.', fpack_saved: 'Field pack saved. On each other tablet: open the record PDF, then this file, on the Data tab (no mWater login needed).',
   fpack_ok: 'Field pack loaded for {rid}: households for {n} water points, identical to the tablet that prepared them (checked against the record seed). This round now works offline on this device.',
-  open_err_pack_not_json: 'Refused: this file is not valid JSON.', open_err_pack_not_pack: 'Refused: not a SaniTap field pack.', open_err_pack_version: 'Refused: field pack of {rid} made by an incompatible version of the Sampler.', open_err_pack_no_round: 'Open the sampling record PDF of {rid} first, then this field pack.', open_err_pack_other_audit: 'Refused: this field pack belongs to a different record under {rid} (audit SHA-256 differs).', open_err_pack_points: 'Refused: the field pack does not list the water points of {rid} in its order.', open_err_pack_area: 'Refused: the households of {id} in this field pack do not match the record seed or the building list.', fs_k_field: 'K entered in the field'
+  open_err_pack_not_json: 'Refused: this file is not valid JSON.', open_err_pack_not_pack: 'Refused: not a SaniTap field pack.', open_err_pack_version: 'Refused: field pack of {rid} made by an incompatible version of the Sampler.', open_err_pack_no_round: 'This field pack of {rid} was made with an older version: open the record PDF first, or ask the preparing tablet to share the pack again with v2.15.0 or later (then the pack alone is enough).', open_err_pack_other_audit: 'Refused: this field pack belongs to a different record under {rid} (audit SHA-256 differs).', open_err_pack_points: 'Refused: the field pack does not list the water points of {rid} in its order.', open_err_pack_area: 'Refused: the households of {id} in this field pack do not match the record seed or the building list.', fs_k_field: 'K entered in the field'
 });
 Object.assign(I18N.fr, {
   tab_confirm: '4 Confirmer', next_confirm: "Suite : confirmer l'échantillon", next_field_stage: 'Suite : terrain (carte)', next_field: 'Suite : terrain',
@@ -1864,10 +1874,10 @@ Object.assign(I18N.fr, {
   fs_need_round: "La fiche terrain s'imprime depuis une campagne SDWS 18 confirmée : confirmez l'échantillon (onglet 4) ou ouvrez une campagne confirmée dans l'onglet Données, puis choisissez-la en haut.",
   map_need_round: "La carte montre une campagne confirmée : confirmez l'échantillon (onglet 4) ou ouvrez une campagne confirmée dans l'onglet Données.",
   f_need_round: "La vue terrain part d'une campagne d'enquête d'usage confirmée : confirmez l'échantillon (onglet 4) ou ouvrez une campagne confirmée dans l'onglet Données.",
-  btn_areas: 'Aires de service (CSV)', prep_nopos: "Pas de position pour {id} sur cet appareil : chargez d'abord la base dans l'onglet Données, ou ouvrez le paquet terrain d'une tablette qui a préparé cette campagne.",
+  btn_areas: 'Aires de service (CSV)', prep_nopos: "Pas de position pour {id} sur cet appareil. On prépare les ménages sur une seule tablette. Sur les autres, n'appuyez pas sur ce bouton : ouvrez le paquet terrain reçu de cette tablette (onglet Données → Ouvrir une campagne confirmée).",
   btn_fpack: 'Paquet terrain pour les autres tablettes (JSON)', btn_fpack_share: 'Partager le paquet terrain (WhatsApp, Bluetooth…)', fpack_shared: "Paquet terrain partagé (fichier .txt). Sur chaque autre tablette : ouvrez le PDF du registre, puis ce fichier .txt, dans l'onglet Données.", fpack_share_unsupported: "Ce navigateur ne peut pas partager de fichier directement : le paquet terrain est enregistré en .txt dans Téléchargements. Envoyez-le comme document (WhatsApp : trombone, Document) et ouvrez-le dans l'onglet Données des autres tablettes.", fpack_none: "Préparez d'abord les ménages : le paquet terrain les transmet aux autres tablettes.", fpack_saved: "Paquet terrain enregistré. Sur chaque autre tablette : ouvrez le PDF du registre, puis ce fichier, dans l'onglet Données (sans connexion mWater).",
   fpack_ok: "Paquet terrain chargé pour {rid} : ménages de {n} points d'eau, identiques à ceux de la tablette qui les a préparés (vérifiés avec la graine du registre). La campagne fonctionne maintenant hors ligne sur cet appareil.",
-  open_err_pack_not_json: "Refusé : ce fichier n'est pas un JSON valide.", open_err_pack_not_pack: "Refusé : ce n'est pas un paquet terrain SaniTap.", open_err_pack_version: "Refusé : paquet terrain de {rid} créé par une version incompatible du Sampler.", open_err_pack_no_round: "Ouvrez d'abord le PDF du registre de {rid}, puis ce paquet terrain.", open_err_pack_other_audit: "Refusé : ce paquet terrain appartient à un autre registre sous {rid} (SHA-256 de l'audit différent).", open_err_pack_points: "Refusé : le paquet terrain ne liste pas les points d'eau de {rid} dans leur ordre.", open_err_pack_area: "Refusé : les ménages de {id} dans ce paquet terrain ne correspondent pas à la graine du registre ou à la liste des bâtiments.", fs_k_field: 'K saisi sur le terrain'
+  open_err_pack_not_json: "Refusé : ce fichier n'est pas un JSON valide.", open_err_pack_not_pack: "Refusé : ce n'est pas un paquet terrain SaniTap.", open_err_pack_version: "Refusé : paquet terrain de {rid} créé par une version incompatible du Sampler.", open_err_pack_no_round: "Ce paquet terrain de {rid} vient d'une ancienne version : ouvrez d'abord le PDF du registre, ou demandez à la tablette qui a préparé de repartager le paquet en v2.15.0 ou plus (le paquet suffit alors seul).", open_err_pack_other_audit: "Refusé : ce paquet terrain appartient à un autre registre sous {rid} (SHA-256 de l'audit différent).", open_err_pack_points: "Refusé : le paquet terrain ne liste pas les points d'eau de {rid} dans leur ordre.", open_err_pack_area: "Refusé : les ménages de {id} dans ce paquet terrain ne correspondent pas à la graine du registre ou à la liste des bâtiments.", fs_k_field: 'K saisi sur le terrain'
 });
 
 /* ---------- v2.10.0: stroke test (SDWS 28) ---------- */
@@ -2536,7 +2546,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     let rid = null; try { rid = JSON.parse(text).record_id; } catch (x) { /* reported below */ }
     const e = rid ? state.lib[rid] : null; const res = Core.openFieldPack(text, e || null);
     if (res.error) return { ok: false, text: t('open_err_' + res.error, { rid: res.rid || rid || '', id: res.id || '' }) };
-    const entry = Object.assign({}, e, { positions: res.positions }); state.lib[rid] = entry;
+    const entry = Object.assign({}, e || res.entry, { positions: res.positions }); state.lib[rid] = entry;
     try { await IDB.put('confirmed', rid, entry); } catch (x) { LS.set('library', state.lib); }
     const v = Core.withPositions(Core.roundFromAudit(JSON.parse(entry.audit_text)), res.positions);
     const round = { record_id: rid, params: v.params, points: v.points, reserves: v.reserves, areas: res.areas, households: res.households, from_pack: true };

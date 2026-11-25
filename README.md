@@ -164,6 +164,15 @@ Field report, 25 Nov 2026: the field pack `.json` saved by Chrome on the tablets
 - On the other tablets, **Open a confirmed round** accepts `.txt` as well as `.json`: the content is the same pack and goes through the same checks (audit SHA-256, water points, building lists, household draw recomputed from the seed).
 - Nothing else changes: draws, audits and record PDFs are identical (SDWS 18 baseline and earlier audit baselines unchanged). Tests: `test/share.test.js`.
 
+### The pack opens the round on its own (v2.15.0)
+
+Field report, 25 Nov 2026: on two receiving tablets the pack was refused with *open the record PDF first*, and pressing *Prepare households* there gave *no position for <id>*.
+
+- A pack made from v2.15.0 also carries the record's `audit.json` text. A tablet that never opened the record PDF checks that text against the audit SHA-256 in the pack (and that it is a usage record with no coordinate keys), adds the round to its library and loads the households. One file, one step.
+- A tablet that already has the round checks the pack against its own copy as before. Packs from earlier versions still need the record PDF opened first; the message says so and suggests sharing the pack again.
+- *Prepare households* is for one tablet only; on a tablet without positions its message now says to open the received pack instead.
+- Draws, audits and record PDFs unchanged. Tests: `test/field-pack.test.js`.
+
 ## Usage survey mode (SDWS 26)
 
 Choose **Usage survey (SDWS 26)** under *Survey* on the Parameters tab. It samples households for the annual usage survey (SDWS 26, with SDWS 25 and SDWS 22) to VPA-DD B.7.2 (90/10, at least 100 households and 8 clusters per scenario) and is run to SOP-MAD-SDWS26 (usage survey).

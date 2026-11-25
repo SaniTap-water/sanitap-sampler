@@ -42,7 +42,10 @@ test('field pack: refused without the record on the device, for another record, 
   const A = tabletA();
   const text = C.fieldPack({ auditText: A.auditText, sha: A.sha, positions: A.pos, areas: A.areas, households: A.households });
   const p = JSON.parse(text); const rid = A.a.record_id; const id0 = A.ids[0];
-  assert.deepEqual(C.openFieldPack(text, null), { error: 'pack_no_round', rid });
+  // a pack from before v2.15.0 (no audit text) still needs the record PDF opened first
+  const old = JSON.parse(text); delete old.audit_text; assert.deepEqual(C.openFieldPack(JSON.stringify(old), null), { error: 'pack_no_round', rid });
+  // v2.15.0: the audit text in the pack must match the audit SHA-256 in the pack
+  const forged = JSON.parse(text); forged.audit_text = forged.audit_text.replace(rid, rid + 'x'); assert.equal(C.openFieldPack(JSON.stringify(forged), null).error, 'pack_other_audit');
   assert.equal(C.openFieldPack(text, Object.assign({}, A.entry, { audit_sha256: '0'.repeat(64) })).error, 'pack_other_audit');
   assert.equal(C.openFieldPack('{', A.entry).error, 'pack_not_json'); assert.equal(C.openFieldPack(A.auditText, A.entry).error, 'pack_not_pack');
   assert.equal(C.openFieldPack(JSON.stringify(Object.assign({}, p, { version: 99 })), A.entry).error, 'pack_version');
@@ -59,6 +62,16 @@ test('field pack: refused without the record on the device, for another record, 
   // a pack needs every service area prepared, and only a usage round has one
   const partial = Object.assign({}, A.areas); delete partial[id0];
   assert.throws(() => C.fieldPack({ auditText: A.auditText, sha: A.sha, positions: A.pos, areas: partial }), /households not prepared/);
+});
+
+test('v2.15.0: the pack alone opens the round on a tablet that never opened the record PDF, with the same households', () => {
+  const A = tabletA();
+  const text = C.fieldPack({ auditText: A.auditText, sha: A.sha, positions: A.pos, areas: A.areas, households: A.households, at: '2026-11-25T09:00:00.000Z' });
+  const B = C.openFieldPack(text, null); assert.equal(B.ok, true, B.error);
+  assert.equal(B.entry.record_id, A.a.record_id); assert.equal(B.entry.audit_sha256, A.sha); assert.equal(B.entry.audit_text, A.auditText); assert.equal(B.entry.mode, 'usage'); assert.equal(B.entry.origin, 'pack');
+  assert.deepEqual(C.householdSummary(B.areas, A.ids), C.householdSummary(A.areas, A.ids));
+  // with the record already on the device the pack checks against it and adds nothing
+  assert.equal(C.openFieldPack(text, A.entry).entry, null);
 });
 
 test('dry run through the record PDF: confirm, open the PDF on another device, load the pack: identical water points and household numbers', async () => {
