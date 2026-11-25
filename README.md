@@ -173,6 +173,14 @@ Field report, 25 Nov 2026: on two receiving tablets the pack was refused with *o
 - *Prepare households* is for one tablet only; on a tablet without positions its message now says to open the received pack instead.
 - Draws, audits and record PDFs unchanged. Tests: `test/field-pack.test.js`.
 
+### Households in any order (v2.16.0)
+
+Field request, 25 Nov 2026: several enumerators work one area at once, and the walk to the next household in draw order often passes other sampled households. The Field tab now lists every open household at the water point; the enumerator taps the one they are at and records its outcome. Without a tap it suggests the nearest household not yet visited (GPS), else the first in draw order.
+
+The sample stays fixed. Only open households can be recorded: the ten primaries, and reserves opened strictly in reserve order (R1 first), one per closed non-interview (refusal, not a dwelling, out of area, or nobody home after three visits). A recorded household cannot be recorded again. Visit order has no bearing on selection probability, so the 90/10 design and the record are unchanged. `Core.pickHousehold`, tests in `test/usage.test.js`.
+
+The outcome log is kept per tablet and does not sync between tablets. At a water point worked by several enumerators, one tablet keeps that water point's outcome log.
+
 ## Usage survey mode (SDWS 26)
 
 Choose **Usage survey (SDWS 26)** under *Survey* on the Parameters tab. It samples households for the annual usage survey (SDWS 26, with SDWS 25 and SDWS 22) to VPA-DD B.7.2 (90/10, at least 100 households and 8 clusters per scenario) and is run to SOP-MAD-SDWS26 (usage survey).

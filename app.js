@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.15.0';
+const APP_VERSION = '2.16.0';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -1308,6 +1308,17 @@ const Core = (function () {
     const next = interviewed >= USAGE.households ? null : (pending.find(s => s.visits === 0) || pending[0] || null);
     return { slots, active, interviewed, next, done: interviewed >= USAGE.households, exhausted: !next && interviewed < USAGE.households };
   }
+  /* v2.16.0 (field request 25 Nov 2026): households of a water point are visited in any order. The sample stays fixed: only the open
+   * households (all primaries, and reserves opened strictly in reserve order by closed non-interviews) can be recorded. sel: the draw
+   * position the enumerator tapped; here: the phone position. Default: the nearest household not yet visited, else the nearest pending. */
+  function pickHousehold(st, sel, here) {
+    if (!st || st.done) return null;
+    const pending = st.active.filter(x => !x.outcome); if (!pending.length) return null;
+    const chosen = sel != null ? pending.find(x => x.position === Number(sel)) : null; if (chosen) return chosen;
+    if (!here || !isFinite(here.lat) || !isFinite(here.lon)) return st.next;
+    const d = x => haversineKm(here, x); const pool = pending.some(x => x.visits === 0) ? pending.filter(x => x.visits === 0) : pending;
+    return pool.slice().sort((a, b) => d(a) - d(b) || a.position - b.position)[0];
+  }
   function outcomeLogCsv(recordIdStr, entries) {
     const rows = [['record_id', 'water_point_id', 'draw_position', 'role', 'outcome', 'visit', 'recorded_at', 'team']];
     entries.slice().sort((a, b) => String(a.water_point_id).localeCompare(String(b.water_point_id)) || a.position - b.position || String(a.at).localeCompare(String(b.at))).forEach(e => rows.push([recordIdStr, e.water_point_id, e.position, e.position > USAGE.households ? 'reserve R' + (e.position - USAGE.households) : 'primary', e.outcome, e.visit || '', e.at, e.team || '']));
@@ -1542,7 +1553,7 @@ const Core = (function () {
   function householdSummary(areas, ids) { const o = {}; ids.forEach(id => { const a = areas[id]; o[id] = a ? a.draw.map(d => [d.position, !!d.reserve, d.key]) : null; }); return o; }
 
   return { STROKE, STROKE_ALGORITHM, strokeSeed, strokeRecordId, drawStroke, strokeSelectionCsv, strokeSelectionWorkbook, buildStrokeRecordPdf, withReserves, recordIdTaken,
-    FIELD_PACK_KIND, fieldPack, isFieldPackText, openFieldPack, packShareName, shareTextFile, householdSummary, translate, idbOpen, openOutcome, recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
+    FIELD_PACK_KIND, pickHousehold, fieldPack, isFieldPackText, openFieldPack, packShareName, shareTextFile, householdSummary, translate, idbOpen, openOutcome, recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
     HOUSEHOLD_AREA, roundYear, householdAreaRule, isAbandoned, competitorSet, cellNeighbours, inCell, cellPolygon, householdAreaAudit, roundPositionIds, roundHouseholdArea, neighboursFromPositions,
     TILES, POPUP_FR, pointPopupHtml, copyCoords, coordText, geoUri, BASEMAPS, BASEMAP_DEFAULT, BASEMAP_KEY, readBasemap, writeBasemap, deepestImagery, MAP_PALETTE, tileUrl, tileFetcher, mercX, mercY, mapClusters, mapView, viewTiles, addMapPages, recordStops,
     SDWS3_RULE, SDWS3_RULE_JSON, SDWS3_OVER_RANGE, sdws3Creditable, isNotCreditable, CREDIT_RULE_TEXT, USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, kFor, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
@@ -1806,7 +1817,7 @@ Object.assign(I18N.en, {
   usage_fleet_ok: 'Carbon fleet list: {n} water points (report classification, fetched {t}).', usage_fleet_none: 'The carbon fleet list (the programme report\'s classification, copied to this site each week; ids only) is loaded when usage mode opens and again when you draw.', usage_fleet_err: 'The carbon fleet list could not be fetched: {e}', usage_csv: 'CSV frame: every water point of the stratum is taken as the frame.',
   usage_preview: 'Frame: {n} water points in {c} communes and {f} fokontany ({s}).', usage_res_title: 'Usage survey draw', u_communes: 'Communes', u_fokontany: 'Fokontany', u_points: 'Water points', u_reserves: 'Reserves', u_households: 'Households', col_pi: 'Probability', col_weight: 'Weight', col_buildings: 'Buildings (kept / 1 km)',
   btn_prepare: 'Prepare households (download buildings for the drawn service areas)', prep_running: 'Preparing {i} of {n}: {id}…', prep_done: 'Households ready for {n} water points; this round now works offline on this device.', prep_err: 'Preparation failed for {id}: {e}', btn_field: 'Open the field view', btn_outcomes: 'Outcome log (CSV)', btn_updf: 'Sampling record (PDF)',
-  tab_field: '6 Field', f_choose: 'Water point', f_next: 'Next household', f_none: 'Prepare the households first (button above; needs a connection once).', f_done: 'Ten households interviewed at this water point.', f_exhausted: 'No household left: all reserves are used. Record the reason and move on.', f_position: 'Draw position', f_enter: 'enter this number on the mWater response', f_dist: '{d} m, bearing {b}° ({c})', f_nogps: 'waiting for GPS…', f_visits: 'visit {v} of 3', f_reserve: 'reserve R{r}',
+  tab_field: '6 Field', f_choose: 'Water point', f_next: 'Household to visit', f_pick: 'Any order: tap the household you are at (reserves appear only when opened, in order).', f_none: 'Prepare the households first (button above; needs a connection once).', f_done: 'Ten households interviewed at this water point.', f_exhausted: 'No household left: all reserves are used. Record the reason and move on.', f_position: 'Draw position', f_enter: 'enter this number on the mWater response', f_dist: '{d} m, bearing {b}° ({c})', f_nogps: 'waiting for GPS…', f_visits: 'visit {v} of 3', f_reserve: 'reserve R{r}',
   uw_commune_added: 'Commune {commune} was added: a drawn commune had fewer than 4 fokontany (its probability is recorded as the conditional probability at that draw).', uw_few_fokontany: 'Commune {commune} has only {fokontany} fokontany with a fleet point: all were taken.', uw_no_reserve: 'Commune {commune}: every frame point was drawn, so it has no reserve.', uw_no_coords: '{n} frame points have no coordinates: they can be drawn but their buildings cannot be prepared.',
   o_interviewed: 'Interviewed', o_refused: 'Refused', o_nobody_home: 'Nobody home', o_not_dwelling: 'Not a dwelling', o_out_of_area: 'Out of area', o_far_side: 'Far side of an unfordable river', f_log: 'Outcome log', f_undo: 'Undo last', u_stop_title: 'Stops by commune'
 });
@@ -1816,7 +1827,7 @@ Object.assign(I18N.fr, {
   usage_fleet_ok: 'Liste de la flotte carbone : {n} points (classification du rapport, obtenue {t}).', usage_fleet_none: 'La liste de la flotte carbone (classification du rapport du programme, copiée sur ce site chaque semaine ; identifiants seulement) est chargée à l\'ouverture du mode usage et de nouveau au tirage.', usage_fleet_err: "La liste de la flotte carbone n'a pas pu être obtenue : {e}", usage_csv: "Base CSV : tous les points d'eau de la strate forment la base.",
   usage_preview: "Base : {n} points d'eau dans {c} communes et {f} fokontany ({s}).", usage_res_title: "Tirage de l'enquête d'usage", u_communes: 'Communes', u_fokontany: 'Fokontany', u_points: "Points d'eau", u_reserves: 'Réserves', u_households: 'Ménages', col_pi: 'Probabilité', col_weight: 'Poids', col_buildings: 'Bâtiments (retenus / 1 km)',
   btn_prepare: 'Préparer les ménages (télécharger les bâtiments des zones tirées)', prep_running: 'Préparation {i} sur {n} : {id}…', prep_done: "Ménages prêts pour {n} points d'eau ; la campagne fonctionne maintenant hors ligne sur cet appareil.", prep_err: 'Échec de la préparation pour {id} : {e}', btn_field: 'Ouvrir la vue terrain', btn_outcomes: 'Journal des résultats (CSV)', btn_updf: "Registre d'échantillonnage (PDF)",
-  tab_field: '6 Terrain', f_choose: "Point d'eau", f_next: 'Ménage suivant', f_none: "Préparez d'abord les ménages (bouton ci-dessus ; connexion nécessaire une fois).", f_done: "Dix ménages interrogés à ce point d'eau.", f_exhausted: 'Plus de ménage : toutes les réserves sont utilisées. Notez la raison et continuez.', f_position: 'Position de tirage', f_enter: 'à saisir sur la réponse mWater', f_dist: '{d} m, cap {b}° ({c})', f_nogps: 'en attente du GPS…', f_visits: 'visite {v} sur 3', f_reserve: 'réserve R{r}',
+  tab_field: '6 Terrain', f_choose: "Point d'eau", f_next: 'Ménage à visiter', f_pick: "Ordre libre : touchez le ménage où vous êtes (les réserves n'apparaissent qu'une fois ouvertes, dans l'ordre).", f_none: "Préparez d'abord les ménages (bouton ci-dessus ; connexion nécessaire une fois).", f_done: "Dix ménages interrogés à ce point d'eau.", f_exhausted: 'Plus de ménage : toutes les réserves sont utilisées. Notez la raison et continuez.', f_position: 'Position de tirage', f_enter: 'à saisir sur la réponse mWater', f_dist: '{d} m, cap {b}° ({c})', f_nogps: 'en attente du GPS…', f_visits: 'visite {v} sur 3', f_reserve: 'réserve R{r}',
   uw_commune_added: "La commune {commune} a été ajoutée : une commune tirée avait moins de 4 fokontany (sa probabilité est la probabilité conditionnelle à ce tirage).", uw_few_fokontany: "La commune {commune} n'a que {fokontany} fokontany avec un point de la flotte : tous ont été pris.", uw_no_reserve: "Commune {commune} : tous les points de la base ont été tirés, il n'y a pas de réserve.", uw_no_coords: "{n} points de la base n'ont pas de coordonnées : ils peuvent être tirés mais leurs bâtiments ne peuvent pas être préparés.",
   o_interviewed: 'Interrogé', o_refused: 'Refus', o_nobody_home: 'Personne', o_not_dwelling: "Pas un logement", o_out_of_area: 'Hors zone', o_far_side: "Autre rive d'une rivière infranchissable", f_log: 'Journal', f_undo: 'Annuler le dernier', u_stop_title: 'Arrêts par commune'
 });
@@ -2574,7 +2585,7 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   }
 
   /* ---------- field view (phone): next building, GPS, outcomes; offline once prepared ---------- */
-  const F = { map: null, layers: null, pos: null, watch: null };
+  const F = { map: null, layers: null, pos: null, watch: null, sel: {} };
   function compass(b) { return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(b / 45) % 8]; }
   function startGps() { if (F.watch !== null || !navigator.geolocation) return; F.watch = navigator.geolocation.watchPosition(p => { F.pos = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy }; renderFieldNext(); }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 }); }
   async function renderField() {
@@ -2622,14 +2633,17 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
     const log = (await outcomeLog()).filter(e => e.water_point_id === id);
     const st = Core.fieldSlots(sa.draw, log);
     $('f-status').textContent = `${st.interviewed} / ${Core.USAGE.households} · ${sa.buildings_kept} buildings`;
-    const n = st.next;
+    const n = Core.pickHousehold(st, F.sel[id], F.pos);
+    const pend = st.active.filter(x => !x.outcome);
+    const chips = n ? `<div class="hchips"><small class="muted">${esc(t('f_pick'))}</small><br>${pend.map(x => `<button type="button" class="btn small${x.position === n.position ? '' : ' secondary'}" data-p="${x.position}">${x.reserve ? 'R' + (x.position - Core.USAGE.households) + ' · ' : ''}${x.position}${x.visits ? ' (' + x.visits + ')' : ''}</button>`).join(' ')}</div>` : '';
     if (!n) $('f-next').innerHTML = `<div class="msg ${st.done ? 'ok' : 'warn'}">${esc(t(st.done ? 'f_done' : 'f_exhausted'))}</div>`;
     else {
       const here = F.pos; const dist = here ? Core.haversineKm(here, n) * 1000 : null; const b = here ? Core.bearingTo(here, n) : null;
-      $('f-next').innerHTML = `<div class="fnext"><div><div class="muted">${esc(t('f_position'))}</div><div class="fbig">${n.position}</div><small class="muted">${esc(t('f_enter'))}</small></div><div><b>${esc(t('f_next'))}</b>${n.reserve ? ' · <span class="pill">' + esc(t('f_reserve', { r: n.position - Core.USAGE.households })) + '</span>' : ''}${n.visits ? ' · ' + esc(t('f_visits', { v: n.visits + 1 })) : ''}<br>${here ? esc(t('f_dist', { d: Math.round(dist), b: Math.round(b), c: compass(b) })) : esc(t('f_nogps'))}</div></div>`;
+      $('f-next').innerHTML = `<div class="fnext"><div><div class="muted">${esc(t('f_position'))}</div><div class="fbig">${n.position}</div><small class="muted">${esc(t('f_enter'))}</small></div><div><b>${esc(t('f_next'))}</b>${n.reserve ? ' · <span class="pill">' + esc(t('f_reserve', { r: n.position - Core.USAGE.households })) + '</span>' : ''}${n.visits ? ' · ' + esc(t('f_visits', { v: n.visits + 1 })) : ''}<br>${here ? esc(t('f_dist', { d: Math.round(dist), b: Math.round(b), c: compass(b) })) : esc(t('f_nogps'))}</div></div>${chips}`;
+      $('f-next').querySelectorAll('button[data-p]').forEach(bt => bt.onclick = () => { F.sel[id] = Number(bt.dataset.p); renderFieldNext(true); });
     }
     $('f-buttons').innerHTML = n ? `<div class="obtn">${Core.OUTCOMES.map(o => `<button class="btn${o === 'interviewed' ? ' ok' : ' secondary'}" type="button" data-o="${o}">${esc(t('o_' + o))}</button>`).join('')}</div><div class="btnrow"><button class="btn small secondary" type="button" id="f-undo">${esc(t('f_undo'))}</button></div>` : `<div class="btnrow"><button class="btn small secondary" type="button" id="f-undo">${esc(t('f_undo'))}</button></div>`;
-    $('f-buttons').querySelectorAll('button[data-o]').forEach(bt => bt.onclick = async () => { const all = await outcomeLog(); all.push({ water_point_id: id, position: n.position, outcome: bt.dataset.o, visit: bt.dataset.o === 'nobody_home' ? n.visits + 1 : '', at: new Date().toISOString(), team: LS.get('drawnBy', '') }); await saveLog(all); renderFieldNext(true); });
+    $('f-buttons').querySelectorAll('button[data-o]').forEach(bt => bt.onclick = async () => { const all = await outcomeLog(); all.push({ water_point_id: id, position: n.position, outcome: bt.dataset.o, visit: bt.dataset.o === 'nobody_home' ? n.visits + 1 : '', at: new Date().toISOString(), team: LS.get('drawnBy', '') }); await saveLog(all); delete F.sel[id]; renderFieldNext(true); });
     const undo = $('f-undo'); if (undo) undo.onclick = async () => { const all = await outcomeLog(); for (let i = all.length - 1; i >= 0; i--) if (all[i].water_point_id === id) { all.splice(i, 1); break; } await saveLog(all); renderFieldNext(true); };
     $('f-log').innerHTML = `<h3>${esc(t('f_log'))}</h3>` + (log.length ? `<table><tr><th>#</th><th></th><th></th></tr>${log.slice().reverse().map(e => `<tr><td>${e.position}</td><td>${esc(t('o_' + e.outcome))}${e.visit ? ' (' + e.visit + ')' : ''}</td><td><small>${esc(String(e.at).slice(11, 16))}</small></td></tr>`).join('')}</table>` : '<p class="muted">—</p>');
     // map: the service area, the drawn buildings (next one highlighted), the phone

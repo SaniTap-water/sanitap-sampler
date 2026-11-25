@@ -134,3 +134,19 @@ test('usage sampling record PDF: deterministic, carries seed, frame hash, probab
   assert.ok(!/-25\.0\d|46\.9\d/.test(t), 'no coordinate in the PDF text');
   const F = require('../bin/file-round.js'); assert.equal(F.extractAudit(a), text, 'the audit round-trips from the PDF');
 });
+
+test('v2.16.0 any visit order: only open households can be picked, reserves still open strictly in order', () => {
+  const draw = Array.from({ length: 15 }, (_, i) => ({ position: i + 1, reserve: i >= 10, lat: -25 + i * 0.001, lon: 47 }));
+  let st = C.fieldSlots(draw, []);
+  assert.equal(C.pickHousehold(st, 7, null).position, 7, 'any primary can be chosen');
+  assert.equal(C.pickHousehold(st, 12, null).position, 1, 'an unopened reserve cannot be chosen: falls back');
+  assert.equal(C.pickHousehold(st, null, { lat: -25 + 8 * 0.001, lon: 47 }).position, 9, 'default: nearest unvisited household');
+  const log = [{ position: 7, outcome: 'interviewed' }, { position: 3, outcome: 'refused' }];
+  st = C.fieldSlots(draw, log);
+  assert.equal(C.pickHousehold(st, 7, null).position, 1, 'a recorded household cannot be recorded again');
+  assert.equal(C.pickHousehold(st, 11, null).position, 11, 'R1 is open after one closed non-interview');
+  assert.notEqual(C.pickHousehold(st, 12, null).position, 12, 'R2 is not');
+  for (let p = 1; p <= 10; p++) if (p !== 3 && p !== 7) log.push({ position: p, outcome: 'interviewed' });
+  log.push({ position: 11, outcome: 'interviewed' }); st = C.fieldSlots(draw, log);
+  assert.equal(st.done, true); assert.equal(C.pickHousehold(st, 12, null), null);
+});
