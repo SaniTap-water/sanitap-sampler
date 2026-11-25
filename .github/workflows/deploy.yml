@@ -24,5 +24,8 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
+      # GitHub sometimes lists a just-uploaded artifact only after a delay ("No artifacts named github-pages were found", 25 Nov 2026)
+      - name: Wait for the artifact to be listed
+        run: sleep 30
       - id: deployment
         uses: actions/deploy-pages@v4
