@@ -3,7 +3,7 @@
  * File layout: Core (pure, testable in Node) + UI (browser only).
  */
 'use strict';
-const APP_VERSION = '2.13.1';
+const APP_VERSION = '2.14.0';
 const PROTOCOL_MIN_SOURCES = 12; // Protocol section 6.4: 12 sources x 5 households per stratum; fewer sources fail the design check
 const PROTOCOL_VERSION = 'v2.2'; // SaniTap Water Quality Testing Protocol version cited in the UI, the PDF record and the audit
 const APP_COMMIT = '__GIT_COMMIT__'; // replaced by the Pages workflow with the short git hash
@@ -1491,6 +1491,19 @@ const Core = (function () {
     const positions = {}; roundPositionIds(v).forEach(id => { const p = pos[id]; if (!p || !isFinite(p.lat) || !isFinite(p.lon)) throw new Error('no position for ' + id); positions[id] = { lat: Number(p.lat), lon: Number(p.lon), village: p.village || '' }; });
     return JSON.stringify({ kind: FIELD_PACK_KIND, version: FIELD_PACK_VERSION, tool_version: APP_VERSION, record_id: audit.record_id, audit_sha256: o.sha, seed: audit.seed, prepared_at: (o.households || {}).fetched_at || null, packed_at: o.at || null, households: o.households || null, positions, service_areas });
   }
+  /* v2.14.0: share the field pack from the tablet (field request 25 Nov 2026: the .json in Chrome's downloads could not be sent
+   * with WhatsApp or Xender). Chrome on Android shares only some file types through the share sheet, and application/json is not one
+   * of them, so the pack goes out as a .txt file (text/plain) with the same content; the Data tab opens .json and .txt alike.
+   * nav: the browser's navigator (or a stand-in in tests); FileCtor: File. Returns 'shared', 'cancelled' or 'unsupported'. */
+  function packShareName(name) { return String(name).replace(/\.json$/i, '') + '.txt'; }
+  async function shareTextFile(nav, FileCtor, name, text, title) {
+    if (!nav || typeof nav.share !== 'function' || typeof nav.canShare !== 'function' || typeof FileCtor !== 'function') return 'unsupported';
+    const file = new FileCtor([text], packShareName(name), { type: 'text/plain' });
+    let ok = false; try { ok = nav.canShare({ files: [file] }); } catch (e) { ok = false; }
+    if (!ok) return 'unsupported';
+    try { await nav.share({ files: [file], title: title || file.name }); return 'shared'; }
+    catch (e) { if (e && e.name === 'AbortError') return 'cancelled'; throw e; }
+  }
   function isFieldPackText(text) { try { const j = JSON.parse(text); return !!(j && j.kind === FIELD_PACK_KIND); } catch (e) { return false; } }
   // entry: the library entry of the confirmed round on this device (null when the record has not been opened here yet)
   function openFieldPack(text, entry) {
@@ -1519,7 +1532,7 @@ const Core = (function () {
   function householdSummary(areas, ids) { const o = {}; ids.forEach(id => { const a = areas[id]; o[id] = a ? a.draw.map(d => [d.position, !!d.reserve, d.key]) : null; }); return o; }
 
   return { STROKE, STROKE_ALGORITHM, strokeSeed, strokeRecordId, drawStroke, strokeSelectionCsv, strokeSelectionWorkbook, buildStrokeRecordPdf, withReserves, recordIdTaken,
-    FIELD_PACK_KIND, fieldPack, isFieldPackText, openFieldPack, householdSummary, translate, idbOpen, openOutcome, recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
+    FIELD_PACK_KIND, fieldPack, isFieldPackText, openFieldPack, packShareName, shareTextFile, householdSummary, translate, idbOpen, openOutcome, recordMode, bytesLatin1, pdfEmbeddedStreams, extractAudit, extractAuditAsync, pdfInfoValue, registerShas, openRecord, roundFromAudit, roundIds, positionsFromPoints, withPositions, libraryEntry, libraryAdd, libraryCanDraw, usageSelectionCsv, usageSelectionWorkbook, recordCsv, packNames, evidencePack, serviceAreasCsv,
     HOUSEHOLD_AREA, roundYear, householdAreaRule, isAbandoned, competitorSet, cellNeighbours, inCell, cellPolygon, householdAreaAudit, roundPositionIds, roundHouseholdArea, neighboursFromPositions,
     TILES, POPUP_FR, pointPopupHtml, copyCoords, coordText, geoUri, BASEMAPS, BASEMAP_DEFAULT, BASEMAP_KEY, readBasemap, writeBasemap, deepestImagery, MAP_PALETTE, tileUrl, tileFetcher, mercX, mercY, mapClusters, mapView, viewTiles, addMapPages, recordStops,
     SDWS3_RULE, SDWS3_RULE_JSON, SDWS3_OVER_RANGE, sdws3Creditable, isNotCreditable, CREDIT_RULE_TEXT, USAGE, USAGE_ALGORITHM, usageFrame, drawUsage, overpassQuery, parseOverpass, serviceAreaMask, buildZones, footprintCentroid, householdDraw, prepareServiceArea, auditServiceArea, OUTCOMES, fieldSlots, outcomeLogCsv, bearingTo, buildUsageRecordPdf, selectionWorkbook, auditToCsv, xmur3, mulberry32, makeRng, parseCsv, normaliseWaterPoints, normaliseHouseholds, csvEscape, haversineKm, sha256, sha256Sync, stats, draw, reachCheck, REACH_KM, kFor, fieldNumbers, ruleText, toCsv, auditJson, APP_VERSION, APP_COMMIT, APP_URL, PROTOCOL_VERSION, ALGORITHM, ALGORITHMS, MWATER, FRAME_COLUMNS, FRAME_RULE_TEXT, regionParts, mwaterStratum, sdws3Pass, sdws3PassingPoints, mwaterLatestStatus, mwaterRoofs, mapMwaterEntities, frameToCsv, mwaterGet, mwaterPages, mwaterLogin, mwaterLoadFrame, systematicPps, buildSamplingRecordPdf, recordId, hasCoordinateKeys, RECORD_COORD_KEYS, backlog };
@@ -1826,7 +1839,7 @@ Object.assign(I18N.en, {
   map_need_round: 'The map shows a confirmed round: confirm the sample (tab 4) or open a confirmed round on the Data tab.',
   f_need_round: 'The field view runs from a confirmed usage-survey round: confirm the sample (tab 4) or open a confirmed round on the Data tab.',
   btn_areas: 'Service areas (CSV)', prep_nopos: 'No position for {id} on this device: load the frame on the Data tab first, or open the field pack of a tablet that prepared this round.',
-  btn_fpack: 'Field pack for other tablets (JSON)', fpack_none: 'Prepare the households first: the field pack carries them to the other tablets.', fpack_saved: 'Field pack saved. On each other tablet: open the record PDF, then this file, on the Data tab (no mWater login needed).',
+  btn_fpack: 'Field pack for other tablets (JSON)', btn_fpack_share: 'Share field pack (WhatsApp, Bluetooth…)', fpack_shared: 'Field pack shared as a .txt file. On each other tablet: open the record PDF, then this .txt file, on the Data tab.', fpack_share_unsupported: 'This browser cannot share files directly: the field pack was saved as a .txt file in Downloads. Send it as a document (WhatsApp: paperclip, Document) and open it on the Data tab of the other tablets.', fpack_none: 'Prepare the households first: the field pack carries them to the other tablets.', fpack_saved: 'Field pack saved. On each other tablet: open the record PDF, then this file, on the Data tab (no mWater login needed).',
   fpack_ok: 'Field pack loaded for {rid}: households for {n} water points, identical to the tablet that prepared them (checked against the record seed). This round now works offline on this device.',
   open_err_pack_not_json: 'Refused: this file is not valid JSON.', open_err_pack_not_pack: 'Refused: not a SaniTap field pack.', open_err_pack_version: 'Refused: field pack of {rid} made by an incompatible version of the Sampler.', open_err_pack_no_round: 'Open the sampling record PDF of {rid} first, then this field pack.', open_err_pack_other_audit: 'Refused: this field pack belongs to a different record under {rid} (audit SHA-256 differs).', open_err_pack_points: 'Refused: the field pack does not list the water points of {rid} in its order.', open_err_pack_area: 'Refused: the households of {id} in this field pack do not match the record seed or the building list.', fs_k_field: 'K entered in the field'
 });
@@ -1852,7 +1865,7 @@ Object.assign(I18N.fr, {
   map_need_round: "La carte montre une campagne confirmée : confirmez l'échantillon (onglet 4) ou ouvrez une campagne confirmée dans l'onglet Données.",
   f_need_round: "La vue terrain part d'une campagne d'enquête d'usage confirmée : confirmez l'échantillon (onglet 4) ou ouvrez une campagne confirmée dans l'onglet Données.",
   btn_areas: 'Aires de service (CSV)', prep_nopos: "Pas de position pour {id} sur cet appareil : chargez d'abord la base dans l'onglet Données, ou ouvrez le paquet terrain d'une tablette qui a préparé cette campagne.",
-  btn_fpack: 'Paquet terrain pour les autres tablettes (JSON)', fpack_none: "Préparez d'abord les ménages : le paquet terrain les transmet aux autres tablettes.", fpack_saved: "Paquet terrain enregistré. Sur chaque autre tablette : ouvrez le PDF du registre, puis ce fichier, dans l'onglet Données (sans connexion mWater).",
+  btn_fpack: 'Paquet terrain pour les autres tablettes (JSON)', btn_fpack_share: 'Partager le paquet terrain (WhatsApp, Bluetooth…)', fpack_shared: "Paquet terrain partagé (fichier .txt). Sur chaque autre tablette : ouvrez le PDF du registre, puis ce fichier .txt, dans l'onglet Données.", fpack_share_unsupported: "Ce navigateur ne peut pas partager de fichier directement : le paquet terrain est enregistré en .txt dans Téléchargements. Envoyez-le comme document (WhatsApp : trombone, Document) et ouvrez-le dans l'onglet Données des autres tablettes.", fpack_none: "Préparez d'abord les ménages : le paquet terrain les transmet aux autres tablettes.", fpack_saved: "Paquet terrain enregistré. Sur chaque autre tablette : ouvrez le PDF du registre, puis ce fichier, dans l'onglet Données (sans connexion mWater).",
   fpack_ok: "Paquet terrain chargé pour {rid} : ménages de {n} points d'eau, identiques à ceux de la tablette qui les a préparés (vérifiés avec la graine du registre). La campagne fonctionne maintenant hors ligne sur cet appareil.",
   open_err_pack_not_json: "Refusé : ce fichier n'est pas un JSON valide.", open_err_pack_not_pack: "Refusé : ce n'est pas un paquet terrain SaniTap.", open_err_pack_version: "Refusé : paquet terrain de {rid} créé par une version incompatible du Sampler.", open_err_pack_no_round: "Ouvrez d'abord le PDF du registre de {rid}, puis ce paquet terrain.", open_err_pack_other_audit: "Refusé : ce paquet terrain appartient à un autre registre sous {rid} (SHA-256 de l'audit différent).", open_err_pack_points: "Refusé : le paquet terrain ne liste pas les points d'eau de {rid} dans leur ordre.", open_err_pack_area: "Refusé : les ménages de {id} dans ce paquet terrain ne correspondent pas à la graine du registre ou à la liste des bâtiments.", fs_k_field: 'K saisi sur le terrain'
 });
@@ -2500,12 +2513,23 @@ ${r.selected.map(w => stop(w, false)).join('')}${r.replacements.map(w => stop(w,
   $('btn-outcomes').onclick = async () => { const v = fieldRound(); if (!v || v.mode !== 'usage') return; download(ufname(v, 'outcomes.csv'), Core.outcomeLogCsv(v.record_id, await outcomeLog()), 'text/csv'); };
   $('btn-areas').onclick = () => { const v = fieldRound(); if (!v || v.mode !== 'usage' || !state.usageRound) { $('u-msg').innerHTML = `<div class="msg warn">${esc(t('f_none'))}</div>`; return; } download(ufname(v, 'service-areas.csv'), Core.serviceAreasCsv(v.record_id, state.usageRound.households), 'text/csv'); };
   // v2.9.0: the households prepared here, for the other tablets of the team (positions, building lists, draw; checked on load)
-  $('btn-fpack').onclick = () => {
+  // returns { name, text } of the field pack of the open round, or writes the reason to the Field tab and returns null
+  function fieldPackFile() {
     const v = fieldRound(); const e = activeEntry();
-    if (!v || v.mode !== 'usage' || !state.usageRound || !e) { $('u-msg').innerHTML = `<div class="msg warn">${esc(t('fpack_none'))}</div>`; return; }
+    if (!v || v.mode !== 'usage' || !state.usageRound || !e) { $('u-msg').innerHTML = `<div class="msg warn">${esc(t('fpack_none'))}</div>`; return null; }
     const pos = Object.assign({}, v.positions || {}); v.points.concat(v.reserves).forEach(w => { if (isFinite(w.lat) && isFinite(w.lon)) pos[String(w.water_point_id)] = { lat: w.lat, lon: w.lon, village: w.village || '' }; });
-    try { download(ufname(v, 'field-pack.json'), Core.fieldPack({ auditText: e.audit_text, sha: e.audit_sha256, positions: pos, areas: state.usageRound.areas, households: state.usageRound.households, at: new Date().toISOString() }), 'application/json'); $('u-msg').innerHTML = `<div class="msg ok">${esc(t('fpack_saved'))}</div>`; }
-    catch (x) { $('u-msg').innerHTML = `<div class="msg err">${esc(x.message)}</div>`; }
+    try { return { name: ufname(v, 'field-pack.json'), text: Core.fieldPack({ auditText: e.audit_text, sha: e.audit_sha256, positions: pos, areas: state.usageRound.areas, households: state.usageRound.households, at: new Date().toISOString() }) }; }
+    catch (x) { $('u-msg').innerHTML = `<div class="msg err">${esc(x.message)}</div>`; return null; }
+  }
+  $('btn-fpack').onclick = () => { const f = fieldPackFile(); if (!f) return; download(f.name, f.text, 'application/json'); $('u-msg').innerHTML = `<div class="msg ok">${esc(t('fpack_saved'))}</div>`; };
+  // v2.14.0: straight into Android's share sheet (WhatsApp, Bluetooth, Gmail, Drive), as a .txt copy of the same pack
+  $('btn-fpack-share').onclick = async () => {
+    const f = fieldPackFile(); if (!f) return;
+    try {
+      const r = await Core.shareTextFile(navigator, typeof File === 'function' ? File : null, f.name, f.text, t('btn_fpack_share'));
+      if (r === 'unsupported') { download(Core.packShareName(f.name), f.text, 'text/plain'); $('u-msg').innerHTML = `<div class="msg warn">${esc(t('fpack_share_unsupported'))}</div>`; return; }
+      if (r === 'shared') $('u-msg').innerHTML = `<div class="msg ok">${esc(t('fpack_shared'))}</div>`;
+    } catch (x) { $('u-msg').innerHTML = `<div class="msg err">${esc(x.message)}</div>`; }
   };
   // loads a field pack for a round already opened on this device; the round then runs offline with the same households
   async function openPack(text) {

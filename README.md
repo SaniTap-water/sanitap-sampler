@@ -10,6 +10,7 @@ A static, offline-capable web tool that draws **statistically valid, logistics-a
 - **Not creditable after a failed SDWS 3 test** — v2.5.0: both modes leave out every water point whose latest SDWS 3 result fails the shared rule (see [Not creditable: failed SDWS 3](#not-creditable-failed-sdws-3)).
 - **mWater form name and register K** — v2.6.0: two per-draw settings on the Parameters tab, written into the record only when set (older records and the SDWS 18 baseline are unchanged). *mWater form name* (default `SDWS18`) is printed in the record header, section 1, section 8 and the field sheet, in place of the old fixed "SDWS 22 PoU" label. *K pre-filled from the register "Ménages" figure* fills K with each source's register roof count at the draw, so the household numbers are printed; section 2 (method, v2.6.1) then says K is the register figure and is not counted in the field, and section 8 says in one line that nothing needs counting, and the count-K instruction stays only for draws without it (or for a source with no register figure). `bin/reissue-record.js` reissues a filed record with these settings without re-drawing and checks that the sources, replacements, K and household numbers are unchanged; it writes outside `records/`, which stays append-only.
 - **Field sheet tab in usage mode** — v2.6.2: in water-use survey mode tab 5 *Field sheet* is hidden (it only shows SDWS 18 draws and said "No draw yet"); the *Field* tab is step 5.
+- **Share the field pack** — v2.14.0: *Share field pack (WhatsApp, Bluetooth…)* on the Field tab sends the field pack straight to Android's share sheet as a `.txt` file (Chrome on Android does not share `.json`); the Data tab opens `.txt` and `.json` alike. See [Sharing the field pack](#sharing-the-field-pack-v2140).
 - **Field pack for the other tablets** — v2.9.0: after *Prepare households* on one tablet, *Field pack for other tablets (JSON)* on the Field tab saves the positions, building lists and household draw of the confirmed usage round. Every other tablet opens the record PDF and then this file on the Data tab: no mWater login, no network, no fresh building or barrier read, and the same household numbers (checked against the record seed). See [Field pack](#field-pack-v290).
 - **Confirmed round, separate field stage** — v2.7.0: the sampling stage ends at tab *4 Confirm*; the field/MRV stage opens from the confirmed record. See [Confirmed rounds](#confirmed-rounds-v270).
 - **Open a confirmed round shows what it did** — v2.8.2: after a successful open the round is selected, the page moves to its field tab (*6 Field* for the usage survey, *6 Field sheet* for SDWS 18) and the message stays above every tab until closed; progress and refusals appear at the top of the Data tab. Before, the message appeared only at the bottom of the Data tab, below the screen, and read "…verifiedopen_reg_no." An older Sampler tab still holding the browser database no longer leaves the open stuck on "…": the round is kept in this browser's localStorage and the message says to close the other tabs.
@@ -41,6 +42,7 @@ test/sdws18-regression.test.js the SDWS 18 mode reproduces every v2.2.0 draw and
 test/sdws3-rule.test.js        the SDWS 3 creditable rule: byte-identical to the report's, shared cases, frame exclusion in both modes
 test/field-pack.test.js        v2.9.0 field pack: same water points and household numbers on a second tablet, through the record PDF; tampered packs refused
 test/field-pack-ui.test.js     v2.9.0 browser dry run: confirm on tablet A, prepare, field pack; offline tablet B with no building source opens PDF + pack, identical round
+test/share.test.js             v2.14.0 field pack sharing: .txt name and text/plain type, share sheet / unsupported / cancelled, .txt accepted on the Data tab
 test/confirm.test.js           v2.7.0 confirm/lock, open from PDF or audit.json (filed 2026R1 records and a usage draw), hash refusal, both strata held, file-round for usage records
 test/reissue-usage.test.js     v2.8.2 bin/reissue-record.js on usage-survey records: audit unchanged, map 1-12 / R1-R3, sections 1-8 compared with the filed PDF
 test/open-feedback.test.js     v2.8.2 open feedback: translations without raw keys, IndexedDB open that cannot hang, the tab/message plan, field and filed PDFs
@@ -152,6 +154,15 @@ The household draw depends on the building and barrier data read when *Prepare h
 3. The round then runs offline on that tablet with the same water points, draw positions and buildings as the first one.
 
 The pack carries coordinates (water points and buildings), like the field sheet: it goes from tablet to tablet or into the private SharePoint evidence folder, never into this repository. The record and `audit.json` are unchanged and stay coordinate-free.
+
+### Sharing the field pack (v2.14.0)
+
+Field report, 25 Nov 2026: the field pack `.json` saved by Chrome on the tablets could not be sent with WhatsApp or Xender. Chrome on Android hands files to the share sheet only for some types, and `application/json` is not one of them.
+
+- **Share field pack (WhatsApp, Bluetooth…)** on the Field tab builds the same pack and passes it to the Web Share API as `sanitap-<round>-<scenario>-field-pack.txt` (`text/plain`). Android then offers WhatsApp, Bluetooth, Gmail, Drive and the rest. Closing the share sheet is not an error.
+- Where the browser cannot share files, the button saves the `.txt` to Downloads instead and says to send it as a document (WhatsApp: paperclip, Document).
+- On the other tablets, **Open a confirmed round** accepts `.txt` as well as `.json`: the content is the same pack and goes through the same checks (audit SHA-256, water points, building lists, household draw recomputed from the seed).
+- Nothing else changes: draws, audits and record PDFs are identical (SDWS 18 baseline and earlier audit baselines unchanged). Tests: `test/share.test.js`.
 
 ## Usage survey mode (SDWS 26)
 
